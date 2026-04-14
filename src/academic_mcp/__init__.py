@@ -1,0 +1,1 @@
+"""Academic Research MCP Server."""
