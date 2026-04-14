@@ -258,6 +258,171 @@ async def crossref_work(doi: str) -> dict | None:
 
 
 # ---------------------------------------------------------------------------
+# Ex Libris Primo
+# ---------------------------------------------------------------------------
+
+import re as _re
+
+_PRIMO_SUBFIELD_URL_RE = _re.compile(r'\$\$U(.*?)(?=\$\$|$)')
+
+
+def _primo_extract_url(subfield_str: str) -> str | None:
+    """Extract the URL from an Ex Libris $$U...$$X subfield string."""
+    m = _PRIMO_SUBFIELD_URL_RE.search(subfield_str or "")
+    return m.group(1).strip() if m else None
+
+
+def _primo_build_q(query: str) -> str:
+    """Translate a search query to Primo's field,precision,terms format.
+
+    Supported prefixes: author:/creator:  → creator,contains
+                        title:            → title,contains
+                        subject:          → sub,contains
+    Everything else    → any,contains
+    """
+    author_match = _re.match(r'^(?:author|creator):(.+)$', query.strip(), _re.I)
+    title_match  = _re.match(r'^title:(.+)$',           query.strip(), _re.I)
+    subject_match = _re.match(r'^subject:(.+)$',        query.strip(), _re.I)
+
+    if author_match:
+        return f"creator,contains,{author_match.group(1).strip()}"
+    if title_match:
+        return f"title,contains,{title_match.group(1).strip()}"
+    if subject_match:
+        return f"sub,contains,{subject_match.group(1).strip()}"
+    # Strip any unknown field prefixes so Primo doesn't choke
+    clean = _re.sub(r'\b\w+:', '', query).strip()
+    return f"any,contains,{clean or query}"
+
+
+async def primo_search(
+    query: str, limit: int = 10, offset: int = 0,
+    start_year: int | None = None, end_year: int | None = None,
+) -> list[dict]:
+    """Search an Ex Libris Primo instance.
+
+    Returns a list of normalised result dicts (same schema as _handle_search).
+    Returns [] if PRIMO_DOMAIN or PRIMO_VID are not configured.
+    """
+    if not config.primo_domain or not config.primo_vid:
+        return []
+
+    params: dict[str, Any] = {
+        "q": _primo_build_q(query),
+        "vid": config.primo_vid,
+        "tab": config.primo_tab,
+        "search_scope": config.primo_search_scope,
+        "limit": min(limit, 50),
+        "offset": offset,
+        "inst": config.primo_vid.split(":")[0] if ":" in config.primo_vid else "",
+        "lang": "en_US",
+        "pcAvailability": "false",
+        "showDuplicates": "false",
+        "newspapers": "false",
+        "conVoc": "false",
+        "multiFacets": "false",
+        "skipDelivery": "Y",
+        "qExclude": "",
+        "qInclude": "",
+    }
+    # Year filter via date range facet
+    if start_year or end_year:
+        lo = start_year or 1000
+        hi = end_year or 9999
+        params["qInclude"] = f"facet_searchcreationdate,exact,[{lo} TO {hi}]"
+
+    url = f"https://{config.primo_domain}/primaws/rest/pub/pnxs"
+
+    # Try institutional proxy first (gives access to full catalogue metadata);
+    # fall back to a direct connection if the proxy is unavailable or fails.
+    data = None
+    for use_proxy in (True, False):
+        try:
+            client_factory = _proxied_client if use_proxy else _client
+            async with client_factory() as client:
+                resp = await _request_with_retry(client, "GET", url, params=params)
+            if resp.status_code == 400:
+                logger.debug("Primo returned 400 for query %r", query)
+                return []
+            resp.raise_for_status()
+            data = resp.json()
+            break
+        except Exception as exc:
+            if use_proxy and config.gost_proxy_url:
+                logger.debug("Primo via proxy failed (%s), retrying direct", exc)
+                continue
+            raise
+    if data is None:
+        return []
+
+    results = []
+    for doc in (data.get("docs") or []):
+        addata  = (doc.get("pnx") or {}).get("addata")  or {}
+        display = (doc.get("pnx") or {}).get("display") or {}
+        links   = (doc.get("pnx") or {}).get("links")   or {}
+        delivery = doc.get("delivery") or {}
+
+        # ── Title ──────────────────────────────────────────────────────
+        title = (
+            (addata.get("atitle") or addata.get("btitle") or
+             display.get("title") or [""])[0]
+        )
+
+        # ── Authors ────────────────────────────────────────────────────
+        raw_authors = addata.get("au") or display.get("creator") or []
+        # Names arrive as "Last, First" — keep as-is, they're already readable
+        authors = [a for a in raw_authors if a][:10]
+
+        # ── DOI ────────────────────────────────────────────────────────
+        doi_raw = (addata.get("doi") or [""])[0]
+        doi = doi_raw.strip() or None
+
+        # ── Year ───────────────────────────────────────────────────────
+        date_raw = (addata.get("date") or display.get("creationdate") or [""])[0]
+        year = date_raw[:4] if date_raw else None
+
+        # ── Venue ──────────────────────────────────────────────────────
+        venue = (
+            addata.get("jtitle") or addata.get("btitle") or
+            display.get("ispartof") or [None]
+        )[0]
+
+        # ── Abstract ───────────────────────────────────────────────────
+        abstract_parts = display.get("description") or addata.get("abstract") or []
+        abstract = abstract_parts[0] if abstract_parts else None
+
+        # ── Full-text URLs ──────────────────────────────────────────────
+        oa_url = None
+        for link_key in ("linkunpaywall", "linktopdf", "linktohtml"):
+            raw = (links.get(link_key) or [""])[0]
+            u = _primo_extract_url(raw)
+            if u:
+                oa_url = u
+                break
+
+        # Institutional proxy URL (always present when Primo is configured)
+        proxy_url = delivery.get("almaOpenurl") or None
+
+        results.append({
+            "title": title or "Untitled",
+            "authors": authors,
+            "year": year,
+            "doi": doi,
+            "abstract": abstract,
+            "citations": None,
+            "venue": venue,
+            "found_in": ["primo"],
+            "in_zotero": False,       # enriched later in _handle_search
+            "has_oa_pdf": bool(oa_url),
+            "s2_id": None,
+            "_primo_oa_url": oa_url,
+            "_primo_proxy_url": proxy_url,
+        })
+
+    return results
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 

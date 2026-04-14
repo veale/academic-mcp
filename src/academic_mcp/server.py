@@ -60,11 +60,12 @@ TOOLS = [
                 },
                 "source": {
                     "type": "string",
-                    "enum": ["all", "semantic_scholar", "openalex", "zotero"],
+                    "enum": ["all", "semantic_scholar", "openalex", "zotero", "primo"],
                     "description": (
                         "Which sources to search. 'all' (default) searches Zotero + "
-                        "Semantic Scholar + OpenAlex and deduplicates. 'zotero' searches "
-                        "only your library."
+                        "Semantic Scholar + OpenAlex + Primo (if configured) and "
+                        "deduplicates. 'zotero' searches only your library. "
+                        "'primo' searches your institution's Ex Libris catalogue."
                     ),
                     "default": "all",
                 },
@@ -432,7 +433,37 @@ async def _handle_search(args: dict) -> list[TextContent]:
         except Exception as e:
             logger.warning("OpenAlex search failed: %s", e)
 
-    # ── 4. For Zotero items without abstracts, try getting a preview ─
+    # ── 4. Ex Libris Primo ───────────────────────────────────────────
+    if source in ("all", "primo"):
+        try:
+            primo_results = await apis.primo_search(
+                query, limit=limit,
+                start_year=start_year, end_year=end_year,
+            )
+            for r in primo_results:
+                doi = (r.get("doi") or "").strip()
+                doi_norm = zotero._normalize_doi(doi) if doi else None
+                if doi_norm and doi_norm in seen_dois:
+                    for existing in results:
+                        if existing.get("doi") and zotero._normalize_doi(existing["doi"]) == doi_norm:
+                            if "primo" not in existing["found_in"]:
+                                existing["found_in"].append("primo")
+                            if not existing.get("_primo_proxy_url"):
+                                existing["_primo_proxy_url"] = r.get("_primo_proxy_url")
+                            if not existing.get("_primo_oa_url"):
+                                existing["_primo_oa_url"] = r.get("_primo_oa_url")
+                                existing["has_oa_pdf"] = existing["has_oa_pdf"] or r["has_oa_pdf"]
+                            break
+                    continue
+                if doi_norm:
+                    seen_dois.add(doi_norm)
+                in_zot = doi_norm in zot_index if doi_norm else False
+                r["in_zotero"] = in_zot
+                results.append(r)
+        except Exception:
+            logger.exception("Primo search failed")
+
+    # ── 5. For Zotero items without abstracts, try getting a preview ──
     for r in results:
         if r["in_zotero"] and not r["abstract"] and r.get("doi"):
             try:
@@ -511,8 +542,12 @@ async def _handle_search(args: dict) -> list[TextContent]:
         if r.get("doi"):
             if r["in_zotero"]:
                 text += f"Full text available. Call fetch_fulltext(doi=\"{r['doi']}\") to read."
+            elif r.get("_primo_oa_url"):
+                text += f"Open access via library. Call fetch_fulltext(doi=\"{r['doi']}\") to read."
             elif r["has_oa_pdf"]:
                 text += f"Open access PDF available. Call fetch_fulltext(doi=\"{r['doi']}\") to read."
+            elif r.get("_primo_proxy_url"):
+                text += f"Available via institutional access: {r['_primo_proxy_url']}"
             else:
                 text += f"May need proxy. Call fetch_fulltext(doi=\"{r['doi']}\", use_proxy=true) to try."
         else:

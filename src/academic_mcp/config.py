@@ -24,6 +24,20 @@ class Config:
         default_factory=lambda: os.getenv("OPENALEX_API_KEY", "")
     )
 
+    # ── Ex Libris Primo ──────────────────────────────────────────────
+    primo_domain: str = field(
+        default_factory=lambda: os.getenv("PRIMO_DOMAIN", "")
+    )
+    primo_vid: str = field(
+        default_factory=lambda: os.getenv("PRIMO_VID", "")
+    )
+    primo_tab: str = field(
+        default_factory=lambda: os.getenv("PRIMO_TAB", "Everything")
+    )
+    primo_search_scope: str = field(
+        default_factory=lambda: os.getenv("PRIMO_SEARCH_SCOPE", "MyInst_and_CI")
+    )
+
     # ── GOST proxy (institutional access) ────────────────────────────
     # Passed to httpx for proxied fetches *and* forwarded to the remote
     # Scrapling MCP server / local StealthyFetcher as the ``proxy`` arg.
