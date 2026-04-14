@@ -307,6 +307,9 @@ async def primo_search(
     if not config.primo_domain or not config.primo_vid:
         return []
 
+    # Only the six parameters documented in the Primo REST guide.
+    # Extra undocumented parameters (skipDelivery, conVoc, qExclude, etc.)
+    # cause 400 responses on some Primo instances.
     params: dict[str, Any] = {
         "q": _primo_build_q(query),
         "vid": config.primo_vid,
@@ -314,18 +317,8 @@ async def primo_search(
         "search_scope": config.primo_search_scope,
         "limit": min(limit, 50),
         "offset": offset,
-        "inst": config.primo_vid.split(":")[0] if ":" in config.primo_vid else "",
-        "lang": "en_US",
-        "pcAvailability": "false",
-        "showDuplicates": "false",
-        "newspapers": "false",
-        "conVoc": "false",
-        "multiFacets": "false",
-        "skipDelivery": "Y",
-        "qExclude": "",
-        "qInclude": "",
     }
-    # Year filter via date range facet
+    # Year filter — only add when actually filtering
     if start_year or end_year:
         lo = start_year or 1000
         hi = end_year or 9999
@@ -342,7 +335,9 @@ async def primo_search(
             async with client_factory() as client:
                 resp = await _request_with_retry(client, "GET", url, params=params)
             if resp.status_code == 400:
-                logger.debug("Primo returned 400 for query %r", query)
+                logger.warning(
+                    "Primo returned 400 for query %r — params: %s", query, params
+                )
                 return []
             resp.raise_for_status()
             data = resp.json()
