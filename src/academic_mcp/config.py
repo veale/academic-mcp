@@ -20,6 +20,9 @@ class Config:
     semantic_scholar_api_key: str = field(
         default_factory=lambda: os.getenv("SEMANTIC_SCHOLAR_API_KEY", "")
     )
+    openalex_api_key: str = field(
+        default_factory=lambda: os.getenv("OPENALEX_API_KEY", "")
+    )
 
     # ── GOST proxy (institutional access) ────────────────────────────
     # Passed to httpx for proxied fetches *and* forwarded to the remote

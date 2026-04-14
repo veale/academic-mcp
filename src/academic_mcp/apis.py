@@ -152,6 +152,20 @@ async def s2_paper(paper_id: str) -> dict:
 OA_BASE = "https://api.openalex.org"
 
 
+def _openalex_headers() -> dict[str, str]:
+    """Return auth headers for OpenAlex. Key takes priority over mailto."""
+    if config.openalex_api_key:
+        return {"Authorization": f"Bearer {config.openalex_api_key}"}
+    return {}
+
+
+def _openalex_mailto_param() -> dict[str, str]:
+    """Return mailto param when no API key is configured (polite pool)."""
+    if config.openalex_api_key:
+        return {}
+    return {"mailto": config.unpaywall_email or "academic-mcp@example.com"}
+
+
 async def openalex_search(
     query: str, limit: int = 10, page: int = 1,
     start_year: int | None = None, end_year: int | None = None,
@@ -160,7 +174,7 @@ async def openalex_search(
     """Search OpenAlex works."""
     params: dict[str, Any] = {
         "search": query, "per_page": limit, "page": page,
-        "mailto": config.unpaywall_email or "academic-mcp@example.com",
+        **_openalex_mailto_param(),
     }
 
     # Build filter string for year range and/or venue
@@ -179,7 +193,7 @@ async def openalex_search(
     async with _client() as client:
         resp = await _request_with_retry(
             client, "GET", f"{OA_BASE}/works",
-            params=params,
+            params=params, headers=_openalex_headers(),
         )
         resp.raise_for_status()
         return resp.json()
@@ -191,7 +205,7 @@ async def openalex_work(doi: str) -> dict | None:
     async with _client() as client:
         resp = await _request_with_retry(
             client, "GET", f"{OA_BASE}/works/{doi_url}",
-            params={"mailto": config.unpaywall_email or "academic-mcp@example.com"},
+            params=_openalex_mailto_param(), headers=_openalex_headers(),
         )
         if resp.status_code == 404:
             return None
