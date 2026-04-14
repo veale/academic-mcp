@@ -107,13 +107,24 @@ sqlite_config = ZoteroSQLiteConfig()
 async def _get_connection() -> aiosqlite.Connection:
     """Open a read-only aiosqlite connection.
 
-    timeout=15 tells SQLite to wait up to 15 s for any write lock held by
-    Zotero (e.g. during a sync) to clear before raising OperationalError.
-    We leave journal_mode alone — Zotero manages that, and attempting to
-    set WAL from a read-only connection is a no-op that can confuse locking.
+    Zotero's database uses DELETE journal mode (not WAL), which means it
+    holds an exclusive lock on the entire file during any write transaction.
+    There is no safe way to read mid-write in DELETE mode — bypassing the
+    lock risks reading half-written B-tree pages.
+
+    aiosqlite passes timeout= straight through to sqlite3.connect(), which
+    tells SQLite to retry the lock for up to that many seconds before
+    raising OperationalError. The lock typically lasts milliseconds (metadata
+    update) to a few seconds (full sync). If it exceeds 1 s we log a warning.
     """
+    t0 = asyncio.get_event_loop().time()
     uri = f"file:{sqlite_config.db_path}?mode=ro"
     conn = await aiosqlite.connect(uri, uri=True, timeout=15)
+    elapsed = asyncio.get_event_loop().time() - t0
+    if elapsed > 1.0:
+        logger.warning(
+            "SQLite lock wait: %.1fs (Zotero was holding a write lock)", elapsed
+        )
     conn.row_factory = sqlite3.Row
     await conn.execute("PRAGMA query_only=ON")
     return conn
