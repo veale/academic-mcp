@@ -105,14 +105,16 @@ sqlite_config = ZoteroSQLiteConfig()
 # ---------------------------------------------------------------------------
 
 async def _get_connection() -> aiosqlite.Connection:
-    """Open a read-only aiosqlite connection with WAL mode."""
+    """Open a read-only aiosqlite connection.
+
+    timeout=15 tells SQLite to wait up to 15 s for any write lock held by
+    Zotero (e.g. during a sync) to clear before raising OperationalError.
+    We leave journal_mode alone — Zotero manages that, and attempting to
+    set WAL from a read-only connection is a no-op that can confuse locking.
+    """
     uri = f"file:{sqlite_config.db_path}?mode=ro"
-    conn = await aiosqlite.connect(uri, uri=True)
+    conn = await aiosqlite.connect(uri, uri=True, timeout=15)
     conn.row_factory = sqlite3.Row
-    try:
-        await conn.execute("PRAGMA journal_mode=WAL")
-    except Exception:
-        pass
     await conn.execute("PRAGMA query_only=ON")
     return conn
 
