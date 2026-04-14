@@ -737,17 +737,22 @@ async def search_zotero(
         if resp:
             items = resp.json()
 
-    # Also search group libraries via web API
+    # Also search group libraries via web API (concurrent)
     if zot_config.web_api_available:
         try:
             group_ids = await _fetch_user_group_ids()
-            for gid in group_ids:
+            # The web API does not support field-prefix syntax (e.g. "author:X").
+            # Strip known prefixes so the query degrades gracefully.
+            import re as _re
+            api_query = _re.sub(r'\b\w+:', '', query).strip()
+
+            async def _search_group(gid: int) -> list:
                 try:
                     async with httpx.AsyncClient(timeout=15.0) as client:
                         resp = await client.get(
                             f"https://api.zotero.org/groups/{gid}/items",
                             params={
-                                "format": "json", "q": query,
+                                "format": "json", "q": api_query,
                                 "qmode": "everything",
                                 "itemType": "-attachment -note -annotation",
                                 "limit": limit,
@@ -755,10 +760,16 @@ async def search_zotero(
                             headers={"Zotero-API-Key": zot_config.api_key},
                         )
                         if resp.status_code == 200:
-                            items.extend(resp.json())
-                except httpx.RequestError:
-                    pass
-        except httpx.RequestError as e:
+                            return resp.json()
+                        logger.debug("Group %s search returned %s", gid, resp.status_code)
+                except httpx.RequestError as e:
+                    logger.debug("Group %s request error: %s", gid, e)
+                return []
+
+            group_results = await asyncio.gather(*[_search_group(gid) for gid in group_ids])
+            for batch in group_results:
+                items.extend(batch)
+        except Exception as e:
             logger.debug("Group search failed: %s", e)
     return [
         {k: item.get("data", {}).get(k, "") for k in
