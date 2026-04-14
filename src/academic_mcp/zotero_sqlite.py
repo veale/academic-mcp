@@ -66,14 +66,14 @@ class ZoteroSQLiteConfig:
     """Configuration for direct SQLite access."""
 
     def __init__(self):
-        self.db_path = os.getenv(
+        self.db_path = str(Path(os.getenv(
             "ZOTERO_SQLITE_PATH",
             str(Path.home() / "Zotero" / "zotero.sqlite"),
-        )
-        self.storage_path = os.getenv(
+        )).expanduser())
+        self.storage_path = str(Path(os.getenv(
             "ZOTERO_LOCAL_STORAGE",
             str(Path.home() / "Zotero" / "storage"),
-        )
+        )).expanduser())
         self.webdav_url = os.getenv("ZOTERO_WEBDAV_URL", "")
         self.webdav_user = os.getenv("ZOTERO_WEBDAV_USER", "")
         self.webdav_pass = os.getenv("ZOTERO_WEBDAV_PASS", "")
