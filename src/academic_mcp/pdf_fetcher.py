@@ -15,6 +15,7 @@ held in memory, keeping RAM usage near-zero regardless of PDF size.
 import asyncio
 import base64
 import hashlib
+import json
 import logging
 import re
 import tempfile
@@ -152,39 +153,55 @@ async def fetch_proxied(url: str) -> Path | None:
 # Strategy 3: Scrapling stealth browser
 # ---------------------------------------------------------------------------
 
-def _build_tool_args(url: str) -> dict:
-    """Build the argument dict shared by both the MCP tool call and the
-    local StealthyFetcher.  Always includes ``url``; adds ``proxy`` when
+def _build_tool_args(url: str, tool_name: str = "") -> dict:
+    """Build argument dict for a Scrapling MCP tool call.
+
+    Always includes ``url``.  When calling ``stealthy_fetch``, also sets
+    ``solve_cloudflare=True`` and ``extraction_type="html"`` (we need raw
+    HTML to find PDF links, not Markdown).  Adds ``proxy`` when
     ``GOST_PROXY_URL`` is configured so the remote browser routes through
-    the institution's network."""
+    the institution's network.
+    """
     args: dict = {"url": url}
+    if tool_name == "stealthy_fetch":
+        args["solve_cloudflare"] = True
+        args["extraction_type"] = "html"
     if config.gost_proxy_url:
         args["proxy"] = config.gost_proxy_url
     return args
 
 
-async def fetch_with_scrapling(url: str, use_proxy: bool = False) -> Path | None:
-    """Use a stealth browser to fetch a PDF.
+async def fetch_with_scrapling(
+    url: str, use_proxy: bool = False
+) -> tuple[Path | None, str | None, str | None]:
+    """Use a stealth browser to fetch a page.
 
-    If ``SCRAPLING_MCP_URL`` is set → act as an MCP client, call the
-    remote Scrapling MCP server over SSE, and pass the GOST proxy URL
-    in the tool arguments so the *remote* browser routes through it.
+    Returns ``(pdf_path, html_content, final_url)``:
 
-    Otherwise → import ``StealthyFetcher``, launch a local Chromium
-    instance (offloaded to a worker thread), and pass the GOST proxy
-    directly to the fetcher.
+    * ``(path, None, None)`` — a PDF was obtained and saved to cache.
+    * ``(None, html, url)`` — the page returned HTML (MCP path only).
+    * ``(None, None, None)`` — stealth browser disabled or fetch failed.
+
+    If ``SCRAPLING_MCP_URL`` is set → connects to the remote Scrapling MCP
+    server over Streamable HTTP.  The HTML response is returned raw so the
+    caller can decide whether to extract article text or follow PDF links.
+
+    If ``SCRAPLING_MCP_URL`` is unset → uses a local ``StealthyFetcher``
+    which handles PDF-link following internally and always returns a path
+    or None (html is always ``None`` for the local path).
     """
     if not config.use_stealth_browser:
-        return None
+        return None, None, None
 
     mcp_url = (config.scrapling_mcp_url or "").strip()
     if mcp_url:
         return await _scrapling_via_mcp(url, mcp_url)
 
-    return await _scrapling_local(url)
+    path = await _scrapling_local(url)
+    return path, None, None
 
 
-# ── Remote: MCP client over SSE ──────────────────────────────────────────
+# ── Remote: MCP client over Streamable HTTP ──────────────────────────────
 #
 # The remote Scrapling MCP server (``scrapling mcp --http``) exposes its
 # scraping capability as one or more MCP tools.  We discover the tool at
@@ -195,67 +212,74 @@ async def fetch_with_scrapling(url: str, use_proxy: bool = False) -> Path | None
 #
 #   2. HTML (publisher landing page)
 #      → extract PDF links, make a second tool call.
+#
+# Scrapling uses the Streamable HTTP transport (MCP spec March 2025) at the
+# /mcp endpoint.  The old SSE transport (mcp.client.sse) is incompatible
+# with this and returns HTTP 400.  Use streamablehttp_client instead.
 # --------------------------------------------------------------------------
 
-_TOOL_CANDIDATES = ("fetch", "stealthy_fetch", "scrape", "fetch_page", "get")
+# Prefer stealthy_fetch — it has fingerprint spoofing and solve_cloudflare.
+# Fall back to fetch (plain Playwright) then get (HTTP-only).
+_TOOL_CANDIDATES = ("stealthy_fetch", "fetch", "scrape", "fetch_page", "get")
 
 
-async def _scrapling_via_mcp(url: str, mcp_url: str) -> Path | None:
-    """Connect to a remote Scrapling MCP server and call its scraping tool."""
+async def _scrapling_via_mcp(
+    url: str, mcp_url: str
+) -> tuple[Path | None, str | None, str | None]:
+    """Connect to a remote Scrapling MCP server and call its scraping tool.
+
+    Returns ``(pdf_path, html_content, final_url)``:
+
+    * ``(path, None, None)`` — response was a PDF; path is cached on disk.
+    * ``(None, html, url)`` — response was HTML; caller decides what to do.
+    * ``(None, None, None)`` — connection or tool error.
+
+    Unlike the previous implementation, this function makes only **one** MCP
+    call. PDF-link following (the second call) is the caller's responsibility
+    so the HTML can be used for article extraction first.
+    """
     try:
-        from mcp.client.sse import sse_client
+        from mcp.client.streamable_http import streamablehttp_client
         from mcp.client.session import ClientSession
     except ImportError:
         logger.warning(
             "MCP client SDK not available — cannot connect to Scrapling "
             "MCP server.  Install with: pip install 'mcp[cli]'"
         )
-        return None
+        return None, None, None
 
     try:
-        async with sse_client(mcp_url) as (read_stream, write_stream):
+        async with streamablehttp_client(mcp_url) as (read_stream, write_stream, _):
             async with ClientSession(read_stream, write_stream) as session:
                 await session.initialize()
 
-                # ── Discover the right tool ─────────────────────────
                 tool_name = await _discover_tool(session)
                 if not tool_name:
-                    return None
+                    return None, None, None
 
-                # ── First call: fetch the target URL ────────────────
-                args = _build_tool_args(url)
+                args = _build_tool_args(url, tool_name)
                 result = await _mcp_call(session, tool_name, args)
                 if result is None:
-                    return None
+                    return None, None, None
 
                 # Did we get a PDF directly?
                 path = _decode_pdf_from_result(result, url)
                 if path:
-                    return path
+                    return path, None, None
 
-                # Otherwise treat the response as HTML, look for a
-                # PDF download link, and make a second tool call.
-                html = _text_from_result(result)
-                if not html:
+                # Return HTML to the caller — they decide whether to extract
+                # article text or follow a PDF download link.
+                raw_text = _text_from_result(result)
+                if not raw_text:
                     logger.debug("Scrapling MCP returned no content for %s", url)
-                    return None
+                    return None, None, None
 
-                pdf_link = _extract_pdf_link_from_html(html, url)
-                if not pdf_link:
-                    logger.debug("No PDF link in HTML from MCP for %s", url)
-                    return None
-
-                logger.info("Found PDF link via MCP: %s", pdf_link)
-                args2 = _build_tool_args(pdf_link)
-                result2 = await _mcp_call(session, tool_name, args2)
-                if result2 is None:
-                    return None
-
-                return _decode_pdf_from_result(result2, pdf_link)
+                html, final_url = _unwrap_scrapling_response(raw_text)
+                return None, html, final_url or url
 
     except Exception as e:
         logger.debug("Scrapling MCP session failed for %s: %s", url, e)
-    return None
+    return None, None, None
 
 
 async def _discover_tool(session) -> str | None:
@@ -344,6 +368,52 @@ def _text_from_result(result) -> str | None:
         if hasattr(item, "text") and item.text
     ]
     return "\n".join(parts) if parts else None
+
+
+def _unwrap_scrapling_response(text: str) -> tuple[str, str]:
+    """Unwrap a Scrapling MCP JSON response into (html, final_url).
+
+    Scrapling's ``stealthy_fetch`` tool wraps the page HTML in a JSON
+    envelope::
+
+        {"status": 200, "content": ["<body>...</body>", ""], "url": "..."}
+
+    The ``content`` field is a list of HTML strings that need to be joined.
+    When ``item.text`` contains this JSON, the raw text is not parseable as
+    HTML directly — attribute values with escaped quotes cause regex patterns
+    to fail.
+
+    Returns the raw ``text`` unchanged (and an empty final_url) if it cannot
+    be parsed as a Scrapling JSON response.
+    """
+    try:
+        data = json.loads(text)
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return text, ""
+
+    if not isinstance(data, dict):
+        return text, ""
+
+    # Reject non-200 HTTP status codes inside the JSON wrapper.
+    # Scrapling returns {"status": 403, "content": [...]} for blocked pages
+    # rather than raising an exception, so an empty body with status 200 is
+    # fine (handled below) but a 4xx/5xx should be treated as a fetch failure.
+    status = data.get("status")
+    if status is not None and status != 200:
+        logger.debug("Scrapling returned HTTP %s inside JSON wrapper", status)
+        return "", ""
+
+    final_url: str = data.get("url", "") or ""
+    content = data.get("content", "")
+
+    if isinstance(content, list):
+        html = "\n".join(str(c) for c in content if c)
+    elif isinstance(content, str):
+        html = content
+    else:
+        html = text
+
+    return html or text, final_url
 
 
 def _extract_pdf_link_from_html(html: str, base_url: str) -> str | None:
@@ -469,6 +539,7 @@ async def fetch_pdf(
     candidate_urls: list[dict[str, str]],
     doi: str | None = None,
     use_proxy: bool = False,
+    skip_doi_scrapling: bool = False,
 ) -> tuple[Path | None, str | None]:
     """Try all strategies to fetch a PDF.
 
@@ -476,6 +547,9 @@ async def fetch_pdf(
         candidate_urls: List of {url, source} from collect_pdf_urls()
         doi: Optional DOI for constructing publisher URLs
         use_proxy: Whether to route through institutional proxy
+        skip_doi_scrapling: Skip the Scrapling call on the DOI URL.  Set this
+            when the caller has already issued that call (e.g. to capture HTML
+            for article extraction) and wants to avoid a duplicate round-trip.
 
     Returns:
         (pdf_path, source_description) or (None, None)
@@ -517,14 +591,14 @@ async def fetch_pdf(
         for candidate in candidate_urls:
             url = candidate["url"]
             source = candidate["source"]
-            path = await fetch_with_scrapling(url, use_proxy=use_proxy)
-            if path:
-                return path, f"{source} (scrapling)"
+            pdf_path, _html, _url = await fetch_with_scrapling(url, use_proxy=use_proxy)
+            if pdf_path:
+                return pdf_path, f"{source} (scrapling)"
 
-        if doi:
+        if doi and not skip_doi_scrapling:
             doi_url = f"https://doi.org/{doi}" if not doi.startswith("http") else doi
-            path = await fetch_with_scrapling(doi_url, use_proxy=use_proxy)
-            if path:
-                return path, "doi_redirect (scrapling)"
+            pdf_path, _html, _url = await fetch_with_scrapling(doi_url, use_proxy=use_proxy)
+            if pdf_path:
+                return pdf_path, "doi_redirect (scrapling)"
 
     return None, None

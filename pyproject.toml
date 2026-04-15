@@ -9,13 +9,15 @@ description = "MCP server for academic paper search, PDF fetching, and text extr
 requires-python = ">=3.10"
 dependencies = [
     "mcp[cli]>=1.0.0",
-    "httpx>=0.27.0",
+    "httpx[socks]>=0.27.0",
     "pymupdf>=1.24.0",       # PDF text extraction (fitz)
     "python-dotenv>=1.0.0",
     "pyzotero>=1.6.0",       # Zotero API client
     "aiosqlite>=0.20.0",     # Native async SQLite (no thread-pool overhead)
     "sentence-transformers>=3.0.0",  # Semantic re-ranking (all-MiniLM-L6-v2)
     "numpy>=1.26.0",         # Required by sentence-transformers
+    "trafilatura>=2.0.0",
+    "rank-bm25>=0.2.2",
 ]
 
 [project.optional-dependencies]

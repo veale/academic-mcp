@@ -40,6 +40,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import shutil
 import sqlite3
 import tempfile
 import zipfile
@@ -102,34 +103,101 @@ sqlite_config = ZoteroSQLiteConfig()
 
 
 # ---------------------------------------------------------------------------
-# Database connection (read-only, WAL mode for concurrent access)
+# Shadow copy — fallback for when Zotero holds an exclusive lock
+# ---------------------------------------------------------------------------
+
+# Zotero uses PRAGMA locking_mode=EXCLUSIVE on its main database to prevent
+# external writers from corrupting it. This blocks even read-only connections
+# from other processes while Zotero is running, regardless of journal mode.
+#
+# Solution: keep a shadow copy of zotero.sqlite in the MCP cache directory.
+# Whenever we successfully connect to the primary (Zotero is closed), we
+# refresh the shadow in the background. When the primary is locked (Zotero
+# is open), we fall back to the shadow silently.
+#
+# The shadow is at most one "Zotero-closed" cycle out of date, which is fine
+# for search. The SQLite backup API guarantees a consistent copy even if the
+# source has an open read connection.
+
+def _shadow_path() -> Path:
+    return app_config.pdf_cache_dir.parent / "zotero-shadow.sqlite"
+
+
+def _do_backup(src_path: str, dst_path: Path) -> None:
+    """Synchronous SQLite backup — runs in a thread."""
+    dst_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dst_path.with_suffix(".tmp")
+    try:
+        src = sqlite3.connect(f"file:{src_path}?mode=ro", uri=True, timeout=5)
+        dst = sqlite3.connect(str(tmp))
+        src.backup(dst, pages=256)   # 256 pages ≈ 1 MB per step
+        src.close()
+        dst.close()
+        tmp.replace(dst_path)        # atomic rename
+        logger.info("Zotero shadow copy updated: %s", dst_path)
+    except Exception as e:
+        logger.debug("Shadow copy failed (non-fatal): %s", e)
+        tmp.unlink(missing_ok=True)
+
+
+# ---------------------------------------------------------------------------
+# Database connection (read-only, shadow fallback)
 # ---------------------------------------------------------------------------
 
 async def _get_connection() -> aiosqlite.Connection:
     """Open a read-only aiosqlite connection.
 
-    If Zotero's database is in WAL mode (recommended — run
-    ``sqlite3 ~/Zotero/zotero.sqlite "PRAGMA journal_mode=WAL;"`` with
-    Zotero closed), readers and writers never block each other and timeout
-    is irrelevant.
-
-    If still in DELETE mode, SQLite holds an exclusive lock during writes.
-    timeout=15 lets us wait out transient sync locks rather than failing
-    immediately. Lock wait >1 s is logged as a warning.
+    Strategy:
+      1. Try the primary zotero.sqlite with a short timeout (3 s).
+      2. If it's locked (Zotero has an exclusive lock), fall back to the
+         shadow copy at ~/.cache/academic-mcp/zotero-shadow.sqlite.
+      3. When the primary succeeds, schedule a background shadow refresh so
+         the shadow stays current for the next time Zotero is open.
     """
-    t0 = asyncio.get_event_loop().time()
-    uri = f"file:{sqlite_config.db_path}?mode=ro"
-    conn = await aiosqlite.connect(uri, uri=True, timeout=15)
-    elapsed = asyncio.get_event_loop().time() - t0
-    if elapsed > 1.0:
-        logger.warning(
-            "SQLite lock wait: %.1fs — consider switching Zotero to WAL mode: "
-            "sqlite3 ~/Zotero/zotero.sqlite \"PRAGMA journal_mode=WAL;\"",
-            elapsed,
+    shadow = _shadow_path()
+    uri_primary = f"file:{sqlite_config.db_path}?mode=ro"
+
+    # ── Attempt 1: primary DB ────────────────────────────────────────────
+    conn = None
+    try:
+        conn = await aiosqlite.connect(uri_primary, uri=True, timeout=3)
+        conn.row_factory = sqlite3.Row
+        await conn.execute("PRAGMA query_only=ON")
+        # Probe: verify data reads actually work, not just the connection.
+        # Zotero's exclusive lock blocks data reads but not the connect or
+        # simple PRAGMAs, so without this the fallback never fires.
+        await conn.execute("SELECT 1 FROM libraries LIMIT 1")
+        # Primary is genuinely readable — schedule shadow refresh in background
+        asyncio.get_event_loop().run_in_executor(
+            None, _do_backup, sqlite_config.db_path, shadow
         )
-    conn.row_factory = sqlite3.Row
-    await conn.execute("PRAGMA query_only=ON")
-    return conn
+        return conn
+    except Exception as e:
+        if conn is not None:
+            try:
+                await conn.close()
+            except Exception:
+                pass
+        msg = str(e).lower()
+        if "locked" not in msg and "busy" not in msg:
+            raise  # unexpected error — propagate
+
+    # ── Attempt 2: shadow copy ───────────────────────────────────────────
+    if shadow.exists():
+        logger.info(
+            "Primary Zotero DB locked (Zotero is probably open); "
+            "using shadow copy %s", shadow
+        )
+        uri_shadow = f"file:{shadow}?mode=ro"
+        conn = await aiosqlite.connect(uri_shadow, uri=True, timeout=5)
+        conn.row_factory = sqlite3.Row
+        await conn.execute("PRAGMA query_only=ON")
+        return conn
+
+    raise RuntimeError(
+        "Zotero database is locked and no shadow copy exists yet. "
+        "Close Zotero, then run refresh_zotero_index once to create the shadow."
+    )
 
 
 # ---------------------------------------------------------------------------
