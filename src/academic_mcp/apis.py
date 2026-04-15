@@ -213,6 +213,120 @@ async def openalex_work(doi: str) -> dict | None:
         return resp.json()
 
 
+_OA_CITATION_SELECT = (
+    "id,doi,title,publication_year,authorships,cited_by_count,"
+    "primary_location,abstract_inverted_index"
+)
+
+
+async def _resolve_openalex_filter_id(
+    doi: str,
+    openalex_id: str | None = None,
+) -> str:
+    """Resolve a DOI to an OpenAlex identifier suitable for filter values.
+
+    If *openalex_id* is already provided (e.g. 'W2741809807' or the full URL
+    'https://openalex.org/W2741809807'), use it directly.  Otherwise, look up
+    the DOI via ``openalex_work()`` and extract the Work ID from the response.
+
+    Falls back to the DOI URL if resolution fails — the ``cites`` / ``cited_by``
+    filters accept DOI URLs too, but Work IDs are more reliable.
+    """
+    if openalex_id:
+        if openalex_id.startswith("https://openalex.org/"):
+            return openalex_id.split("/")[-1]
+        return openalex_id
+
+    # Normalise DOI prefix variants before resolving
+    clean_doi = doi.replace("DOI:", "").replace("doi:", "").strip()
+
+    try:
+        work = await openalex_work(clean_doi)
+        if work and work.get("id"):
+            # "https://openalex.org/W2741809807" → "W2741809807"
+            return work["id"].split("/")[-1]
+    except Exception:
+        pass
+
+    # Fallback: use DOI URL directly (works in most cases)
+    return clean_doi if clean_doi.startswith("http") else f"https://doi.org/{clean_doi}"
+
+
+def _openalex_year_filters(
+    start_year: int | None, end_year: int | None
+) -> list[str]:
+    """Build publication_year filter fragments."""
+    if start_year and end_year:
+        return [f"publication_year:{start_year}-{end_year}"]
+    if start_year:
+        return [f"publication_year:{start_year}-"]
+    if end_year:
+        return [f"publication_year:-{end_year}"]
+    return []
+
+
+async def openalex_citations(
+    doi: str,
+    search: str | None = None,
+    limit: int = 25,
+    start_year: int | None = None,
+    end_year: int | None = None,
+    openalex_id: str | None = None,
+) -> dict:
+    """Find works that cite the given DOI (forward citations / children)."""
+    resolved = await _resolve_openalex_filter_id(doi, openalex_id)
+    filters = [f"cites:{resolved}"] + _openalex_year_filters(start_year, end_year)
+
+    params: dict[str, Any] = {
+        "filter": ",".join(filters),
+        "select": _OA_CITATION_SELECT,
+        "per_page": min(limit, 100),
+        "sort": "cited_by_count:desc",
+        **_openalex_mailto_param(),
+    }
+    if search:
+        params["search"] = search
+
+    async with _client() as client:
+        resp = await _request_with_retry(
+            client, "GET", f"{OA_BASE}/works",
+            params=params, headers=_openalex_headers(),
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+
+async def openalex_references(
+    doi: str,
+    search: str | None = None,
+    limit: int = 25,
+    start_year: int | None = None,
+    end_year: int | None = None,
+    openalex_id: str | None = None,
+) -> dict:
+    """Find works cited by the given DOI (backward references / parents)."""
+    resolved = await _resolve_openalex_filter_id(doi, openalex_id)
+    filters = [f"cited_by:{resolved}"] + _openalex_year_filters(start_year, end_year)
+
+    params: dict[str, Any] = {
+        "filter": ",".join(filters),
+        "select": _OA_CITATION_SELECT,
+        "per_page": min(limit, 100),
+        "sort": "cited_by_count:desc",
+        **_openalex_mailto_param(),
+    }
+    if search:
+        params["search"] = search
+
+    async with _client() as client:
+        resp = await _request_with_retry(
+            client, "GET", f"{OA_BASE}/works",
+            params=params, headers=_openalex_headers(),
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+
 # ---------------------------------------------------------------------------
 # Unpaywall
 # ---------------------------------------------------------------------------

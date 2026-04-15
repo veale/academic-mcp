@@ -1,0 +1,1228 @@
+
+--- Page 1 ---
+Health as a Means Towards Profitable Ends: mHealth
+Apps, User Autonomy, and Unfair Commercial Practices
+Marijn Sax
+ Natali Helberger Nadine Bol
+Abstract In this article, we discuss mHealth apps and their potential to influence the user’s
+behaviour in increasingly persuasive ways. More specifically, we call attention to the fact that
+mHealth apps often seek to not only influence the health behaviour of users but also their
+economic behaviour by merging health and commercial content in ways that are hard to detect.
+We argue that (1) such merging of health and commercial content raises specific questions
+concerning the autonomy of mHealth app users, and (2) consumer law offers a promising legal
+lens to address questions concerning user protection in this context. Based on an empirically
+informed ethical analysis of autonomy, we develop a fine-grained framework that incorporates
+three different requirements for autonomy that we call “independence,” “authenticity,” and
+“options.” This framework also differentiates between three different stages of mHealth app
+use, namely installing, starting to use, and continuing to use an app. As a result, user autonomy
+can be analysed in a nuanced and precise manner. Since the concept of autonomy plays a
+prominent, yet poorly understood role in unfair commercial practice law, we utilize the ethical
+analysis of autonomy to guide our legal analysis of the proper application of unfair commercial
+practice law in the mHealth app domain.
+Keywords mHealth apps . Autonomy. Manipulation . Unfair commercial practices .
+Representative survey data
+* Marijn Sax
+m.sax@uva.nl
+Natali Helberger
+n.helberger@uva.nl
+Nadine Bol
+n.bol@uva.nl
+Institute for Information Law (IViR), University of Amsterdam, Amsterdam, Netherlands
+Amsterdam School of Communication Research (ASCoR), University of Amsterdam, Amsterdam,
+Netherlands
+
+--- Page 2 ---
+A statement like “mHealth apps are concerned with the user’s health behaviour” sounds like a
+truism; of course, mHealth apps are concerned with the user’s health behaviour. Unsurpris-
+ingly, then, mHealth apps present themselves as pieces of technology that can support us in
+increasingly sophisticated ways in our quest for health. Take Garmin, a company that sells a
+wide range of wearables which should be used together with a complementary mHealth app
+called “Garmin Connect.” This app not only collects and presents data to its users but also
+makes suggestions to users. “Our digital insights are tailored to your stats and habits, so they’re
+like friendly nudges that go beyond showing the steps and stats collected by your Garmin
+device.” We are told that by using such an app, the user carries a personal health coach with
+her all the time—one that proactively anticipates her behaviour and gently nudges her in
+healthy directions, right when she needs it the most.
+In this article, we move beyond the truism that mHealth apps are concerned with the user’s
+health behaviour. We call attention to the fact that mHealth apps are often also concerned with
+the user’s economic behaviour—e.g., getting her to buy products or services. We observe that
+health content and commercial content are sometimes merged, in an effort to devise persuasive
+and profitable personalized communications that are neither purely health content nor purely
+advertising. It is precisely this merging of health and commerce that we are interested in. When
+commercial content is woven into the health content that is presented within an mHealth app, it
+is often difficult for users to (fully) grasp the commercial intent behind what looks, reads, and
+feels like health advice. This development raises questions concerning the autonomy of
+mHealth app users, but also about the fairness of such practices.
+So far, much of the discussion about (big data-enabled) targeting and personalization
+strategies aimed at influencing the behaviour of individuals has concentrated on the area
+of data protection law. In this article, we want to broaden that perspective and turn to
+consumer law. More specifically, striking a balance between fair and acceptable forms of
+advertising, and unfair influences on consumers’ decision-making, is central to the
+regulation of advertising in general and unfair commercial practice law in particular.
+From the perspective of consumer protection, unfair commercial practice law is a
+promising legal lens through which to discuss the aforementioned challenges of mHealth
+apps, for at least two reasons. First, many of the mHealth apps currently on offer are
+essentially commercial apps with commercial motives, which collect valuable informa-
+tion about users and can establish a very personal, targeted advertising channel with
+them. Consequently, unfair commercial practice law is the area of law that is the most
+likely candidate to deal with persuasive commercial attempts to influence user behaviour
+by mHealth apps. Second, in the regulation of unfair commercial practices, consumer
+autonomy is a core value (Micklitz 2006; see also Willett 2005). The rules seek to strike
+a complicated balance between empowering and encouraging the consumer to take
+autonomous decisions, and protecting consumers from situations in which they are
+unable to protect themselves, either because they are in a position of vulnerability or
+because of the particular unfairness of the practice (Van Boom et al. 2014).
+The application of unfair commercial practice law requires a sound understanding of the
+concept of autonomy, and how recent practices around mHealth apps affect user autonomy.
+However, as Micklitz has pointed out, “[o]n its own, the concept of autonomy in the Unfair
+Commercial Practices Directive, even in the entire European unfair trading law, seems
+
+--- Page 3 ---
+largely incomprehensible. In essence it is a legal term; however, it needs a reference point
+outside the legal system.” (Micklitz 2006, p. 104).
+It is for this reason that we first provide an ethical analysis of autonomy which will, in turn,
+inform our legal analysis. The question of user autonomy contains, moreover, an inherently
+empirical component. To evaluate mHealth practices from the perspective of autonomy, one
+needs to know how users are actually affected by such apps. This is why we have conducted
+empirical research into users’ cognitive, affective, and behavioural attitudes regarding the
+motives and interests of mHealth apps, the persuasiveness and effectiveness of personalized
+messages in mHealth apps for changing behaviour, and perceived manipulative intent.
+In what follows, we first discuss how mHealth apps try to influence the behaviour of users.
+Here, we have a particular interest in strategies that merge health and commercial content and
+the potential impact thereof on user autonomy. Second, we provide a conceptual discussion of
+autonomy and formulate three requirements for autonomy. Third, we present empirical survey
+data in order to gain a better understanding of how people are actually affected by personalized
+communications from mHealth apps. Fourth, we develop a framework for ethically evaluating
+commercial mHealth app practices and provide some preliminary thoughts on how the
+framework can be applied to cases. Here, we also refer to our survey data in an attempt to
+answer the question whether the ethical worries identified are already starting to materialize.
+Fifth and last, we draw on this conceptual framework and the resulting ethical analysis to
+explore how unfair commercial practice law can help protect mHealth app user autonomy.
+Influencing the mHealth App User’s Behaviour
+All mHealth apps collect at least some data on their users; an mHealth app needs input to be able
+to learn something about the user’s health. Simple apps, such as calorie counters, only collect
+one type of data and do so only a few times a day. The more sophisticated mHealth apps, such as
+Garmin Connect, continuously collect—through a connected wearable—data on, for instance,
+number of steps taken, heart rate, number of stairs climbed, intensity of movement, calories
+burned, and sleep pattern. The more “data rich” an mHealth app is, the more potential it offers
+for personalization of content. Personalized content is expected to be more persuasive in the
+sense of improving health outcomes (e.g., Krebs et al. 2010; Kroeze et al. 2006; Lustria et al.
+2013; Noar et al. 2007) than generic content since it can convey the right message, at the right
+time, in the right way (Kaptein et al. 2015). In health communication, personalization is often
+referred to as “tailoring,” which refers to presenting information such that it meets the needs of
+one specific individual based on distinctive characteristics of that person (Kreuter et al. 1999).
+It is to be expected that personalization strategies can and will become more frequent and
+more powerful. Yeung (2017) has coined the term “hypernudging” to describe techniques
+where big data interacts with personalization in an effort to devise highly persuasive attempts
+to influence the behaviour of individuals. In essence, the availability of (1) lots of (personal)
+data, (2) behavioural–economic insights (e.g., Kaptein 2015), (3) algorithmic predictive
+analyses making use of lots of (personal) data and taking note of behavioural–economic
+insights, and (4) the “always on”-ness of mobile health technology makes for very potent
+
+--- Page 4 ---
+new possibilities to influence people’s behaviour in a highly persuasive manner. Yeung (2017)
+explains:
+[…] unlike the static Nudges popularized by Thaler and Sunstein (2008) such as placing
+a salad in front of the lasagne to encourage healthy eating, Big Data analytics nudges are
+extremely powerful and potent due to their networked, continuously updated, dynamic
+and pervasive nature (hence ‘hypernudge’) […] Big Data-driven nudges make it
+possible for automatic enforcement to take place dynamically (Degli Esposti 2014),
+with both the standard and its execution being continuously updated and refined within a
+networked environment that enables real-time data feeds which, crucially, can be used to
+personalize algorithmic outputs (Rieder 2015) (Yeung 2017, pp. 118–122).
+Yeung’s concept of hypernudging shows the technological sophistication we can
+expect to be employed in the near future, aimed at influencing our behaviour.
+mHealth apps will provide an excellent technological infrastructure to “administer”
+hypernudges. Questions that have already been raised about the implications of
+regular nudges for the autonomy of the nudgees (Hansen and Jespersen 2013; Nys
+and Engelen 2016) are further exacerbated by hypernudges. As it becomes possible to
+personalize nudges and continually adjust their timing and content on the basis of the
+personal characteristics and circumstances of the nudgee, the potential to manipulate
+people into forming certain desires or displaying certain behaviours also grows.
+Hypernudges could, for instance, be used to target people with personalized commu-
+nications exactly at those moments they are most susceptible to being influenced.
+Technologically sophisticated personalized attempts to influence people understand-
+ably receive the attention of scholars. As we have seen, much research has been
+conducted on their persuasiveness for health behaviours. We, however, would also
+like to emphasize how mHealth apps try to influence economic behaviours by way of
+merging health and commercial content. This practice can be understood as a form of
+native advertising. Native advertising, “also called sponsored content, […] is a term
+used to describe any paid advertising that takes the specific form and appearance of
+editorial content from the publisher itself” (Wojdynski and Evans 2016, p. 157). The
+employment of such merging practices is understandable from the perspective of
+mHealth app providers, since native advertising is notoriously hard to detect,
+let alone resist, by mHealth app users (Hyman et al. 2017).
+Let us present some examples of merging of health and commercial content aimed at
+influencing the economic behaviour of users. In all cases, it could be asked to what extent we
+are dealing with just another form of advertising, and to what extent people are manipulated in
+a problematic and autonomy-eroding manner. We will come back to this exact question later in
+the article.
+Example 1 Actify is a health platform launched by the Dutch health insurer Zilveren Kruis.
+Through this platform, Actify users are encouraged to install the MealMatch app which is
+advertised as containing tasty and healthy recipes. The recipes are commented on by dieti-
+cians, who explain why the recipe is healthy. Below the instructions for preparing the healthy
+food, one can find, in exactly the same font, style, and layout, a text that introduces John. Users
+read that it is John’s mission to let everyone know that they should eat delicious healthy fish on
+a weekly basis. The app user is invited to click on a link to find out how “eating fish becomes a
+
+--- Page 5 ---
+celebration.” After the user has been addressed in terms of its health, by a health app with
+healthy recipes that are commented on by a health professional (i.e., dietician), the user is, after
+clicking on the link, directed to a Web shop that sells fish.
+Example 2 The aforementioned Garmin Connect app contains a function called “Insights,”
+which offers personalized health advice to its users. A user will, for instance, be presented with
+a graph showing that she logs fewer steps on Wednesdays than other days of the week,
+accompanied by advice on how to increase activity. Under the graph and advice, the user sees a
+“read more” section in the same style and layout which contains native advertising by The
+Cleveland Clinic. The user is invited to click on “Practice 10 healthy work habits” in the “read
+more” section which leads her to a website offering 10 pieces of health advice. One of these is
+to “learn good sleep habits.” Embedded in this advice is a link to a promotion for the Go! to
+Sleep® 6-week sleep program which can be purchased for $40.
+Example 3 In 2015, sports apparel manufacturer Under Armour acquired multiple major
+mHealth apps, namely MyFitnessPal, Endomondo, and the MapMy app family. Under Armour
+has integrated these apps in “the world’s first 24/7 connected health and fitness system” named
+“UA Record,” resulting in an mHealth app that collects data on all major domains of life: eating,
+sleeping, and moving. Mike Lee, Under Armour’s Chief Digital Officer, has shared his vision
+for the future with Fortune. “Lee envisions ways to further integrate the apps so that the data can
+be more closely linked than it is today. For example, after tracking a run on MapMyRun,
+MyFitnessPal could suggest local spots where other runners enjoy a post-workout snack.”
+Lee’s vision for the future provides an excellent example of how the merging of
+health and commercial content could also be combined with hypernudges. The envis-
+aged suggestions for healthy post-workout snacks at exactly the moment a user has
+finished a workout lends itself perfectly to personalized commercial suggestions that
+are masked as health advice. If we imagine an avid user of UA Record, then the app
+can use all the data collected on eating, sleeping, and moving habits to predict how the
+suggestions (i.e., advertising) should be personalized for the mHealth app user to be
+converted into a post-workout snack buyer.
+Seeing the difficulty people experience in recognizing native advertising, we suggest that
+commercial content which is embedded in content that addresses a domain of life many people
+hold dear—namely health—is potentially manipulative and may threaten the autonomy of
+mHealth app users. Do we, as Harcourt (2015, p. 187) has put it, “turn into marketized
+malleable subjects who, willingly or unwittingly, allow ourselves to be nudged recommended,
+tracked, diagnosed and predicted”? If users do not know that they are being targeted with
+personalized content that intentionally obfuscates commercial intent by embedding it in health
+content, then they will have a hard time practising their autonomy. Moreover, even if users
+know (to some extent at least) that mHealth apps merge health and commerce for strategic
+
+--- Page 6 ---
+reasons, then the persuasive force of such strategies could still be strong enough to influence
+people’s (economic) behaviour in ways that they—upon critical inspection—do not endorse.
+To address the question of mHealth app user autonomy head on, we first need a clear
+understanding of what autonomy means. In the next section, we provide a conceptual analysis
+of autonomy. After the next section, we present an empirical study we conducted in order to
+better understand the empirical circumstances that shape the users’ possibilities for practising
+their autonomy while using mHealth apps.
+Autonomy: Conceptual Background
+The concept of autonomy is often introduced by referring to the etymological roots of the
+word, namely the Greek ‘autonomos’ which comprises auto—self—and nomos—law. Auton-
+omy, then, is said to be about self-government—the idea of acting on the basis of laws one has
+given to oneself. While certainly capturing the conceptual core of autonomy, the concept can
+be explored more precisely.
+Christman (1989, p. 3) summarizes the concept of autonomy as referring to “an
+authentic and independent self”. Starting with the second element—independence—we
+can say that a person is autonomous to the extent that she herself, and not others (hence
+the independence), are in control of her life. Raz (1986, p. 369), for instance, writes
+that “[t]he ruling idea behind the ideal of personal autonomy is that people should
+make their own lives.” The idea of largely making and controlling one’s own life can
+be made more concrete. Valdman (2010, p. 765) elaborates on this when he writes that
+“autonomous agents must exercise a kind of managerial control over the motivating
+elements of their psychology; they must shape their lives by deciding which elements
+to act on, which to shed, and which to ignore” (emphasis ours). The key term here is
+control: an autonomous person decides independently (i.e., controls) on the basis of
+which of her values, desires, and goals she acts. A person acting autonomously thus
+deliberates with herself as it were, taking notice of, on the one hand, the information
+available and the options that are open to her and, on the other hand, the “motivating
+elements of her psychology.” She should, then, be the one who decides how her values,
+desires, and goals inform her intentions for acting and, thus, constitute reasons for (not)
+doing something. Consider the fact that in real life we often ask people for their
+reasons for having done something. For example, if Jenn has decided to spend her
+afternoon hiking through a forest, she will be able to explain afterwards that she chose
+to do so because the weather was nice, because she admires nature’s beauty, and
+because she enjoys physical activity, and that these desires, goals, and values taken
+together served as compelling enough reasons for her to decide to go for a hike.
+
+--- Page 7 ---
+Although this requirement of independence already makes for a rather substantial account,
+we can add to this the requirement of authenticity. Authenticity refers to a person’s relationship
+to her own values, desires, and goals. The idea behind this notion of authenticity is that it is one
+thing to have “managerial control” over the way the values, desires, and goals you happen to
+have inform your decisions, actions, and lifestyle, but it is quite another thing for those values,
+desires, and goals to be truly your own. In other words, we do not want to declare people
+autonomous who are stuck with values, desires, and goals they do not consider to be their own,
+for instance because they were manipulated into forming certain desires. More concretely then,
+what is required for autonomy is that the person’s relationship to her own values, goals, and
+desires should take a certain form. Often, this “certain form” is referred to as identification—
+the requirement of identifying with one’s own values, desires, and goals in some sense.
+Different interpretations of what identification should entail exist. Some argue that a person
+should be able to reflect critically on one’s own values, desires, and goals as they are, and
+should, then, endorse them (Dworkin 1989; Frankfurt 1971). Others, most prominently
+Christman (1991), focus on the historical process through which the desires, values, and goals
+developed: “what matters is what the agent thinks about the process of coming to have the
+desires, and whether she resists that process when (or if) given the chance” (Christman 1991,
+p. 10). Let us look at Jenn again. As we have already seen, her values, goals, and desires
+constituted compelling enough reasons for her to go for a hike. But what if we find out that
+those values, goals, and desires were, unbeknownst to her, evoked in her via cleverly designed
+personalized targeting practices that were able to detect and exploit her personal vulnerabil-
+ities. Although she has, in deciding to go for a hike, displayed perfect managerial control over
+the values, desires, and goals she happened to have at the moment of deciding, they turn out
+not to be truly hers. Or, put differently, the input for the managerial control process was
+inauthentic—not truly hers, meaning that this subsequent process of managerial control is
+tainted by this inauthentic input. She therefore lacks autonomy.
+For the sake of completeness, we should add a third requirement: options. Someone can
+display perfect managerial control over completely authentic values, desires, and goals, but
+still lack the capacity for a truly autonomous life due to a lack of “an adequate range of
+options” (Raz 1986, p. 372). To return to the example of Jenn again: if she has the authentic
+life goal to hike through forests as much as she can, but finds herself living in a time and place
+in which there are no forests left, she lacks the material conditions—i.e., an adequate range of
+options—to be fully autonomous. This is true even if all of her values, desires, and goals are
+authentically hers and if she has perfect managerial control over them.
+When we say that autonomy is valuable, we can refer back to precisely these three require-
+ments of independence, authenticity, and options. We value autonomy because we want to be the
+ones who are ultimately in control over our own lives. We want to be the ones who decide what
+we do and for what reasons. We want to be sure that the way we shape and give direction to our
+life is informed by what we truly care about. We want to live, moreover, in societies in which we
+are actually able to shape our lives in significantly different, self-chosen ways.
+Empirical Insights into mHealth Perceptions
+Having identified that mHealth apps potentially pose a challenge to user autonomy, and having
+discussed how autonomy should be understood, our next step is to explore whether and how
+user autonomy actually is affected when considering the merging of health and commercial
+
+--- Page 8 ---
+content in mHealth apps. This, however, is a challenging task. It is difficult—if possible at
+all—to directly measure autonomy, or the separate requirements for autonomy. Asking users
+directly whether they feel their autonomy has been violated also does not work, since
+autonomy is a very complex concept (as the previous section shows). We have therefore opted
+for an approach of asking users and non-users about their attitudes towards specific mHealth
+app practices that potentially give rise to issues of user autonomy. The users’ attitudes towards
+such potentially manipulative advertising strategies was captured in a large survey among a
+representative sample of 1029 Dutch mobile users, both users and non-users of mHealth apps.
+In this survey, we assessed people’s cognitive, affective, and behavioural components of their
+attitudes towards mHealth apps. The cognitive component refers to beliefs, knowledge struc-
+tures, and thoughts, the affective component refers to an emotional response, a gut reaction,
+and feelings or moods, and the behavioural component includes overt actions, behavioural
+intentions, and verbal statements regarding behaviour. The data thus help illuminate (1) what
+people know about the intentions of mHealth apps and their practices aimed at influencing
+users, (2) how people feel about mHealth app intentions and practices, and (3) how people
+think they would behave when mHealth apps are trying to influencing users. A core assump-
+tion underlying the attitude concept is that the three attitude components vary on a continuum
+from negative to positive thoughts, feelings, and behaviours. Table 1 below presents a
+complete overview of the mean and median scores on these attitudes in the full sample,
+
+--- Page 9 ---
+representative of Dutch mobile users, as well as divided into subsamples of users and non-
+users of mHealth apps. We discuss the results in more detail below.
+Cognitive Attitudes Towards mHealth Apps
+The cognitive component in our study refers to the perceptions of the intentions of
+mHealth apps from the user perspective. We proposed the statement: “The main interest
+of app developers is the improvement of the user’s health”, and asked respondents to
+rate what they thought on a scale from 1 “totally disagree” to 7 “totally agree” as well
+as provide a written description of their thinking. Our results showed that only 29.0%
+of mobile users were on the positive side of the continuum (i.e., scored 5 or higher),
+whereas 42.7% of mobile users were on the negative side (i.e., scored 3 or lower),
+indicating that more users felt that app developers have interests other than the user’s
+health in mind. Interestingly, we found differences between users and non-users of
+mHealth apps. Whereas only 26.7% of non-users believed in the positive intentions of
+app developers, mHealth app users were significantly more positive, with 38.1% of
+users believing so (χ = 9.67, p = 0.002). Those who did not believe in the app
+developer’s interest in improving health mainly referred to the commercial intent and
+profit generation goals of the apps’ developers, as illustrated by the quotes below:
+“I believe that promoting the health of the user is more like a strategy, but not the goal
+[of the app provider]” (non-user, male, 25 yrs.)
+“App developers have the primary goal of generating profits. With my/your personal
+data as product. The selling strategy to get these personal data is ‘to improve health’.”
+(user, male, 32 yrs.)
+Those mobile users that were on a more positive note, reported their willingness to believe
+in the fair and sincere intentions of app developers:
+“I fairly believe in the sincere intentions of the app developers” (non-user, male, 58 yrs.)
+“I would like to believe that [app developers have good intentions], besides the fact that
+they ultimately want to generate profits” (user, female, 43 yrs.)
+Affective Attitudes Towards mHealth Apps
+Besides the knowledge regarding the commercial intentions of app developers, we assessed
+the user’s emotional response to and feelings about the merging of commercial and health
+content in mHealth apps, which we refer to as the affective component. We measured these
+affective attitudes by asking about users’ scepticism towards the merging of commercial
+and health content, their perceived manipulative intent, and their feelings regarding
+receiving personalized commercial content (i.e., personalized ads) in mHealth apps. The
+first two were measured with well-established, validated scales, using 7-point scales,
+
+--- Page 10 ---
+whereas the latter was measured with the statement “I prefer personalized ads over generic
+ads,” to be rated on a scale from 1 “totally disagree” to 7 “totally agree,” including the
+option to expand on their answer in a written comment.
+Our data showed that mobile users reported on average moderately high levels of scepti-
+cism (i.e., above the mid-point of the scale, M = 4.67, SD = 1.37, N = 1027), and average levels
+of perceived manipulative intent (i.e., slightly above the mid-point of the scale, M = 4.16, SD =
+0.98, N = 1028). Again, mHealth app users seemed more on the positive side of the continuum
+compared with non-users. Compared to non-users, mHealth app users are significantly less
+sceptical (M = 4.10, SD = 1.16 vs. M = 4.81, SD = 1.38, p < 0.001) and also per-
+ceive mHealth apps as less manipulative (M = 3.61, SD = 0.78 vs. M = 4.30, SD =
+0.97, p < 0.001). Furthermore, compared to non-users, users were significantly more positive
+about personalized ads compared to generic ads (users 38.1% vs. non-users 26.5%, χ = 10.08,
+p = 0.002). The quotes below illustrate the feelings respondents expressed when asked to
+elaborate on their negative rating:
+“I smell manipulation here. If I (could) see all ads, this would give me a feeling of
+freedom of choice.” (non-user, female, 58 yrs.)
+“I don’t want apps to use my private information. Also not to show me ads.” (user, male,
+68 yrs.)
+Mobile users who preferred personalized ads over generic ads often mentioned that
+personalized ads could contain useful information since it better matched the need, prefer-
+ences, and interests of the user:
+“Then it is most likely that it [the ad] is useful” (non-user, male, 22 yrs.)
+“It is interesting to receive offers or information that match my needs and interests”
+(user, female, 38 yrs.)
+Behavioural Attitudes Towards mHealth Apps
+The third and final attitude component is the behavioural component and includes verbal
+statements about the perceived persuasive impact of personalized ads on behaviour. We
+proposed two statements, which could be rated on a scale from 1 “totally disagree” to 7
+“totally agree” as well as the opportunity to provide written comments. The statements
+were: “Personalised ads are more persuasive than generic ads” and “Personalised ads are
+better capable of influencing my behaviour than generic ads.” As is shown by our data,
+50.3% of mobile users believe that personalized commercial content, such as personalized
+ads, is in general perceived as more persuasive than generic content. Interestingly, users
+have, compared to non-users, significantly more confidence in the persuasiveness of such
+personalized commercial content in general: 62.0% of mHealth app users versus 47.5% of
+non-users (χ = 13.24, p < 0.001). Both users and non-users mention that personalized ads
+could more easily “make you click”:
+“Personalised ads are more persuasive because you are probably more interested in the
+topic, which make you click more easily” (non-user, male, 25 yrs.)
+
+--- Page 11 ---
+“People feel more inclined to engage with personalized advertisement. By using person-
+alization, an artificial bond of trust between app and user is created” (user, male, 26 yrs.)
+On the other hand, concerns were raised about the trustworthiness of such personalized
+efforts, which are illustrated by these quotes:
+“I don’t trust these [personalized] advertisements” (non-user, female, 72 yrs.)
+“I would distrust these [personalized] advertisements” (non-user, female, 62 yrs.)
+When asked about the influence of personalized commercial content on their own behav-
+iour, users again report a significantly higher belief in the effectiveness of such targeting
+practices than non-users: 43.9% of mHealth app users versus 35.5% of non-users (χ = 4.58,
+p = 0.032). However, both users and non-users agree that personalized ads could be more
+persuasive, as illustrated by the quotes below:
+“I am not 100% immune for such (personalized) influences” (non-user, male, 38 yrs.)
+“If advertisers know my buying behaviour, for example by using cookies and showing
+me targeted ads, the chance I will fall for certain offers is much bigger” (user, male, 73
+yrs.)
+At the same time, users as well as non-users mentioned that personalized ads would not
+influence their behaviour, and stress their own control over their behaviour:
+“It smells like a malicious form of manipulation” (non-user, female, 80 yrs.)
+“Ads do not influence my behaviour, I decide for myself when I need something and
+what that will be” (user, female, 38 yrs.)
+In sum, we see that, overall, people are fairly sceptical of the intentions of mHealth app
+providers, although users are significantly less sceptical than non-users. When it comes to
+affective attitudes towards commercial mHealth app practices, we see that people do not
+dismiss such practices outright, but that worries concerning, for instance, manipulative intent
+do exist. Interestingly, we see, again, that users of mHealth apps have significantly less
+negative affective attitudes than non-users. Lastly, we see that about half of all people surveyed
+believe that personalized commercial content is more persuasive than generic content. Again, it
+turns out that users have significantly more confidence in personalized content being able to
+influence behaviour than non-users.
+To inform our ethical and legal analyses, we now integrate these empirical insights into the
+ethical and legal discussion about mHealth apps. Throughout the analyses, we make use of the
+empirical data just presented to (1) explain that users share many of the ethical concerns discussed
+and (2) interpret to what extent mHealth apps actually threaten to violate user autonomy.
+Evaluating mHealth Apps from an Autonomy Perspective
+The open question that requires an answer now is how attempts by mHealth apps to influence
+the economic behaviour of users that rely on a merging of health and commercial content
+
+--- Page 12 ---
+should be evaluated from the perspective of autonomy. Let us, for the purpose of clarity,
+presume that all people who use mHealth apps are not explicitly forced or coerced to do so.
+How could questions concerning user autonomy still arise? It is, after all, people themselves
+who install health apps and, as a result, bring such apps inside their decisional sphere. As a
+start, we introduce some analytical distinctions that can lend precision to our analysis.
+First, we identify three “stages” of mHealth app usage: (1) the decision to install an
+mHealth app; (2) the decision to start using an mHealth app; (3) and the decision to continue
+using mHealth apps for longer periods of time. By employing this distinction, we avoid talking
+about “the use of mHealth apps” as if this is a unitary phenomenon. At these different stages,
+different user motivations and different strategies to influence users can be observed. Ethical
+and legal evaluations can change accordingly.
+Second, attempts to influence users’ health-related behaviour and attempts to influence
+users’ economic behaviour are to be separated analytically. Although our argument focuses on
+the increased merging of the two, an analytic separation of both is necessary to understand
+what is merged and why this could be problematic.
+Third, it makes little sense to analyse potential threats to user autonomy without paying
+careful attention to the three different requirements for autonomy we identified: independence,
+authenticity, and options. Autonomy is not a binary concept that either is or is not the case—it
+allows for a more nuanced understanding along the lines of these three requirements.
+In our analysis of user autonomy in relation to mHealth apps, we will focus on the different
+“stages” of use and see which of the different elements of autonomy could come under
+pressure. This approach also allows us to do away with the naïve image of a user who freely
+chooses to install a health app and therefore is declared sufficiently autonomous throughout all
+the stages of using the app.
+Installing an mHealth App
+Let us start with a person’s initial decision to install an mHealth app. How could a user’s
+autonomy possibly be violated at this initial stage? Short of outright coercion, the decision to
+install an mHealth app will be preceded by a person’s desire to install the app. Such a desire,
+however, can be non-autonomous even if a person does in fact have the desire, for instance
+when the person is manipulated into forming the desire.
+A recent example helps to illustrate the possibility of manipulating individuals into forming
+certain desires. In May 2017, a confidential Facebook document was leaked (News.com.au
+2017). This document detailed how Facebook’s algorithms “can determine, and allow adver-
+tisers to pinpoint, ‘moments when young people need a confidence boost’” (ArsTechnica
+2017). Moreover, the document showed “a particular interest in helping advertisers target
+moments in which young users are interested in ‘looking good and body confidence’ or
+‘working out and losing weight’” (ArsTechnica 2017).
+If individuals are targeted with health content or advertising for health products at such
+moments of immediately felt vulnerability, both the requirements of independence and
+authenticity could be violated. Targeting people at the exact moments in which they “need a
+confidence boost” with health content that discusses how, for instance, certain mHealth apps
+can help them achieve a stellar body can plausibly be expected to evoke in individuals the
+desire to use mHealth apps. This could be further enabled by framing the commercial offer to
+install an mHealth app in terms of health. Since health is an all-purpose good, it is the perfect
+vehicle for commercial content; by framing the commercial offer in terms of health, it gains a
+
+--- Page 13 ---
+sense of innocence. This is aptly captured by one of our respondents: “the reason they make an
+[mHealth] app is not to improve my health but to make money. The app is the means towards
+the end” (non-user, male, 23 yrs). Resulting desires are not authentic if people have them
+mainly as a result of being targeted in a certain way or the communications being framed a
+certain way, instead of truly wanting to have those desires irrespective of how they were
+evoked.
+Similarly, there is a risk that such targeting practices can lead to a (partial) bypassing
+of individuals’ “managerial control over the motivating elements of their psychology”
+(Valdman 2010, p. 765). The fact that many people in our survey admit that they do in
+fact believe that personalized content does a better job at influencing their behaviour than
+generic content suggests that this is not merely a theoretical possibility (see “Behavioural
+Attitudes Towards mHealth Apps” section). In practice, this could mean that targeting
+people at the exact moment they experience a moment of vulnerability that puts them
+into a temporal state of decreased capacity for reflective reasoning could lead to them not
+properly considering what is offered to them at that moment. Even in less dramatic cases
+where people are not personally targeted on the basis of their vulnerabilities, the merging
+of health advice with the commercially motivated gestures towards installing an mHealth
+app could still circumvent people’s independent decision-making. If the health narrative
+used distracts people from the commercial interests and intentions at play, and if people
+do have independent reasons for wanting to consider commercial interests and intentions,
+then obfuscating those commercial considerations could violate the requirement for
+independence.
+Moreover, targeting practices (whether vulnerability-based or not) could lead people to not
+consider other options they, under more ideal circumstances, would have considered and
+maybe even preferred. Autonomy could be violated as a result, if options that matter to a
+person are materially obscured.
+Starting and Continuing to Use a Health App
+We make an analytical distinction between first starting to use and then continuing to
+use an mHealth app because this allows us to bring into focus one very important feature:
+Through usage, a sort of “relationship” between user and app develops over time. The
+development of this relationship is an open-ended process, the outcome of which
+depends on both how a particular user interacts with the app and how the app (or its
+algorithms) turn these interactions into personalized outputs that in turn influence the
+user. Of course, the longer the user uses an mHealth app, the better the app gets to know
+the user, which means that the longer the relationship lasts, the greater the potential for
+persuasive attempts to influence (economic) behaviour becomes.
+Authenticity
+Let us start with the authenticity of a user’s desire to continue to use an mHealth app for
+extended periods of time. During the development of the user–app relationship, the
+mHealth app has, from a commercial perspective, a great interest in retaining the user
+as a continuous user of the app. As long as the user uses the app, the app has a direct
+channel to present the user with advertising (possibly advertising that is woven into
+health content), and, moreover, the app can continue to collect commercially valuable
+
+--- Page 14 ---
+(personal) user data. Getting the user to continue to use the app could therefore be
+understood as getting the user to display certain economic behaviour.
+As a result, mHealth apps also have an incentive to get the user to see her health as a never-
+ending quest (Devisch 2013). Even if a user is already in great health, an mHealth app will
+likely suggest that good health must be maintained and, moreover, that it is always possible to
+become even more healthy. Many mHealth apps employ a narrative that explicitly links (being
+preoccupied with one’s) health with happiness and well-being—i.e., with living a good life.
+For example, Fitbit explicitly states that with Fitbit you will “live better” and Lifesum,
+another popular app, states that it helps people live “healthier, happier lives.” The framing of
+the continued use of an mHealth app as a matter of health and well-being could distract people
+from the fact that they are in fact also entering into an economic relationship—which
+stimulates particular economic behaviour—when they continue to use the app. It must
+therefore be asked to what extent a user has a truly authentic desire to continue to use a
+particular mHealth app and to what extent she has been made to desire the continued usage
+of the app by the constant emphases on health. If the latter is the case, user autonomy is—at
+least partially—violated.
+The longer a user uses an mHealth app, the better the mHealth app knows “what makes the
+user tick” (Kaptein 2015). From a technological perspective, this increases the potential to
+devise highly personalized advertising (possibly merged with health content) that is especially
+capable of evoking unauthentic economic desires in users. Consider the following example.
+Ella has a full-time job which demands a lot of energy. Although she would like to work out
+more often because she is somewhat insecure about her body, she often ends up on the couch
+after work. When she sits on the couch, she often experiences feelings of guilt for not working
+out. Now, if Ella had been using an mHealth app for a long time, the app may have worked out
+that she is often inactive during evening hours, while she would in fact like to work out more.
+As a result, the app concludes that Ella is most responsive to commercial health-related
+suggestions on working days during the evening hours. The app now presents her with health
+advice that elaborates on the importance of working out, while also presenting her with
+suggested further information on yoga as a great way to become both healthier and happier.
+This further information then includes a personalized offer for Ella for a discount on Yoga
+Lifestyle Magazine, which promises to help her gain motivation for yoga and can help her
+enjoy yoga to the fullest. Ella proceeds to buy the subscription.
+Now, it can be said that no harm is done here, since the Yoga Lifestyle Magazine
+subscription might lead her to live a healthier life, which is what she authentically desires.
+The offer could then be interpreted as being especially relevant for Ella. Some of our
+respondents also indicated that they do not mind personalized offers, as long as they are
+perceived as relevant (see “Affective Attitudes Towards mHealth Apps” section). At the same
+time, we should ask the critical question whether the personalized targeting described may
+have led Ella to buy a magazine subscription she does not truly want to have. If it was the
+
+--- Page 15 ---
+targeting during a moment of guilt which successfully made her desire the subscription, her
+autonomy is—at least partly—violated. The fact that people do draw relatively strong infer-
+ences of manipulative intent in mHealth apps (see “Affective Attitudes Towards mHealth
+Apps” section) suggests that people do not simply accept all forms of influencing behaviour
+under the guise of “health improvement.”
+Independence
+We now turn to the requirement of independence. The main question to ask is whether tactics of
+merging health and commercial content—possibly coupled with personalized targeting—are
+aimed at circumventing the user’s “managerial control” over her desires, values, and goals. We
+can look at Ella’s case again, which can also be analysed from an independence perspective.
+First, let us look at the careful merging of health and commerce. If Ella is presented with what
+feels, looks, and reads like health advice, and is, as a result, put in a health mind-set, she might
+be much more inclined to go along with the economic suggestions made to her. In the previous
+section, we suggested this could be the result of unauthentic desires being evoked. Here, we
+want to suggest that it could also be a case of her not considering the commercial content and
+intent found within the health advice at all, precisely because she is put in a “health mind-set”
+and not in an “economic decision-making mind-set.” If Ella ends up displaying economic
+behaviour she has not independently decided to display, this would breach the independence
+requirement.
+Like with the instilment of unauthentic desires, the circumvention of a user’s independent
+decision-making capabilities can be achieved even more effectively by highly personalized
+communications that personalize not only content but also timing. In the case of Ella, the
+chances of circumventing her independent decision-making capabilities are highest when she
+is targeted with commercial health content while she sits on her couch regretting another
+evening of not working out. Continued use over time could thus enhance potential for practices
+that breach the independence requirement.
+Options
+Lastly, we turn to options. It should be asked whether highly personalized commercial targeting
+in mHealth apps might materially obscure other valuable options the user would have wanted to
+consider had the personalized commercial targeting not occurred. This question is especially
+pressing in cases where commercial content is integrated in health advice. As a result of being
+presented with health content within an mHealth app and being addressed in terms of health, a
+user may end up with a mind-set that makes it harder/less likely for her to play the role of the
+critical and reasonably circumspect consumer who makes a proper economic assessment of the
+offer. She is, after all, addressed in terms of her health, not as a consumer.
+Tentative Exploration of the Empirical Circumstances of User Autonomy
+Thus far, we have discussed what it means, conceptually speaking, for autonomy to be violated
+which, in effect, has helped us to understand how user autonomy can be violated. Another
+important question, however, is to what extent the empirical circumstances actually enable
+users to practice their autonomy. Although our data do not allow us to map these empirical
+circumstances fully, we can use the cognitive, affective, and behavioural components of
+
+--- Page 16 ---
+people’s attitudes towards mHealth apps to tentatively explore the empirical circumstances of
+user autonomy.
+Broadly speaking, the results can be interpreted as indicating that people (1) believe that
+personalization in mHealth apps can in fact be rather efficacious when it comes to influencing
+behaviour and (2) believe that this can potentially be problematic. The survey thus shows that
+it is not just an abstract ethical analysis that judges some attempts by mHealth apps to influence
+behaviour to be ethically problematic. When asked, people report worries that are in line with
+our ethical analysis, which lends additional force and urgency to the conclusions of the ethical
+analysis.
+For our analysis of user autonomy, the most striking finding is that those people in our
+sample who actually use mHealth apps tend to be more convinced of the ability of personal-
+ized advertisements in mHealth apps to change their economic behaviour, while also being less
+sceptical about the intentions of mHealth apps and less worried about possible manipulative
+intent of mHealth apps. The fact that users are significantly less sceptical than non-users, while
+they at the same time believe more strongly in the efficaciousness of personalized advertising
+in mHealth apps, could be interpreted in at least two ways.
+The first interpretation is to suggest that as mHealth app users are those who have actually
+experienced the persuasiveness of personalized advertisements in such apps, we should
+conclude that they are in a better position to judge on manipulative intent and what the
+interests of mHealth app providers are. As a result, we should take their reported cognitive,
+affective, and behavioural attitudes on efficaciousness of personalization, manipulative intent,
+and the interests of mHealth app providers to be more authoritative than those of non-users.
+Following this line of thinking, it could be concluded that worries of manipulation by mHealth
+apps and the resulting violations of autonomy are unduly alarmist. Such a conclusion would,
+however, be somewhat simplistic, for it would implicitly assume that mHealth app users can
+and will detect all the possible ways in which mHealth apps may violate their autonomy. It is,
+however, perfectly possible for someone’s autonomy to be violated without that person
+noticing it—for instance when the person has not (yet) noticed that she has acted as the result
+of an inauthentic desire. One could even claim that many attempts by mHealth apps to
+influence the economic behaviour of their users are actually designed to influence the users
+as imperceptibly as possible. Thus, in order to establish the empirical soundness of this
+interpretation, further research is needed on people’s ability to detect and understand attempts
+that are explicitly designed to influence them in (relatively) imperceptible manners.
+The second interpretation is to suggest that, generally speaking, those people who are less
+critical and circumspect with regard to the workings of and intentions behind digital technol-
+ogies such as mHealth apps, are also the people who are much more likely to install and use
+mHealth apps. As a result, mHealth app users could be seen as, on average, more naïve than
+non-users, and as being more inclined to believe that mHealth apps will not try to influence
+their behaviour in problematic ways (for instance because they believe that mHealth apps only
+pursue laudable health-related ends). If we accept the second interpretation, it could mean that
+mHealth app users are especially vulnerable, precisely because they are inclined not to worry
+about potentially autonomy violating practices. This would leave them more susceptible to
+manipulation, for instance because they do not realize that mHealth app providers might have
+interests other than the users’ health (e.g., making sure users engage with commercial content
+in order to generate profits). In practice, this could mean they are less likely to critically reflect
+on the authenticity of their desires, values, and goals, and how these inform reasons for action.
+Or they could be more likely to go along with the natively advertised commercial options an
+
+--- Page 17 ---
+mHealth app presents to them, instead of questioning whether there might be other options
+they prefer, but that are significantly harder to find out about.
+Although the survey data do not provide conclusive answers, they do provide clear
+direction for further empirical research. Empirical research into users’ ability to detect and
+withstand potentially autonomy violating mHealth app practices would be welcome. The same
+holds for empirical research into the different characteristics and motivations of users versus
+non-users. For now, we can conclude that if the first interpretation we provided is the most
+sound, it implies that our analysis—for now at least—is predominantly interesting as a
+conceptual exercise which may help us understand potential future risks of mHealth apps
+violating user autonomy, and the conditions that need to be fulfilled to safeguard users’
+autonomy (e.g., awareness of the commercial intent). If, however, the second interpretation
+is the most sound, it implies that exploring the protection of mHealth app user autonomy is
+urgent and necessary.
+Protecting mHealth App User Autonomy
+The objective of this section is to investigate how the Unfair Commercial Practices Directive
+(UCPD) can help to identify and remedy situations in which the way mHealth apps are
+marketed and offered to users constitute (un)fair interferences with the users’ autonomous
+decision-making. We incorporate the autonomy framework developed above in our legal
+analysis, meaning we explicitly refer to the different requirements for autonomy (indepen-
+dence, authenticity, and options) and the different stages of using an mHealth app (installing,
+starting to use, and continued use). The analysis benefits, moreover, from empirical insights
+into the way consumers perceive and engage with mHealth apps (see “Empirical Insights into
+mHealth Perceptions” section).
+A Closer Look at the UCPD, Its Mechanisms, and Its Workings
+Commercial practices are unfair where they are either contrary to the requirements of
+professional diligence, or (can) “distort the economic behaviour” of consumers (Art. 5 (2)
+UCPD). Such economic behaviour of consumers can include a broad range of activities along
+the entire life cycle of a commercial relationship with the supplier of an mHealth app, from
+processing advertising and deciding to (not) buy an app, to using and ceasing to use it, or
+exercising any contractual rights a user may have, such as compliance with contractual
+agreements, maintenance, and after sales services.
+Importantly, the scope of the rules is restricted to commercial practices and transac-
+tions of the consumer. The UCPD defines a “transactional decision” in Art. 2 (k) as
+
+--- Page 18 ---
+“any decision taken by a consumer concerning whether, how and on what terms to
+purchase, make payment in whole or in part for, retain or dispose of a product or to
+exercise a contractual right in relation to the product, whether the consumer decides to
+act or refrain from acting.” In concrete terms, this means that unfair commercial
+practice law cannot be used to judge the fairness of claims that mHealth apps make
+about their ability to contribute to a healthier, fitter life per se (particularly if those
+claims are not true). It does, however, apply in situations in which such claims are
+instrumental in selling, using or continuing to use the app.
+The strong focus on “economic behaviour” and “consumer interests” has been
+subject to repeated critique. Wilhelmsson, for example, points to the fact that nowadays
+commercial considerations may be only one, and not even the most relevant aspect in
+the decision to use or not use certain services. Wilhelmsson refers to examples such as
+green or fair trade products (Wilhelmsson 2006a, p. 49). In a similar vein, Willett
+suggests a broad interpretation of “economic behaviour” in the sense that UCPD law is
+applicable “as long as there is some commercial flavour” (Willett 2010, p. 249).
+mHealth apps, arguably, are another example where economic and non-economic
+decisions fuse, as an almost inevitable consequence of the increasing commodification
+of the health and fitness sector (see above). With commercial mHealth apps, the
+decision to (continue to) use them will inherently also always be a transactional
+decision in the sense of the UCPD. Or put differently: the UCPD may not apply to
+the decision to live healthily, but it can apply to the decision to turn to commercial
+products and services in order to achieve that goal.
+Unfair commercial practice law draws a distinction between two broad categories of
+unfair commercial practices: commercial practices that are misleading and practices that
+are aggressive. In addition, practices that are contrary to the requirements of profes-
+sional diligence can also be considered unfair. Misleading practices include either the
+provision of false information, or the omission of information that consumers need to
+make informed decisions (Arts. 6 and 7 of the UCPD). In other words, the main
+objective behind the ban on misleading practices is the creation and preservation of
+the conditions that need to be fulfilled so that users can make informed decisions. The
+goal here is to provide users with the (correct) information that consumers need so that
+they can make informed and autonomous decisions (Wilhelmsson 2006b). The provi-
+sions about aggressive practices go beyond transparency and are concerned with forms
+of exercising pressure or other forms of undue influence on the actual decision-making
+but also on users’ fundamental rights, such as privacy (Howells 2006).
+In general, the rules about unfair commercial practices operate on a broad number of rather
+vague notions (“undue,” “fair,” “coercion,” “harassment,” etc.), leaving judges ample room for
+interpretation and application in certain situations. And yet, the directive also lists a number of
+practices that are always considered unfair (the so-called blacklist in Annex I of the UCPD).
+Apart from being an interpretation aid for the vaguer notions of the directive, the blacklist is
+also an element of ex ante consumer protection (compare Wilhelmsson 2006b).
+
+--- Page 19 ---
+mHealth Apps and Misleading Practices
+By structuring the evaluation of mHealth apps under unfair commercial practice law according
+to the three requirements for autonomy from the ethical analysis—independence, authenticity,
+and options—and by departing from the premise that an important objective of the UCPD is to
+protect consumers’ autonomous decision-making, we will demonstrate how a more differen-
+tiated, ethical understanding of autonomy and mHealth apps can actually help to inform and
+sharpen the legal analysis.
+Independence
+Independence can be seen to refer to the agency of a consumer to make a transactional
+decision that is in line with her values, goals, reasons, and expectations. Accordingly, No.
+17 from the list of banned commercial practices in the UCPD’s Annex I seems to be a prime
+example of a commercial practice that conflicts with the independency requirement and
+that is very relevant to mHealth apps: “Falsely claiming that a product is able to cure
+illnesses, dysfunction or malformations.” In its Guidance document, the European
+Commission interprets the provision broadly, in the sense of also applying to wellness
+claims (European Commission 2016, p. 91). In other words, any advertising that falsely
+claims that the use of the app will lead to weight loss, less risk of heart disease, or better
+sleep patterns seems to affect the freedom of a consumer to take a decision that is the best
+approximation of her expectations. Consequently, providers of mHealth apps need to be
+very careful with promises such as “when using this app you will live better” or that a
+particular app helps people live “healthier, happier lives.” Needless to say, the burden to
+provide evidence for the effectiveness of the treatment lies with the supplier (European
+Commission 2016, p. 93).
+Another relevant example of how commercial practices can affect the independence of
+the consumer’s decision-making is a situation in which (personalized) health advice is
+driven by commercial considerations. To come back to the earlier example of John’s advice
+to eat fish from a very particular web shop—would this practice constitute an unfair
+commercial practice?
+Probably yes. There is little doubt that under Unfair Commercial Practice Law, hiding
+the commercial intent behind a commercial practice is unfair. The UCPD itself is also
+rather explicit on this point (see Article 7(2) and No. 22 of Annex I). Seeing the
+provisions from the perspective of independence as a constituent element of autonomous
+
+--- Page 20 ---
+decision-making, however, helps us to better understand why such a practice must be
+considered unfair: by creating the false impression that the main objective of an app is to
+further consumers’ health, and by hiding the commercial intent as another important
+motive, a consumer is not in full control of her decision. She simply does not have all the
+facts at hand that she needs to make that decision. This consideration seems even more
+relevant seeing our findings about the scepticism of users as to the authenticity of the
+intentions of commercial mHealth app providers, with almost half of non-users reporting
+that they draw inferences of manipulative intent (see “Empirical Insights into mHealth
+Perceptions” section). The fact that the decision is related to a matter as vital as health
+might make hiding the commercial intent even more unfair (compare Willett 2005).
+Similarly, claiming that an mHealth app’s sole purpose is to improve health or
+fitness, without mentioning that consumers are “paying” for this service (be it in the
+form of money, data, or attention) is an unfair commercial practice to the extent that it
+misleads consumers about the commercial intent of the supplier. In order to be able to
+freely decide on taking an independent, autonomous transactional decision, consumers
+must be aware that they engage in a commercial transaction in the first place.
+It is worth noting that in order to qualify health advice as an unfair commercial
+practice, it is not necessary that the health advice is wrong per se (the fish from John’s
+web shop may still be a healthy choice). Instead, what is relevant is that the trader has
+failed to point the user to the fact that John may be giving valuable health tips, but that
+he also has a very particular commercial interest of his own in doing so.
+Authenticity
+Arguably, masking the commercial intent of a message also conflicts with the second
+requirement for autonomous decision-making: authenticity. In a situation in which the
+mHealth app supplier hides the commercial intent behind the app it may be very
+difficult to ascertain whether the interest of the user in eating fish is the result of her
+own desire for eating healthy fish, or whether she was manipulated into forming that
+desire. Where she was manipulated, one can argue that her desire to eat fish was not
+truly her own desire, and hence not authentic.
+The authenticity of the decision is also a relevant consideration in the context of
+unfair commercial practice law. Alongside providing the consumer with false informa-
+tion, or omitting information that the consumer needs in order to take an informed,
+independent decision, this practice is only considered unfair if it “causes or is likely to
+cause the average consumer to take a transactional decision that he would not have
+taken otherwise” (UCPD, Arts 6 (1) and 7 (1)). In other words, a commercial transac-
+tion is only unfair if it succeeds, or is likely to succeed in instilling feelings or desires
+that were not her own originally (otherwise she would have taken another transactional
+decision).
+The example, however, also immediately demonstrates the limits of applying unfair
+commercial practice law: Article 7(2) UCPD does not apply if omitting commercial
+intent would not affect the authenticity of the decision, in the sense that the consumer
+would have decided differently had she known that the app also serves a commercial
+purpose. As the results from the survey showed, many users seem to actually believe that
+mHealth apps also pursue commercial objectives. The fact that such apps are typically
+downloaded from an “app store” can be another contextual factor that may indicate to
+
+--- Page 21 ---
+consumers that health advice is not for free. In this respect, the approach of the UCPD
+is very pragmatic: it does not ban the fusion between health advice and commercial
+communication per se, only in situations which are likely to mislead consumers. “The
+trader is liable only when there has been some form of voluntary ‘assumption of
+responsibility’ for the information, rather than simply where consumers ‘need’ the
+information to take an informed decision” (Willett 2010, p. 255). In other words, the
+UCPD does not purport to protect autonomous decision-making in its own right (be-
+cause, for instance, it is an important value in our society), but only as a reflex of the
+quality of commercial decision-making.
+However, it is worth noting that fusions between editorial and commercial content in the
+media are banned outright by the directive. Using “editorial content in the media to promote a
+product where a trader has paid for the promotion without making that clear in the content or
+by images or sounds clearly identifiable by the consumer (advertorial)” is considered a
+commercial practice that is always unfair (and hence banned) (UCPD, Annex I, No. 11).
+This categorical ban on advertorials in the media takes into account public interest consider-
+ations regarding trust in, and the functioning of, the media, as well as the specific and very
+sensitive interest that consumers have in media content. Because of the central role that the
+media play in the democratic process and public debate, it is considered critical that users are
+able to judge for themselves the authenticity of the programming, or whether it has been
+influenced by external, commercial influences. This is also an expression of users’ protected
+fundamental right to freedom of expression (Schaar 2008; Kabel 2008). Health does not stand
+back in terms of importance or relevancy to the ability to exercise one’s fundamental rights
+(e.g., the right to privacy and life). Seen from this perspective, an argument can be made in
+favour of a different weighting of the economic freedom of the supplier, and hence more
+protection for consumers from camouflaged advertising, in the case of mHealth apps as well.
+More so as the clear indication of commercial intent is more generally a well-recognized
+principle in consumer law. These could be reasons to argue, for example, that there is a need
+to extend No. 11 of Annex I to not only editorially camouflaged media advertising but also
+advertising that is masked as health advice.
+Options
+This leaves the question of how free users are to exercise choice from different options, and even
+whether they have options at all? If John gives himself the appearance of a trusted adviser for users
+of that particular app, is he materially obscuring the option to turn to other suppliers of omega fats?
+In the logic of unfair commercial practice law, consumers’ choice from different options could be
+limited in at least two ways: consumers do not have the information they need to decide between
+different options, or they lack information as to what their options (e.g., competing products and
+
+--- Page 22 ---
+services) actually are. For the given example: John linked only to his own fish shop, not to others.
+One may wonder, however, to what extent this lack of indication of other options is sufficient to
+lead consumers to take decisions that they would not have taken otherwise. After all, most, if not
+all, consumers will know that John’s is not the only fish shop around. Consequently, additional
+circumstances would probably be needed to justify the finding of an unfair commercial practice,
+which brings us to the second category of unfair practices: aggressive commercial practices.
+mHealth Apps and Aggressive Practices
+At the core of the provisions on aggressive practices are not so much information needs (as in
+the provisions about misleading practices), but the protection of freedom of choice of con-
+sumers and finding the balance between legitimate persuasion and aggressive selling (Howells
+2006). Therefore, the potential relevancy of the rules about aggressive practices as an instru-
+ment to protect autonomous decision-making in the context of mHealth apps as well is evident,
+as being able to choose from different options is an important element of autonomous decision-
+making. Having said this, the provisions on aggressive practices are perhaps even less well
+defined than the provisions on misleading practices. Howells (2006, p. 168) writes that “[t]he
+balance between legitimate persuasion on the one hand and harassment, coercion and undue
+influence can be hard to fix in many instances and the Directive is not particularly helpful in
+assisting with drawing those boundaries.” Hence, the ethical requirements for autonomous
+decision-making defined earlier could provide a useful source of concretisation.
+The provisions about aggressive practices ban restriction of autonomous choices by
+physical or psychological pressure, in the form of harassment, coercion, or undue influence
+(UCPD, Art. 8). The division between the three is not always easily made (Howells 2006).
+Arguably, the provisions on undue influence relate more closely to the exercise of psycholog-
+ical pressure and, here in particular, the exploitation of power imbalances. This can be the
+exploitation of market power in the sense that suppliers (ab)use the fact that consumers have
+no choice to pressure them into buying products and services that they would otherwise not
+have bought. But this could also be “persuasion power.” Willett gives the example of greater
+market understanding and negotiation skills (Willett 2010, a critical analysis if provided by
+Howells 2006). Arguably, this could also be power in the form of detailed knowledge of the
+user, her wishes, fears, preferences, and biases but also the ability to serve users with
+personalized recommendations. As explained earlier, personalized recommendations can be
+potentially more persuasive, e.g., able to influence consumers’ behaviour (be it health or
+economic behaviour). Interestingly, in our survey, users themselves indicated that personalized
+content could not only be generally more persuasive, but also more effective in impacting
+one’s own behaviour (see “Behavioural Attitudes Towards mHealth Apps” section). As
+difficult as it may be to base any normative conclusions on such self-reported behaviour,
+these findings do seem to further emphasize the urgency of scrutiny of such practices under
+unfair commercial practice law.
+When then do personalized health recommendations cross the border between being a
+useful, tailor-made service, and constituting undue influence in the form of exercising manip-
+ulative power over the user? Here, the earlier specification of autonomous decision-making
+
+--- Page 23 ---
+into its three requirements—independence, authenticity, and options—can again help in
+informing the answer to that question. As we explained earlier, choices are not (fully)
+autonomous when, in the process of either buying, deciding to use, or continuing to use a
+health app, one or more of the three requirements are not fulfilled.
+Lack of Options
+To come back to John: Could John’s rather rude redirection of consumers’ intent to eat
+healthily to his own fish shop have reduced the options of consumers to shop for their fish
+elsewhere? In many respects, the case resembles the situation of one of the classic examples of
+an aggressive practice: doorstep selling. Traditionally, this has been a situation in which a seller
+is ringing at the user’s home door and trying to sell products at the doorstep. Doorstep pressure
+selling is a classic example of the abuse of a situational monopoly (Habersack 2000). A
+situational monopoly refers to a situation in which it is not the control over particular assets
+that grants a competitor a dominant market position, but the ability to control the options that a
+user has (e.g., being the first to arrive on that market, being able to exclude competitors, or
+exploiting a particular trust relationship). Such practices are explicitly banned by the UCPD:
+“Conducting personal visits to the consumer’s home ignoring the consumer’s request to leave”
+is an example of a commercial practice that is always considered unfair (UCPD, Annex I, No.
+25). Seen from this perspective, approaching someone in the privacy of their home can also
+imply making use of a situation in which no other providers of competing products are
+potentially present (in contrast to a public market space). Privacy in that sense can also place
+consumers at a disadvantage, precisely because others are excluded from access, thereby
+reducing their choice from other, potentially competing offers.
+In redirecting users to his fish shop, John may have been essentially reducing the users’ options
+and, in so doing, abusing the virtual equivalent of a “situational monopoly” in the real world. In
+the digital world, suppliers do not come to doorsteps anymore. They do not need to: they have a
+far more effective and arguably more private opportunity to access the consumer, via the screen of
+her telephone or fitness tracker. Therefore, using this privileged position in the virtual, and in that
+moment very private, marketplace is a practice that deserves scrutiny under the UCPD.
+Another example of unfair restriction of choice could be a variation on another classical,
+though probably extreme, case of aggressive practice: the refusal to allow a consumer to leave
+the premises before he has concluded the contract (UCPD, Annex I, No. 24). Again, this is an
+example that could potentially get a new meaning when transferred to the context of mHealth
+apps, particularly in cases where fitness trackers are involved. Often, these are proprietary
+platforms that will only give external parties/advertisers limited access (Trans Atlantic
+Consumer Dialogue 2008), thereby effectively limiting the options that users have on that
+platform. Once a consumer has purchased a particular fitness tracker the proprietary character
+of the platform and lack of interoperability can restrict her option to use fitness apps from other
+suppliers. Similarly, to the extent that consumers are not able to port their data from one
+platform to another, this also has also an effect on their freedom to choose from different
+options. This is not to say that the lack of interoperability is per se and always constitutes an
+unfair commercial practice. It can, however, when the lack of alternatives is used to “pressure”
+consumers into using particular health apps.
+A final example of lack of options to be discussed here is situations in which consumers are
+not free to choose in favour of or against using a particular health app in the first place. An
+example could be a situation in which an insurance company makes the provision of certain
+
+--- Page 24 ---
+terms and conditions dependent on the use of a fitness tracker. The requirement to use a fitness
+tracker could constitute an unfair commercial practice if in effect users feel pressured into
+using it.
+Alongside coercion, aggressive commercial practices can also include more subtle pressure
+on consumers’ decision-making in the form of “undue influence.”
+Lacking Independence of the Decision
+An indication of undue influence over mHealth app users could then be if the supplier
+exercises his influence in a way to make it impossible for the user to decide indepen-
+dently, i.e., when a practice circumvents the managerial control of users over their own
+desires, values, and goals (see “Autonomy: Conceptual Background” section). To some
+extent, this element of independence is also reflected in the UCPD’s definition of undue
+influence as the limited “ability to make an informed decision,” though the focus in
+the independence criterion is probably more on circumventing or even excluding
+consumers’ ability to decide, without the influence of third parties, on the basis of
+their own desires, goals, and values. We earlier gave the example of the Australian
+teens who can be targeted on the basis of their emotions, doubts, and negative self-
+perception. And indeed, the exploitation of concerns (e.g., being too heavy or not fit
+enough) or fears (becoming ill, not having friends, not being considered attractive) has
+been acknowledged as one possible form of exercising undue influence (Willet 2010;
+Schulze and Schulte-Nölke 2003). An example of undue influence could then be if,
+based on the information that suppliers have over users—their fears, concerns, and
+emotions—suppliers use that (data-driven) knowledge to identify moments in which
+consumers are particular sensitive to personalized persuasive strategies (e.g., because
+they feel particularly unattractive, unhealthy, or emotional at that moment). At such
+moments, individuals may temporarily lack the ability to make a truly independent
+decision. Another instance of undue influence could be if the knowledge about fears
+and health concerns is used very purposefully to circumvent users’ emotional and
+rational control mechanisms, and so to target them with commercial promises of more
+and better health or fitness. Or, as Micklitz (2006, p. 105) has put it: “The touchstone
+of the autonomy concept of the consumer is the assessment of emotional advertising.”
+Similarly, according to comparative research by Schulze and Schulte-Nölke (2003) on the
+notion of fairness in European Member States, exploiting special feelings of trust that
+consumers display towards third parties can also constitute an aggressive practice and is in
+some countries (e.g., Germany) even explicitly regulated. The example that they give is a
+school teacher or a chairman of a workers’ council (Schulze and Schulte-Nölke 2003), but an
+example closer to the present case could be a health care provider or, by extension, even the
+provider of an mHealth app. Again, one can argue that in such situations users’ independence
+
+--- Page 25 ---
+of decision-making is affected (because they rely so strongly on a third party to guide their
+decisions).
+Lack of Authenticity of the Decision
+We have already discussed how withholding information that the consumer might need,
+or misleading consumers about the commercial intent of a personalized communication,
+can conflict with the authenticity requirement. Aside from camouflaging the commer-
+cial intent, however, there can also be a situation where the supplier of an app goes
+further than withholding information. The detailed knowledge about their users, their
+concerns, level of fitness, etc. can also translate into a position of power that allows a
+supplier to exercise direct influence over the desires, concerns, or fears of a user. In
+other words, that knowledge can also be used to actively manipulate the user and instil
+desires, concerns, and fears in her that she did not have in the first place—and does not
+genuinely want to have—thereby tainting the authenticity of consumers’ desires and
+affecting the consumers’ ability to make an informed decision.
+“Undue influence” is defined by the directive as meaning “exploiting a position of power in
+relation to the consumer so as to apply pressure, even without using or threatening to use
+physical force, in a way which significantly limits the consumer’s ability to make an informed
+decision” (UCPD, Art. 2 (j)).
+Kaptein’s research into “persuasion profiles” shows how effective data can be used
+to identify the persuasion strategy that works best for an individual user (Kaptein 2015;
+see also Hanson and Kysar 1999). Others refer to “mental marketing” in the sense of
+commercial messages that “are not consciously perceived or evaluated but still might
+influence behaviour” (Petty and Andrews 2008, p.7). Our survey results seem to be
+pointing in that direction, too, with the majority of consumers believing that personal-
+ized messages (i.e., messages that use data to target the consumer) are potentially more
+effective and persuasive. The difficult question for consumer law in general, and unfair
+commercial practice law in particular, then, is where to draw the line between perfectly
+legitimate instances of advertising (as all advertising is about exercising influence,
+Gómez Pomar 2006) and unfair manipulation.
+Again, ethics, and the authenticity requirement in particular, may provide useful help in
+interpretation. To recall, one critical element of autonomous decision-making is to not only
+have managerial control over one’s values, desires, and goals but that they are also truly one’s
+own. Using detailed information (data) about users to target advertising for products that are
+likely to respond to a consumer’s values and desires is not per se making these values and
+desires less authentic. But consumers make transactional decisions not only on a rational level.
+There is a significant body of scholarship telling us that consumers are not rational decision
+makers, but that other factors, such as hidden biases but also emotions, too, play a critical role
+in consumer decision-making (Kahneman 2011; Thaler and Sunstein 2008; Reisch et al.
+2013). Accordingly, another form of undue influence to fall under the Unfair Commercial
+Practice Directive could be influencing the attitudes towards, or the weighing of, these values
+and desires. Based on Kahneman’s dual process theory, Hansen and Jespersen observed that
+not all forms of influencing choices are the result of reflective thinking, some also affect
+
+--- Page 26 ---
+automatic modes of thinking, in the sense of reflexes, instincts, and routine actions which we
+perform without really making a conscious decision (what they refer to as system 1 thinking).
+Following this line of thought, one could argue that instances of unfair manipulation occur
+only where signals (or nudges) seek to influence system 1 thinking in a way that is not
+transparent (and hence unnoticed) to the user (Hansen & Jespersen 2013). Similarly, as
+Incardona and Poncibò (2007) argue, emotions and moods can actually play a surprisingly
+central role in consumers’ decision-making. What if data power is not used to uncover
+(hidden) preferences and desires, but to manipulate consumers into having particular emotions
+that they might not have had in the first place? Seeing the importance that emotions play in
+consumer decision-making, the authenticity criterion could arguably also stretch to the au-
+thenticity of emotions. Howells gives the example of selling products to consumers who are
+seriously ill as a possible form of aggressive practice (Howells 2006). Could similar be said of
+consumers who feel very strongly about being healthy and fit? Considering the importance of
+health and the desire to lead a healthy life, a question for further exploration could also be to
+what extent consumers are more likely to be influenced by feelings and fears (e.g., wishing to
+live healthily, live longer, etc.) than consumers of other products and services.
+Are mHealth App Consumers More Vulnerable Consumers?
+Conceptually and legally, the qualification of a commercial practice as (un)fair cannot be seen
+separately from the question of who the individual consumer is, respectively what consumer
+standard one adopts. Unfair commercial practice law differentiates in the assessment of
+fairness between different states of agency (Friant-Perrot 2014). Very concretely the UCPD
+seems to veer between two extremes—the “reasonable well-informed, observant and circum-
+spect” average consumer as the “prototype” of at least EU consumer law, and the so-called
+vulnerable consumer. Though the UCPD principally departs from the standard of the average
+consumer, it also wishes to “prevent the exploitation of consumers whose characteristics make
+them particularly vulnerable to unfair commercial practices” (Recital 18 UCPD).
+The directive itself names several causes of vulnerability, including age, mental and
+physical infirmity, as well as incredulity (Art. 5(3) UCPD). The latter cause, incredulity, refers
+to consumers who are more likely than others to be susceptive to certain commercial
+influences (European Commission 2009; London Economics et al. 2016, for a critical
+analysis Duivenvoorde 2013). For the given context, the incredulity criterion seems particu-
+larly relevant as it acknowledges that the causes of vulnerability must not be limited to age or
+infirmity, but can also flow from the perceptibility to persuasion of certain groups or types of
+consumers in certain situations (London Economics et al. 2016).
+Are there reasons to assume that mHealth app users form a target group that is particularly
+prone to persuasion, for example, in the form of personalized communication? As our survey
+results show, users of mHealth apps are diverse and show different levels of digital efficacy,
+making it difficult to speak about “the consumer of mHealth apps” (see also Bol et al. 2018).
+Having said so, our survey results also show some interesting differences between users and
+non-users of mHealth apps, with the former category reporting significantly higher levels of
+
+--- Page 27 ---
+confidence in the persuasiveness of personalized content and the potential to effective change
+their behaviour, and yet at the same time significantly less scepticism about mHealth apps
+showing commercial content. More research is needed to ascertain whether this means that
+mHealth app users are also more open to instances of commercial persuasion in mHealth apps,
+and hence more vulnerable.
+This also raises a more principal question about whether, and under which conditions
+exactly, consumers that are subject to targeted marketing practices may need to be considered
+to fall into the category of vulnerable consumers. mHealth apps are an interesting example
+here. mHealth app users are typically younger, higher educated users with higher levels of e-
+health literacy skills than non-users (Bol et al. 2018), in other words, exactly the category of
+users that typically is not easily associated with the vulnerable consumer category. And yet, in
+the context of personalized (commercial) health communication, this is the type of users that is
+particularly concerned about living a healthy life (which is the reason why they use mHealth
+apps), and that exhibits disproportional trust in mHealth apps to help them achieving that goal.
+Those are also the users that leave the longer data trails (as opposed to, e.g., elderly users that
+do not use mHealth apps as much), and therefore allow advertisers and providers of mHealth
+apps to build more accurate profiles, identify their good and lesser active days, possibly even
+their moods, fears, and concerns. This knowledge, again, can be used to enable ever more
+precise hypernudging.
+Categories of vulnerability of mHealth users that would merit more exploration could
+include “informational vulnerability” (London Economics et al. 2016) as a result of the
+extensive knowledge that advertisers can have about consumers, often unknown to consumers;
+vulnerability in the sense of susceptibility to personalized health market manipulation (e.g.,
+because of reduced scepticism, more trust but also the particular value that health has for
+consumers); and related to that “pressure vulnerability” (Cartwright 2015) but also vulnera-
+bility in terms of the inability to choose mHealth apps that are potentially effective and/or have
+fairer conditions than others (e.g., because of the difficulty of understanding intrinsic data
+protection policies but also identifying trustworthy mHealth providers). Another important
+question to explore would be the role of trust in the providers of mHealth apps and their
+intentions in constituting vulnerability (“trust vulnerability” so to speak). Maybe even more
+importantly, understanding “mHealth vulnerability” can be an important first step in devising
+ways to mitigate the potential for abuse and unfair commercial mHealth practices (compare
+London Economics et al. 2016).
+Conclusion
+Many mHealth apps are about more than health. mHealth apps can also be part of a
+sophisticated, data-driven advertising strategy. This in itself is not a problem—a great deal
+of online content is financed by advertising. And yet, staying fit and healthy are, quite literally,
+of vital importance to consumers. The human urge to stay healthy, and consumers’ trust in the
+ability of mHealth apps to help can be abused for commercial gain, for instance by pressuring
+consumers into making commercial decisions they would not have taken otherwise. This is
+why it is so important to protect trust and the autonomy of consumers’ decisions in this area. In
+this article, we have argued that there is an important role for law, and for consumer law in
+particular, in establishing the boundaries between perfectly legitimate advertising strategies
+and unlawful data-driven manipulation of consumers’ choice.
+
+--- Page 28 ---
+To this end, we have combined findings from empirical, ethical, and legal research. Our
+survey of a representative sample of the Dutch population confirmed that many users are
+sceptical of mHealth apps’ intentions and, moreover, draw inferences of manipulative intent.
+They also agree that personalized messages can be more persuasive than their non-
+personalized counterparts. Our finding that people who use mHealth apps tend to be even
+more convinced of the ability of personalized advertisements in mHealth apps to change their
+economic behaviour, while at the same time being less sceptical about the intentions of
+mHealth apps and less worried about their manipulative intent, is particularly worrying. There
+is at least the possibility that this group of users, who do not worry about the practices of
+mHealth apps, is particularly susceptible to data-driven advertising. In the article we argue that
+it is this group of users—media literate, tech reliant, health conscious, and active data
+sharers—that is also at danger of being particular vulnerable to unfair commercial practices.
+It is therefore important to have a solid legal framework in place that guarantees fairness in the
+commercial dealings between mHealth app providers and their consumers.
+So far, much of the legal discussion about the use of data-driven targeting and advertising
+strategies has focused on the area of data protection law. The resulting data protection law
+analyses focus on informational privacy and often boil down to the call to give users control
+over who can use their data and for what purposes. Using the example of mHealth apps, we
+demonstrate that another important concern is to protect the decisional privacy of consumers,
+i.e., the ability to take decisions free from manipulation and undue influence. Unfair commer-
+cial practice law is a particularly useful legal regime in this regard, precisely because protecting
+the autonomy of consumers’ decision-making and banning undue influence is central to unfair
+commercial practice law.
+One major challenge of applying unfair commercial practice law in the case of mHealth
+apps is the lack of a clear conception of “autonomy.” We have therefore proposed a new and
+innovative concretization of autonomy. Based on a long tradition of thinking about the concept
+of autonomy in philosophy, we identified three essential requirements for autonomous deci-
+sion-making, which we called independence, authenticity, and options. We then showed how
+using these criteria can help to identify instances of data-driven targeting of mHealth users that
+cross the border into unfair and manipulative behaviour.
+Specifically, our analysis suggests that mHealth app users must be informed about
+the merging of health content and commercial practices, similar to the way that users
+must already be informed about the merging of commercial and editorial content. Not
+doing so conflicts with the independence and authenticity requirements for user auton-
+omy, and constitutes an unfair commercial practice. Similarly, we found that labelling
+mHealth apps as being free of charge, while in reality they collect personal data,
+including for the purposes of personalized advertising, is misleading. It is therefore
+important that—in the mHealth app context especially—every possible commercial
+influence on the user’s behaviour is clearly labelled as such. Another key finding of
+our analysis is that instrumentalizing the deep knowledge that collecting consumer data
+can give, and using their anxiety to live a healthy life for commercial ends, can
+constitute an aggressive practice if it deprives consumers factually of choice, abuses
+their trust in the integrity and usefulness of the app for health purposes, or tinkers with
+the authenticity of their decisions.
+mHealth apps can be a useful instrument for consumers to monitor and improve their health
+and fitness. Technologically assisted health self-management is also an important element in
+broader policies aimed at using technology for good. Given these great promises of mHealth
+
+--- Page 29 ---
+apps, it is even more important to create a situation in which users can trust that it is indeed
+their health that mHealth apps are targeting, and not their purse.
+Appendix: Methods of the Empirical Study
+Recruitment and Procedure
+As part of a larger panel wave study, we recruited participants through CentERdata’s
+LISSPANEL, which comprised a representative sample of the Dutch population. A total
+of 1288 panel members (90.0%) responded to the invitation to participate in our online
+survey. We asked respondents about their use of smart devices (i.e., smartphones, tablets,
+and wearables). Respondents who did not report to have a smart device were redirected
+to the end of the survey (n = 234, 18.2%). The questionnaire continued with questions
+about the use of mHealth apps, followed by cognitive, affective, and behavioural
+components of their attitudes towards mHealth apps. Of the eligible sample (i.e., those
+with a smart device, n = 1054, 81.8%), 25 participants (2.4%) were excluded as they
+skipped a substantial part of the questionnaire to get to the end (n = 13) or reported
+having mHealth apps on their smart device, but filled out other types of apps when they
+were asked what kind of mHealth apps they had (n = 12). This resulted in a final sample
+of 1029 adults for statistical analyses. Ethical approval for the study was obtained from
+the institutional review board of the authors’ university.
+Measurements
+mHealth App Use Respondents were asked to take their smart device(s), and to indicate
+which mHealth apps they had installed on their smart device(s). For each mHealth app,
+respondents were asked to indicate on a scale from “almost every day” to “never” how often
+they used this app.
+Cognitive Attitude Component The cognitive component was measured by respon-
+dents’ perceived interest of the mHealth app provider. We proposed the statement: “The
+main interest of app developers is the improvement of the user’s health,” and asked
+respondents to rate what they thought on a scale from 1 “totally disagree” to 7 “totally
+agree.” In addition, respondents were asked to justify their numeric answer with a written
+description of their thinking.
+Affective Attitude Component We assessed the user’s affective attitude towards
+mHealth apps using three measurements. First, we assessed users’ scepticism towards
+the merging of commercial and health content using an adapted version of the scepti-
+cism towards ads subscale of the dispositional persuasion knowledge scale (“PKS,” see
+Boerman et al. 2017). The following text was used to introduce the scale: “mHealth
+apps are often offered for free. This is possible because advertisements are shown
+within these apps. I think that showing advertisements in mHealth apps is…” The scale
+included eight items, such as “dishonest” versus “honest” (α = 0.961), and were
+assessed on 7-point semantic differential scales. Second, we measured respondents’
+perceived manipulative intent with six items (Campbell 1995). Items included “mHealth
+
+--- Page 30 ---
+apps try to manipulate people in ways I do not like” (α = 0.724) and were assessed on a
+scale from 1 “totally disagree” to 7 “totally agree.” Third, we asked about respondents’
+feelings regarding receiving personalized commercial content (i.e., personalized ads) in
+mHealth apps, using the statement “I prefer personalized ads over generic ads.” Besides
+the assessment on a scale from 1 “totally disagree” to 7 “totally agree,” respondents
+were given the option to expand on their answer in a written comment.
+Behavioural Attitude Component We measured the behavioural attitude component with
+two statements, which could both be rated on a scale from 1 “totally disagree” to 7 “totally
+agree,” as well as the opportunity to provide written comments. The statements included
+“Personalised ads are more persuasive than generic ads” and “Personalised ads are better
+capable of influencing my behaviour than generic ads.”
+Statistical Analyses
+Based on the mHealth app use measurement, we categorized respondents into users and
+non-users of mHealth apps. Those who indicated to have mHealth apps installed on their
+smart device, but reported to never use them, were categorized as non-users. We
+conducted descriptive analyses to determine mean scores and standard deviations on
+the cognitive, affective, and behavioural component of user attitudes regarding mHealth
+apps. Furthermore, we conducted chi-square tests to compare mean scores between users
+and non-users of mHealth apps. To analyse the written answers provided, we coded them
+based on the numeric answer (i.e., numeric score of 1–3 indicates a negative comment,
+whereas a numeric score of 5–7 indicates a positive comment). A selection of written
+answers was made such that these represented comments of both users and non-users of
+mHealth apps, younger and older respondents, and males and females.
+References
+
+--- Page 31 ---
+
+--- Page 32 ---

@@ -1,0 +1,1238 @@
+
+--- Page 1 ---
+The federated learning (FL) principle ensures multiple clients jointly develop a machine 
+learning model without exchanging their local data. Various government enacted prohibi­
+tion policies on data exchange between organizations have led to the need for privacy-
+preserved federated learning. Many industries have cultivated this idea of model develop­
+ment through federated learning to enhance performance and accuracy. This paper offers a 
+detailed overview of the background of FL, highlighting existing aggregation algorithms, 
+frameworks, implementation aspects, and dataset repositories, establishing itself as an 
+essential reference for researchers in the field. The paper thoroughly reviews existing 
+centralized and decentralized FL approaches proposed in the literature and gives an over­
+view about the methodology, privacy techniques implemented and limitations to guide 
+other researchers to advance their research in the field of federated learning. The paper 
+discusses the critical role of privacy-enhancing technologies like differential privacy (DP), 
+homomorphic encryption (HE), and secure multiparty computation (SMPC) in federated 
+learning highlighting their effectiveness in safeguarding sensitive data while optimizing 
+the balance between privacy, communication efficiency, and computational cost. The pa­
+per explores the applications of federated learning in privacy-sensitive areas like natural 
+language processing (NLP), healthcare, and Internet of Things (IoT) with edge computing. 
+We believe our work provides a novel addition by identifying privacy evaluation metrics 
+and spotlighting the measures in terms of data privacy and correctness, communication 
+cost, computational cost and scalability. Furthermore, it identifies emerging challenges and 
+suggests promising research directions in the federated learning domain.
+Decentralized · Blockchain
+
+--- Page 2 ---
+The advent of recent streams of artificial intelligence (AI), machine learning (ML), Internet 
+of Things (IoT), etc., has driven a vast amount of data accumulation called big data. These 
+data have been applied to streams such as transportation, industry, agriculture, healthcare, 
+and so on. Organizations take valuable insights from these data to better understand user 
+behavior, which helps them grow their customer base and boost profits. For example, banks 
+evaluate customers based on their loan and credit card history, companies analyze user data 
+collected from wearable watches to develop health-related applications, and retail com­
+panies increase their business by utilizing recommendation systems that predict based on 
+browsing and shopping patterns. Building an AI or ML model requires integrating data from 
+several sources. However, obtaining this kind of data could be costly and time-consuming. 
+Meanwhile, specific policies prohibit data exchange between organizations due to increased 
+privacy and data security expectations. For instance, the US government enacted the Health 
+Insurance Portability and Accountability Act (HIPAA) to prevent hospitals, insurance com­
+panies, and healthcare providers from accessing private and sensitive patient data. The 
+General Data Protection Regulation (GDPR), enacted by the European Union, prohibits 
+institutions and organizations from using users’ personal data without consent (Khan et al. 
+2023). The GDPR states that operators must have user agreements and cannot manipulate 
+users into sacrificing their privacy. Operators are also not allowed to train models with­
+out the user’s consent (Albrecht 2016). Similarly, network providers are prohibited from 
+destroying or disclosing personal data by China’s General Security Law (Zhang et al. 2021). 
+It emphasizes that network operators are not allowed to reveal, alter, or destroy the personal 
+data they gather. Before proceeding with any data transactions with the third party, ensur­
+ing that the proposed contract clearly defines the scope of the data to be shared and the data 
+protection criteria (Parasol 2018) is imperative. Countries like Argentina’s Personal Data 
+Protection Act (PDPA), Japan’s Act on the Protection of Personal Information (APPI), and 
+Canada’s Personal Information Protection and Electronic Documents Act (PIPEDA), etc. to 
+name a few are strict laws that protect data privacy in their respective international organi­
+zations or countries (Li et al. 2023a). The implementation of these laws helps in preventing 
+data leaks and advancing security. These guidelines aid in safeguarding user data while 
+creating difficulties for the training of AI or ML models.
+To address these training difficulties, Google proposed the federated learning concept, 
+which takes place across a federation of dispersed learners in the system using locally 
+stored data for model training. Federated learning minimizes the costs and privacy con­
+cerns related to traditional centralized machine learning methods by following two funda­
+mental principles: local computing and model transfer. Every learner in federated learning 
+can improve their local model without having direct access to other learners’ private data. 
+Federated learning (FL) is a machine learning environment where several clients exchange 
+training updates with each other to develop a high-performing centralized model. Here, each 
+client’s learning algorithm updates the local model with its local data in each round of FL. 
+The clients subsequently send the update to server, which combines the client updates to 
+produce a global model.
+FL has emerged as a crucial framework in the age of data-driven innovation, address­
+ing the growing need for privacy-focused machine learning. Unlike traditional methods 
+that rely on centralized data aggregation for training models, FL eliminates the associated 
+
+--- Page 3 ---
+privacy risks, regulatory hurdles, and security challenges-especially relevant in sensitive 
+fields like healthcare, finance, and IoT. Instead, FL enables models to be trained directly 
+on decentralized data stored across multiple devices or institutions, eliminating the neces­
+sity to transfer sensitive data to a central server. This decentralized approach enhances data 
+privacy, ensures compliance with regulations such as GDPR, and reduces communication 
+overhead by utilizing edge computing. Additionally, FL fosters collaborative model training 
+across diverse datasets, improving both generalization and fairness while maintaining data 
+sovereignty. As data volumes and sensitivity continue to grow, FL offers an effective and 
+scalable solution to balance the demands of privacy and performance in modern AI systems.
+FL is designed to protect data privacy by training models on distributed data without 
+centralized aggregation. However, the inherent structure of FL still exposes vulnerabili­
+ties, such as information leakage through model updates, membership inference attacks, 
+and gradient inversion techniques. This necessitates the development and evaluation of 
+robust privacy-preserving mechanisms and assessing the effectiveness of these mechanisms 
+requires well-defined metrics to quantify privacy guarantees without compromising model 
+performance. The motivation behind this survey paper is to consolidate existing privacy 
+techniques and metrics, offering a comprehensive resource for researchers and practitioners. 
+It helps identify and highlights challenges in balancing privacy, efficiency, and accuracy, 
+and sets the stage for future research in securing FL systems. Providing information for the 
+growing adoption of FL in sensitive domains like healthcare, natural language processing 
+(NLP), and IoT, understanding privacy trade-offs and advancements is crucial for ensuring 
+safe and trustworthy deployment of federated systems.
+1.1  Positioning our work among existing FL research
+Several surveys have been conducted to examine federated learning (FL) from various 
+perspectives, each emphasizing different aspects, challenges, or application domains. For 
+example, Zhang et al. (2021) reviewed the evolution of FL and provided an overview of 
+existing research based on data partitioning, privacy, machine learning models, communica­
+tion architecture, and heterogeneity. It also briefly analyzed current real-world applications 
+of FL. Similarly, Khan et al. (2023) introduced a taxonomy for FL, highlighted key consider­
+ations, identified factors crucial for ensuring privacy, and discussed the primary techniques 
+utilized. Additionally, they summarized the various application domains of FL. The article 
+(Li et al. 2023a) provides a thorough analysis of the application and security of federated 
+learning in healthcare. It provides insights into applications in the medical domain using 
+a federated aggregation approach. It analyses security of FL, presents privacy-preserving 
+techniques of FL. The authors (Gabrielli et al. 2023) provide detailed information on decen­
+tralized FL solutions that enable FL clients to collaborate and communicate without a cen­
+tral server, and also concentrated on the crucial problems of the centralized orchestration in 
+traditional FL client–server architecture. They categorized existing approaches into distrib­
+uted computing and blockchain-based approaches. The paper (Liu et al. 2024) is yet another 
+survey on blockchain-enabled FL that introduced the fundamental concepts of blockchain 
+and FL while exploring their interrelationship. Additionally, it offers an in-depth analysis of 
+FL system architectures, covering the various layers like infrastructure, algorithm, network, 
+communication, blockchain consensus, and application and it discusses the current state of 
+research. Sameera et al. (2024) examined the scientific community’s research attempts to 
+
+--- Page 4 ---
+define privacy solutions in implementing Blockchain-Enabled FL situations. They provided 
+a thorough overview of the history of FL and Blockchain, assessed current architectures for 
+their compatibility, and listed the main threats and potential defences to ensure privacy in 
+their environment. Table 1 presents a comparison of key topics covered in related survey 
+articles along with our contributions. This comparison highlights how our survey can assist 
+both academic researchers and industry professionals in understanding existing theories and 
+techniques aimed at enhancing FL performance in both centralized and decentralized set­
+tings. Unlike previous surveys, our work not only explores privacy-enhancing techniques 
+but also provides an understanding of various privacy metrics for performance evaluation. 
+By providing a comprehensive overview of the current landscape, this survey serves as a 
+valuable resource for gaining insights, understanding emerging trends, and guiding future 
+advancements in the field of FL.
+1.2  Contribution and structure of the article
+The contributions of this paper are multifaceted and provide significant insights into the 
+evolving field of FL. (1) Provides a comprehensive background on FL and associated chal­
+lenges. (2) In-depth discussion on privacy-preserving techniques highlighting their trade-offs 
+and applicability in FL systems. (3) Categorizing existing FL architectures into centralized 
+and decentralized models, evaluating their strengths and limitations. (4) Explores FL appli­
+cations across multiple domains, emphasizing practical implementations and potential chal­
+lenges. (5) Analysis of privacy and performance trade-offs using various evaluation metrics, 
+focusing data privacy and correctness, resistance to attacks, computational and communica­
+tion overhead and scalability of FL systems.
+The structure of this paper is organized as follows. Section 2 gives the background and 
+preliminaries of federated learning, covering its fundamental principles, classification, 
+aggregation algorithms, benchmark frameworks, and key challenges. Section 3 explores the 
+
+--- Page 5 ---
+significance of privacy protection in FL and examines essential technologies employed to 
+safeguard user data. Section 4 summarizes the existing literature review based on the archi­
+tecture of FL namely centralized and decentralized FL. Section 5 discusses the applications 
+of FL across various domains, including natural language processing (NLP), healthcare, 
+IoT, and edge computing. In Sect. 6, we discuss privacy and performance analysis with vari­
+ous metric considerations. Sectios 7 and 8 outlines the future scope and provide concluding 
+remarks.
+In this section, we present the concepts of federated learning, its categorization in terms of 
+architecture, federation scale and data distribution across sampled feature space, and also 
+aggregation algorithms and benchmark frameworks.
+2.1  Federated learning
+Federated learning is an environment where several clients can work together to train mod­
+els using their local data and only exchange the training parameters required to achieve 
+the learning goal, maintaining the privacy of their original data, as illustrated in Fig. 1. 
+This configuration guarantees the privacy of each client’s data while enabling dispersed 
+
+--- Page 6 ---
+data training. With federated learning, multiple participants, P , . . . , P , are chosen to 
+train the machine learning model M without aggregating their individual data D , . . . , D
+. Together, they create the model M , which has δ performance. In contrast, tradi­
+tional machine learning with multiple participants would require aggregating all of the data 
+together, D = D
+∪ D
+∪ · · · ∪ D , to train model M , which would have a perfor­
+mance of δ . The accuracy loss in FL is represented by delta (δ), where δ is a positive 
+real number, and it holds that |δ − δ | < δ (Nagar 2019). In each round of FL, w
+to w denote the weights of the n clients, while w represents the global model’s weight.
+The following steps constitute the fundamentals of multi-party collaborative modeling 
+in FL: 
+1.	 Client selection: The server keeps track of potential client to client , which are usu­
+ally edge servers, IoT devices, or smartphones. The server chooses k node clients from 
+a collection of clients that satisfy the requirements for the FL process.
+Weights and biases in the model are established via random initialization or through 
+pre-training with the available global dataset. This initial model M is sent to every 
+selected client by the server.
+3.	 Client local training: Among the k clients chosen by the server, each client , where 
+1 ≤ i ≤ n will use its local data to train the initial model locally. It will then use the 
+gradient descent technique to optimize the learning model, encrypt it, and share the 
+updated model with the server.
+validated, and the lagging updates are removed and then aggregated to create the global 
+model M .
+5.	 Model update: For the current round j, the cumulative update U of k clients is com­
+piled and distributed to the chosen clients in the subsequent round as the global model.
+The above outlined step 3 to 5 is repeated until the loss function reaches convergence.
+2.2  Categories of federated machine learning
+Figure 2 illustrates the classification of FL, primarily based on three key aspects. Firstly 
+based on the system’s architecture, FL is categorized primarily into two approaches: central­
+ized and decentralized. In a centralized approach, a central entity serves as the orchestrator 
+in the client–server fashion. The central server is in charge of selecting clients for model 
+training, creating a global model by merging local models, and broadcasting model param­
+eters to all parties. It is also termed synchronous FL architecture, whereas, in the decentral­
+ized approach, there is no separate role as server or client. At each round, each client can 
+aggregate the local models and broadcast global model parameters to other clients.
+Secondly, FL systems fall into two categories: cross-device and cross-silo, based on the 
+federation scale. Cross-device FL systems consist of numerous mobile devices with diverse 
+processing capabilities, where the model is distributed to the clients and trained on local 
+data during the training phase (Gabrielli et al. 2023). Nevertheless, FL is equally effec­
+tive in cross-silo scenarios, in which the number of federated clients is often low, but their 
+computing capacity is high, typically found in large enterprises or data centers. In this, the 
+
+--- Page 7 ---
+local model is combined with data centers and data silos to create a global model. Lastly, 
+FL is divided into three types based on how data is distributed across the sample and fea­
+ture spaces: horizontal federated learning, vertical federated learning, and federated transfer 
+learning, as shown in Fig. 3.
+●
+
+--- Page 8 ---
+mension, and the part of the datasets that has similar user attributes but differs in users 
+is considered for training.
+●
+mension, and the part of the datasets that have similar users but differing user attributes 
+is considered for training.
+●
+transfer learning is utilized to overcome the absence of data or tags.
+2.3  Aggregation algorithms
+In FL, aggregation algorithms are essential for combining updates from multiple decentral­
+ized clients into a global model without sharing raw data. These algorithms ensure that the 
+global model improves over time while maintaining the privacy of individual clients. Every 
+training iteration in FL is as illustrated in Fig. 4, where a global model update is obtained by 
+aggregating all of the local model updates.
+There are several aggregation approaches like average aggregation, where server aver­
+ages the received updates from clients, clipped average aggregation which is similar to 
+average aggregation, but outlier updates are clipped to reduce the influence of malicious 
+or abnormal updates. Momentum aggregation helps to speed up model convergence and 
+bayesian aggregation uses inference to account for uncertainty in client updates, improving 
+model generalizability. Secure aggregation incorporates cryptographic methods to ensure 
+client data privacy where as quantization aggregation reduces the size of model updates by 
+compressing them before transmission to enhance efficiency. Hierarchical aggregation is 
+performed at multiple hierarchical levels, reducing communication overhead and personal­
+ized aggregation considers the specific data characteristics of each client, ensuring personal­
+ized updates. Table 2 and 3 lists the widely used aggregation algorithms and strategies in FL 
+and highlights its outcomes.
+2.4  Benchmark framework details
+Federated Learning benchmark frameworks are essential for progressing the field of FL 
+and facilitating the creation of effective, efficient, and robust FL algorithms. They offer 
+standardized datasets, metrics, and protocols, allowing researchers to assess and compare 
+various FL algorithms in consistent environments. This enables a comprehensive evaluation 
+
+--- Page 9 ---
+)
+(
+∑
+∑
+∑
+
+--- Page 10 ---
+)
+(
+∑
+∑
+∑
+∑
+∑
+ ∑
+∑
+∑
+
+--- Page 11 ---
+
+--- Page 12 ---
+of FL algorithms regarding accuracy, communication efficiency, and computational costs. 
+Common framework promotes collaboration among researchers, practitioners, and orga­
+nizations by aligning their efforts toward shared goals and challenges. In this section, we 
+highlight the benchmark frameworks as shown in Table 4 which is used to conduct various 
+experiments in FL.
+2.5  Challenges in federated learning
+To effectively safeguard user privacy, federated learning faces several challenges that need 
+to be addressed, which are outlined below:
+●
+with the server rather than the raw data. It is important to make sure that no personal 
+information is disclosed by the federated learning training model. There have been de­
+velopments in data privacy techniques resulting in increased computation complexity 
+and computational load on the federated network.
+●
+federated network is made up of millions of dispersed mobile devices and learning 
+model may require a lot of communication during training data sharing among them. 
+Techniques with high communication efficiency must be developed by considering the 
+communication cost of FL, given the unreliability of network connection speed. If not 
+adequately handled, the frequency of model updates might also overload the network.
+●
+devices may include Non-IID (non-independent and identically distributed) data. Be­
+cause of variations in hardware, software, and network connectivity, every client in the 
+network may have varying computation and communication capabilities. Some devices 
+in a network are concurrently active, while others occasionally get the connectivity. 
+Therefore, FL techniques must be resilient to offline devices in the network and able to 
+withstand diverse hardware. Techniques for data formatting and storage can also differ 
+throughout devices.
+
+--- Page 13 ---
+●
+intentionally or unintentionally aggregate the global model, potentially resulting in er­
+rors throughout the model’s training process. Low-quality model uploads can also result 
+from unstable mobile network conditions. Appropriate authentication methods must be 
+implemented at the data sources and aggregation servers due to security issues in FL 
+related to data and model poisoning. Large-scale poisoning attacks could affect the ac­
+curacy of the model. Due to the model’s centralization approach, distributed denial of 
+service (DDoS) attacks can also affect the network and central server. Frequent updates 
+to local models and the data they gather into the global model may overburden the net­
+work and central server.
+This section discusses the importance of privacy protection and critical technologies in FL, 
+reviews literature on strategies to preserve privacy and advance research in the chosen area. 
+It enables us to recognize the possible advantages and restrictions of every privacy protec­
+tion system and how it might be used to handle data privacy issues in situations involving 
+collaborative learning.
+3.1  Need for privacy preservation in federated learning
+Studies on federated learning have proposed different solutions to implement privacy-
+enhancing schemes with the aim of addressing privacy in FL. The primary challenges that 
+arise and require attention are as follows:
+●
+Research indicates that participant data may not be protected when transferring gra­
+dients. Private training data can still be exposed through the shared gradient updates 
+(Zerka et al. 2020).
+●
+dients during the training phase, which could undermine the model’s availability and 
+integrity. To stop the model from converging or tamper with the global model, they can 
+conduct targeted and untargeted poisoning attacks (Mothukuri et al. 2021b).
+●
+server for aggregation, the honest-but-curious servers might retain information about 
+the training data provided by users through model update gradients (Le et al. 2023).
+●
+information from trained models by eavesdropping on the communication channel and 
+compromising the FL system (Wang et al. 2023a).
+3.2  Privacy enhancing technologies
+In order to improve FL’s privacy preservation during the training process, numerous 
+approaches have been suggested as shown in Fig. 5.
+
+--- Page 14 ---
+3.2.1  Anonymization
+The dataset contains personal information about an individual, including medical diagno­
+sis records, bank account details, etc., and with the release of such a dataset, the personal 
+information can be compromised. One of the effective techniques for safeguarding data 
+privacy is anonymization. It is the process of eliminating any personal information that 
+could be used to identify a particular user. However, some case studies show these opera­
+tions are insufficient to guarantee the privacy of private information, especially with respect 
+to statistical queries. Choudhury et al. (2020), a syntactic strategy for anonymizing local 
+data at each site, which is (k, k )-anonymity-based approach. It considers both relational 
+and transactional attributes of local healthcare data D from N sites, where k represents the 
+minimum number of records in a group that must be indistinguishable from one another and 
+k refers to the minimum number of distinct values for a sensitive attribute within each 
+group of k records. The function u () and u () measures information loss for relational and 
+transactional attributes, with parameter δ balancing the goals, where u is the utility of the 
+relational part and u is the utility of the transactional part.
+3.2.2  Differential privacy
+It is a technique developed to facilitate secure analysis over sensitive data to safeguard 
+privacy. It guarantees that the addition or exclusion of a single record from a dataset has no 
+effect on the outcome of an algorithm (Dwork 2008). By injecting noise or using a sample 
+dataset, it maintains statistical features and safeguards the privacy of the data by preventing 
+an attacker from getting the exact information even after several searches. It is usual practice 
+to add noise into output during each iteration phase in order to maintain user privacy (Abadi 
+
+--- Page 15 ---
+et al. 2016). FL can withstand membership inference attacks and prevent leakage of weights 
+during training by implementing DP mechanisms. DP is implemented by introducing noise 
+to the data with two different approaches, namely: Sensitivity of a function explained in 
+work (Dwork 2006) and based on an exponential distribution among discrete values given 
+in work (McSherry and Talwar 2007). The sensitivity of a function M : D → R over an 
+arbitrary domain for datasets, say, D and D differing by a record is the maximum change in 
+the output of M over all possible inputs.
+M = max ∥ M(D) − M(D ) ∥
+The probability distribution induced by a quality function q : (D × R) → R for given dataset 
+dϵD , assigns a score to each outcome rϵR by S(q) = max ∥ q(D, r) − q(D , r) ∥
+. The mechanism M to choose an outcome rϵR given a dataset instance dϵD is defined as 
+(
+)
+, where α serves as a normalization 
+M(d, q) = return r with probability α · exp
+factor.
+By introducing partial noise, DP protects against computationally dominant adversar­
+ies. The findings are greatly impacted by the phenomenon of introducing noise to a small 
+dataset during model training. DP is, therefore, not appropriate for small datasets and is best 
+suited for large datasets. Thus, DP algorithms introduce noise to the dataset and secure the 
+data by preventing re-identification attacks. Two noise-adding differential privacy methods 
+are Gaussian and Laplacian methods (Wu et al. 2022). Further, based on the application 
+scenario, DP can be of two types, namely global differential privacy and local differential 
+privacy. Both forms of DP can ensure ϵ−differential requirements of an individual user, 
+regardless of minor differences in application scenarios. Clients employ a federated optimi­
+zation technique with DP (Geyer et al. 2017) to safeguard their global differential privacy. 
+The trained model contains a large number of parameters to ensure accurate communica­
+tion and functionality. The increase in noise will greatly diminish its validity. A method 
+based on adaptive gradient is suggested (Andrew et al. 2021) to reduce noise penetration to 
+the gradient and avoid adding unnecessary extraneous noise. DP is used in FL healthcare 
+applications as an essential privacy algorithm, mainly to train medical text data and develop 
+models for medical image analysis (Adnan et al. 2022). Lu et al. (2022) suggested appropri­
+ate deep learning models may be efficiently developed from distributed data warehouses 
+via poorly supervised multi-pose learning with DP by using random noise, avoiding the 
+complication of direct data sharing. Data privacy for diabetic patients is protected (Chang 
+et al. 2021) by the development of an adaptive differential privacy algorithm and a gradient 
+verification-based consensus technique to detect poisoning attacks. An incentive mecha­
+nism using differential private federated learning (DPFL) framework (Wang et al. 2021a) 
+developed to prevent data owners’ privacy leakage in the IoT domain. DP provides a notably 
+higher level of protection with some degree of precision loss. The study (Gupta et al. 2022b) 
+addresses the challenge of noise injection by dividing data into sensitive and non-sensitive 
+parts, enhancing the efficiency of the classification model. It aims to ensure data security 
+during storage, analysis, and sharing in the cloud while maintaining utility and minimizing 
+computational overhead. To achieve this, the data is partitioned using k-anonymization, and 
+privacy is preserved by selectively applying the Laplace mechanism to inject noise, thereby 
+reducing the impact of perturbation. The processed data is then shared with the cloud, where 
+
+--- Page 16 ---
+a multi-layered feed-forward deep neural network (MFNN) is employed for analysis. The 
+MFNN is trained using the TriPhase Adaptive Differential Evolution (TADE) algorithm, 
+which optimizes the network’s learning process for improved performance.
+3.2.3  Homomorphic encryption
+It is a cryptographic method that enables computations to be carried out on encrypted 
+data without decrypting it. HE is particularly useful in privacy-preserving data analytics, 
+as it allows untrusted parties to work on encrypted values without accessing the under­
+lying plaintext data (Li et al. 2020c). There are different types of homomorphic encryp­
+tion schemes, such as partially homomorphic encryption (PHE), somewhat homomorphic 
+encryption (SWHE) and fully homomorphic encryption(FHE). PHE helps to protect sensi­
+tive data confidentiality by allowing only specific mathematical operations to be carried out 
+on encrypted information. With this method, a ciphertext can undergo a single operation an 
+infinite number of times (Wu et al. 2021b). SWHE schemes are limited to a finite number of 
+operations (such as addition or multiplication) and a finite number of executions (Chen et al. 
+2021). FHE scheme enables computations on both addition and multiplication operations 
+and supports any number of operations (Gao et al. 2023a), and improving the efficiency of 
+secure multi-party computation. It can handle arbitrary computations of ciphertexts. Addi­
+tively homomorphic encryption (AHE) allows for the computation of encrypted messages, 
+such as adding two encrypted messages or adding an encrypted message to a clear integer. 
+One popular example of AHE is the Paillier cryptosystem that satisfies the basic homo­
+morphic properties, such as the ability to perform addition and scalar multiplication on 
+ciphertexts. It uses a modulus and a random generator to encrypt messages and perform 
+computations on them (Madi et al. 2021). Additive homomorphism is employed to guaran­
+tee model parameter sharing security, preventing the central server from leaking the client’s 
+private information (Aono et al. 2017). While federated logical regression model (Hardy 
+et al. 2017), employs an additive homomorphism method to effectively resist honest and 
+curious attackers, the SecureBoost (Cheng et al. 2021) a decision tree model is constructed 
+using HE to protect its parameters.
+ElGamal encryption has multiplicative homomorphic property based on Diffie-Hellman 
+key exchange, allowing for operations on ciphertexts without decrypting them (Li et al. 
+2023b). Linearly homomorphic encryption (LHE) is a public-key encryption scheme that 
+supports linearly homomorphic operations over ciphertexts (Liu et  al. 2021). It enables 
+computations to be carried out directly on encrypted data without needing access to the 
+secret key. The semantic security property of LHE ensures that an adversary cannot distin­
+guish between ciphertexts and random values. FHE satisfies the requirement that operations 
+on plaintext that involve addition or multiplication be equal to those that involve ciphertext. 
+It enables computations on sensitive data while preserving privacy, as the data remains 
+encrypted throughout the computation process. FHE schemes, such as the Cheon-Kim-Kim-
+Song (CKKS) scheme, can handle operations on floating-point numbers and vectors (Miao 
+et al. 2022).
+Zhang et  al. (2019) safeguards gradients on an untrusted server by encrypting par­
+ticipants’ local gradients using the Paillier homomorphic cryptosystem, thereby ensuring 
+secure aggregation and protecting individual privacy. Zhang et al. (2023) proposed a FL 
+scheme that consists of a Paillier homomorphic cryptosystem combined with an online or 
+
+--- Page 17 ---
+offline signature technique that enables the edge server to safely handle the offline portion 
+of the lightweight gradients integrity verification for edge computing systems. To address 
+attacks aiming at security vulnerabilities, Jia et al. (2021) proposed a data protection aggre­
+gation scheme based on distributed random forest with DP and the distributed AdaBoost 
+with HE methods, which enable multiple data protection in data sharing and model sharing 
+and integrated the methods with Blockchain and FL. To accomplish ciphertext-level model 
+aggregation and model filtering, Wang et al. (2022a) proposed FL for internet of vehicles 
+(IoV) which can enable the verifiability of the local models while maintaining privacy using 
+multi-krum technology fused with AHE. Authors (Miao et al. 2022) proposed a Blockchain-
+infused FL to reduce the poisoning attacks from malicious clients and servers. They use 
+cosine similarity to detect malicious gradients uploaded by malicious clients and employ 
+CKKS and FHE to guarantee the privacy and integrity of the federated learning process 
+through secure aggregation. In order to prevent attacks, Sun et al. (2022) proposed a Block­
+chain FL audit strategy for encrypted gradients. The strategy records the encrypted gradients 
+from data owners using a behavior chain, and it assesses the quality of the gradients using 
+an audit chain. The scheme uses a homomorphic noise mechanism that guarantees the avail­
+ability of aggregated gradient.
+3.2.4  Secure multiparty computation
+It is a method for processing sensitive data while maintaining privacy. It permits several par­
+ticipants to collaboratively calculate a function on their confidential inputs without disclosing 
+any details about their inputs to one another. SMPC can be used to accomplish secure aggre­
+gation of local model updates while maintaining privacy in FL. One of the most important 
+methods in information security is cryptography, which is essential to safeguarding data in 
+all its forms. It accomplishes this by providing technological and theoretical support for data 
+integrity, privacy, and authentication. Segmentation between encrypted data sharing is made 
+possible by secure multiparty computing, preventing any client from retrieving the complete 
+dataset by themselves. The evolution of SMPC yields three modules: oblivious transfer, 
+secret sharing, and garbled circuits. Semi-honest adversary, malicious adversary, and covert 
+adversary models are three main categories of SMPC security models. SMPC plays a crucial 
+role in safeguarding privacy in FL for medical applications (Li et al. 2023a). Pairwise mask­
+ing and secret sharing are the main techniques used by SMPC. The clients agree on pairwise 
+masks using the Diffie-Hellman key exchange in pairwise masking. However, the aggrega­
+tion result may not provide sufficient privacy for individual users. AHE techniques can be 
+used to protect each uploaded local value after masking, but it incurs extra overhead. While 
+the secret-sharing technique involves dividing the secret into several parts and distributing 
+it to several parties, and the technique expects participants to combine their shares in order 
+to put the secret back together. Using technique of secret sharing, several privacy-preserving 
+aggregation techniques in FL do not require any additional steps before delivering masked 
+data. Chain-PPFL (Li et al. 2020c) maintains privacy based on the chained secure multiparty 
+computing approach, which employs two techniques: the single-masking mechanism and 
+the chained communication mechanism. These enable clients to transmit masked informa­
+tion through a sequential chain framework. Group signature for federated learning (GSFL) 
+scheme (Kanchan et al. 2023) is a privacy-preserving protocol that lowers compute and 
+transmission costs dramatically while safeguarding client identity and data privacy from 
+
+--- Page 18 ---
+privacy-related threats using HE and a group of clients can be validated using the group 
+signature creation based on zero-knowledge proof of knowledge (ZKPoK).
+AnoFel Almashaqbeh and Ghodsi (2023) allows users to remain anonymous while engag­
+ing in a dynamic environment that will enable users to join and exit at any time. SVeriFL 
+(Gao et al. 2023a) uses Boneh–Lynn–Shacham (BLS) signature and multiparty security to 
+verify parameter integrity, server aggregation results, and participant data privacy. HyFL 
+hybrid framework (Marx et al. 2023) that uses SMPC techniques and hierarchical feder­
+ated learning to ensure data and global model privacy, facilitating large-scale deployments 
+and reducing workload on resource-constraint devices. MLGuard (Khazbak et al. 2020), a 
+distributed earning system that protects privacy and mitigates poisoning attacks using an 
+additive secret sharing scheme, multiplication triplets, and cosine similarity score. BFLC 
+(Li et al. 2020b), a Blockchain-enabled FL with a committee consensus mechanism, ensures 
+global model stability, addresses storage capacity and consensus efficiency challenges, and 
+uses k-fold cross-validation and anti-malicious smart contracts to elect superior nodes for 
+training rounds. Biscotti (Shayan et  al. 2021), a Peer-to-Peer (P2P) approach that uses 
+Blockchain and cryptographic primitives to coordinate ML processes between peering cli­
+ents. It uses the multi-krum defense to stop peers from poisoning the model, differentially 
+private noise to offer privacy, and Shamir secrets to securely aggregate SGD updates. Using 
+zero-knowledge non-interactive arguments of knowledge (ZK-NIARK) and lightweight 
+primitives like pseudorandom generators, (Wang et al. 2023b) suggests a PTDFL solution 
+to handle data owners’ access and privacy problems in decentralized FL.
+The literature on privacy-preserving mechanisms in FL falls into two main categories based 
+on their architecture, namely, centralized FL and decentralized FL. Figure 6 depicts the lit­
+erature map of the FL architecture-based studies covered in this section. This map includes 
+
+--- Page 19 ---
+circles representing articles of different numbers of citations, which are grouped based on 
+two colors to differentiate between centralized and decentralized FL. The primary privacy 
+mechanism used in FL is a combination of privacy-preserving technologies like DP and 
+SMPC with HE, secret sharing, or pairwise masking techniques.
+4.1  Privacy preserving centralized federated learning
+This section discusses the literature review on privacy mechanisms in a centralized FL envi­
+ronment where aggregation of gradients is done by a dedicated central server. In the subse­
+quent literature (Liu et al. 2021; Kanchan et al. 2023; Wang et al. 2023a; Gao et al. 2023a), 
+the privacy-preserving FL framework uses HE as the core privacy-enhancing technology. 
+Liu et  al. (2021) uses LHE that performs computations on encrypted gradients without 
+accessing the actual user data to safeguard user privacy. It computes the Pearson correlation 
+coefficient using coordinate-wise medians to identify malicious gradients and subsequently 
+detect poisoning attacks. Kanchan et al. (2023) incorporates HE and enables the aggregation 
+of encrypted data on the server. It includes a masking technique to mask individual client 
+data, and a group signature is used to validate a group of clients. This scheme simultane­
+ously ensures non-repudiation, privacy, and authentication. Paillier HE is used to encrypt 
+user training models on the client side, prevents internal attacks through access control, and 
+deploys an acknowledgment mechanism at the server to temporarily remove unresponsive 
+users to reduce waiting delays and communication overhead (Wang et al. 2023a). Gao et al. 
+(2023a) focuses on confirming the accuracy of the aggregated result using multi-party secu­
+rity with BLS signature, as well as the integrity of the uploaded parameters to the server, 
+utilizing CKKS approximation homomorphic encryption for data privacy.
+By retaining a clean, limited training dataset, the service provider builds confidence (Cao 
+et al. 2020), a byzantine resilient federated learning technique. A server model is used to 
+validate local model changes, effectively limiting the impact of malicious local models. 
+It proposed a new aggregation rule based on ReLU-clipped cosine similarity-based trust 
+score that considers the direction and amount of local model updates in addition to server 
+model update. Multi-hop communication with BLS signature is used to hide clients’ iden­
+tities (Karakoc et al. 2023). It prevents malicious activities by forwardee clients altering 
+model updates and proposed approaches for robustness against packet drop behaviors. This 
+allows the server to perform certain analyses without violating privacy and prevents leak­
+age of model updates. FL frameworks that focus on privacy-preserving and also reduce 
+the communication load that is incurred due to repeated exchange of model updates by 
+use of quantization technique are explored in literature (Nguyen et al. 2022; Nagy et al. 
+2023; Lang et al. 2023a, b). Nguyen et al. (2022) seeks to maximize the convergence rate 
+and meet differential privacy needs by optimizing quantization with binomial mechanism 
+parameters and communication resources. Bitwise quantization is applied to local model 
+updates, followed by the update vector’s application of the randomized response method of 
+local differential privacy (LDP) and the encoding of client-side text input using the rolling 
+feature hashing technique (Nagy et al. 2023). In Lang et al. (2023a), a random codebook is 
+used to encode data with the help of a nested lattice quantizer and generate a set of model 
+updates with a few bits that are applied with the randomized response mechanism of LDP. 
+The bits received in this system are converted into an empirical histogram throughout the 
+decoding process. Random lattice vector quantization (Lang et al. 2023b) is used, which is a 
+
+--- Page 20 ---
+compression technique that helps to enhance privacy by incorporating multivariate privacy 
+preserving noise at a desired bit-rate without significantly affecting the model’s utility.
+FL framework that implements SMPC techniques ensures data and global model privacy. 
+Serial chain framework is employed to enable the transfer of masked data among partici­
+pants using the chained SMPC method (Li et al. 2020c). The hybrid framework approach 
+(Marx et  al. 2023) ensures data and global model privacy through hierarchical FL and 
+SMPC techniques, thereby decreasing the workload on resource-constrained devices and 
+enabling large-scale deployments. This scheme prevents malicious clients from executing 
+model poisoning attack. There are privacy-preserving frameworks in FL (Zhao et al. 2021a; 
+Wu et al. 2022; Le et al. 2023; Almashaqbeh and Ghodsi 2023) that use DP to protect cli­
+ent’s privacy. They eliminate malicious clients that affect the prediction of global model 
+accuracy. Zhao et al. (2021a) reduces privacy leakage by sharing only a few parameters and 
+utilizes a proxy server to ensure client anonymity. It applies DP with a Gaussian mechanism 
+to guarantee strong privacy protection. Wu et al. (2022) aims to limit the communication 
+cost and provide stronger privacy preservation by combining an adaptive gradient descent 
+technique like adam and adabound algorithm and uses DP with Gaussian mechanism. Adap­
+tive differential privacy (Le et al. 2023) is used for local model updates and DP-tolerant 
+anomaly detection (DPAD) technique confirms abnormalities. Almashaqbeh and Ghodsi 
+(2023) maintains user anonymity while allowing users to join and exit, using non-interac­
+tive proofs and cryptographic promises. Tables 5 and 6 summarizes the existing literature of 
+centralized federated learning with privacy technique implemented along with model and 
+dataset details used in the experimentation.
+4.2  Privacy preserving decentralized federated learning
+Decentralized federated learning (DFL) emerged as a new method in response to the two 
+main problems with centralized FL, namely single point of failure (SPoF) and denial of 
+service (DoS) attack. An alternate to the conventional client–server architecture is provided 
+by P2P computing (Barkai 2000). While P2P distributed systems promote decentralization 
+by allowing network nodes to act as both servers and clients, client–server architectures 
+involve requests being made by clients and central servers processing and responding to the 
+requests. Here, nodes form a network by randomly joining each node into a chain. All nodes 
+are equal; there is no node more or less significant than each other. Peers should also act as 
+both clients and servers by providing services. Peers have to be self-sufficient and decide for 
+themselves how much they want to participate in the network.
+With the help of a private interplanetary file system (IPFS), Pappas et al. (2021) offers 
+a fully decentralized system that enables any client to initiate or participate in an ongoing 
+training process. This framework requires less resources, grows with the number of par­
+ticipants, and is resilient to sporadic connectivity. It also manages participant arrivals and 
+departures dynamically. The decentralized architecture (Zhao et al. 2022) guarantees safe 
+deep learning model training with a cipher-based matrix multiplication algorithm that is 
+efficient and verifiable. The foundation of the trusted DFL algorithm (Gholami et al. 2022) 
+is the concept of trust between network entities collaborating to accomplish specific goals. 
+Information from previous collaborations is used to establish and preserve this trust. Trust 
+estimations play a critical role in decisions about resource allocation, agent involvement, 
+and access control. A consensus problem involves considering both local and global trust 
+
+--- Page 21 ---
+
+--- Page 22 ---
+
+--- Page 23 ---
+assessments. Local agents maintain a posterior probability distribution over the parameters 
+of a global model (Wang et al. 2022b). The empirical assessments show that it is a useful tool 
+for managing non-IID data, especially when task complexity rises. Li et al. (2022) devel­
+oped a technique that groups clients into comparable groups without requiring advanced 
+knowledge of the count of clusters required. It aims to provide improved personalisation 
+by offering a single global model for each cluster. It is a two-stage method that uses client 
+similarities to realize an adaptable topology and apply approaches like neighbor selection 
+and neighbor augmentation methods that reduce noisy neighbor estimations.
+Li et al. (2021a) tackled the DFL issue in IoT systems, which uses mutual knowledge 
+sharing across nearby clients to lessen performance deterioration brought on by client 
+drift when data heterogeneity is present. This study outperforms baseline approaches like 
+FedAvg and FullAvg. GossipFL (Tang et al. 2022) focuses on efficient network resource 
+utilization in practical DFL configurations, incorporating a sparsification technique and a 
+gossip matrix-generating algorithm. During each communication round, the client can share 
+a highly compressed model with one peer and improve bandwidth resource utilization. Par­
+ticipants manage two separate models: a proxy model that is publicly shared and a private 
+model (Kalra et al. 2023). The proxy model preserves the privacy of each individual par­
+ticipant while facilitating effective information sharing between them without the use of a 
+centralized server. Improved privacy protection and less communication overhead are two 
+of the main benefits of the study. Gao et al. (2023b) utilizes LDP to balance model accuracy 
+and data privacy, which demonstrates effectiveness in avoiding low-quality updates and 
+supports dynamic group settings. Wang et al. (2023b) addresses data owners’ access and 
+privacy risks by using zero-knowledge non-interactive arguments of knowledge and light­
+weight primitives like pseudorandom generators and Lagrange interpolation.
+Federated learning, built on Blockchain technology, is one method for attaining FL 
+decentralization by utilizing Blockchain functionalities. The decentralization and reliabil­
+ity of Blockchain technology have drawn a lot of interest in its application. It uses smart 
+contracts for secure model aggregation, guaranteeing safe and authentic model updates. 
+Blockchain-enabled decentralized FL can offer incentives to clients, encourage the integra­
+tion of more clients, and reduce the computation and communication burdens on nodes. 
+This section of the literature review focuses on such decentralized FL schemes. BlockFL 
+(Kim et  al. 2019), is a Blockchain-based, tamper-proof, secure distributed ledger-based 
+
+--- Page 24 ---
+FL system that validates local training results and expands its federation to include unreli­
+able devices on a public network. Although the scheme encourages the inclusion of more 
+devices with additional training samples, it needs to account for the extra delay introduced 
+by the Blockchain network. Blockchain-driven, aggregator-free, decentralized FL system 
+(Ramanan and Nakayama 2020) that uses smart contracts to manage model aggregation and 
+update processes in FL. Decentralized multi-community training framework (Zhou et al. 
+2020) enables byzantine resilience for distributed learning using a sharding mechanism. 
+Further, scheme introduced by Li et al. (2020b) to validate and aggregate local updates, 
+ensures the stability of the global model using k-fold cross-validation, where committee 
+nodes validate the local updates. By utilizing the homomorphic hashing technique for vali­
+dation and introducing verifiers to handle the verification workflow of miners in parallel (Li 
+et al. 2021b), improves the efficacy of model verification. Through the use of Blockchain 
+technology, participating clients can confirm the global model integrity and a transparent 
+ledger can be used to record model updates. Privacy-enhancing techniques like differential 
+privacy can be implemented via Blockchain to enhance privacy in FL. Ma et al. (2022), a 
+distributed learning paradigm that combines Blockchain technology with federated learning 
+to address privacy issues. It uses LDP with Gaussian noise to enhance privacy. Mahmood 
+and Jusas (2022) improves data privacy and security, preventing data and model poisoning 
+attacks and promoting good behavior among decentralized nodes in FL with Blockchain 
+using DP with Laplace mechanism and public key infrastructure (PKI). Along with DP, 
+multi-krum defense is used by Shayan et al. (2021) and Zhao et al. (2021b) to validate the 
+updates through miners and thus overcome poisoning attacks. Zhao et al. (2021b) also uses 
+Shamir secrets for secure aggregation, while Singh et al. (2022b) implements SMPC by 
+combining techniques like homomorphic encryption and differential privacy. Wang et al. 
+(2022a) uses additive HE with multi-Krum technology to achieve cipher model aggregation 
+and filtering, allowing both privacy preservation and the verifiability of local models. It also 
+takes into account malicious client and server scenarios.
+Many FL schemes incorporate a secure multiparty mechanism and focus on distributed 
+storage requirements. Miao et al. (2022) utilizes a Blockchain system to ensure transpar­
+ency in processes and enhance privacy by employing cosine similarity and CKKS fully 
+homomorphic encryption. Li et al. (2023b) utilizes ElGamal encryption and smart contracts 
+for secure self-aggregation and it investigates privacy leakage. It presents a gradient inver­
+sion attack in order to obtain the original data from sign-based quantized gradients. Chen 
+et al. (2023) uses advanced encryption standard with EAX mode of operation (AES-EAX) 
+to protect information sharing among nodes and Abou El Houda et al. (2023), a global 
+cyber-security framework that integrates Blockchain, FL, SMPC, and software-defined net­
+working (SDN) technologies to manage distributed denial of service attack collaboration, 
+ensuring efficiency, reliability, and privacy. Singh et al. (2023) uses distributed hash table 
+(DHT) at the cloud layer facilitates decentralized storage, while Blockchain handles data 
+authentication and validation. Decentralized P2P (Sezer et al. 2023) concept with event 
+and storage-based smart contracts having cryptographic primitives like digital signatures is 
+used with IPFS for authentication. Baucas et al. (2023) proposed an IoT platform using fog 
+technology, combining private Blockchain and FL, to address network flexibility and data 
+privacy issues in wearable IoT devices for predictive healthcare. Blockchain-enabled DFL 
+schemes with privacy-preserving techniques and consensus algorithms are summarized in 
+Table 7 and 8.
+
+--- Page 25 ---
+
+--- Page 26 ---
+Despite blockchain’s inherent transparency and immutability, establishing trust across 
+different blockchain-FL systems is complex due to various interoperability and governance 
+issues. Blockchain-enabled federated learning introduces challenges from the perspectives 
+of trust and privacy like cross-chain communication and the establishment of mutual trust 
+among platforms can be complicated as different blockchain platforms utilize distinct con­
+sensus mechanisms. This interoperability issue makes it difficult for various blockchain 
+networks to efficiently exchange data or collaborate on federated learning tasks (Ou et al. 
+2022). Literature (Cheng et al. 2024) contributes to the creation of a decentralized proto­
+col that manages cross-chain interactions autonomously, eliminating the need for trust in 
+external parties. This approach reduces the risk of centralization, strengthens security and 
+provides an efficient solution for cross-chain interaction. Managing decentralized trust is 
+difficult because of conflicting incentives between stakeholders and the risk of sybil attacks, 
+where malicious nodes generate fake identities to exploit the system. These challenges can 
+weaken trust in the blockchain network, disrupt the fair allocation of trust, and compromise 
+the integrity of federated learning operations. Ensuring equal distribution of trust among all 
+participating nodes remains a challenge, especially in diverse environments. Reputation-
+based mechanisms can help by implementing trust scores and evaluating the reliability of 
+FL participants (Raza et al. 2024). Authors (Yakubu et al. 2024) offers an analysis of the 
+advantages and drawbacks of various consensus mechanisms, along with the security weak­
+nesses they may exhibit.
+Privacy-preserved FL is a transformative approach to ML, enhancing privacy and address­
+ing regulatory and ethical concerns by enabling collaborative training across several data 
+sources without requiring direct data exchange. This section explores the diverse applica­
+tions of privacy-preserved federated learning, used in various fields to balance robust data 
+insights with stringent privacy requirements, and demonstrates its successful implementa­
+tion of privacy-enhancing techniques. Figure 7 depicts the literature map of various FL 
+applications covered in this section. This map includes circles representing articles of dif­
+ferent numbers of citations and is grouped based on three colors to differentiate between 
+applications like healthcare, IoT, and NLP.
+
+--- Page 27 ---
+
+--- Page 28 ---
+5.1  FL applications in natural language processing
+FL has applications in the domain of NLP that improve text prediction, enhance voice 
+assistants, and develop personalized translation models. Hard et al. (2018) highlights the 
+advantages of training recurrent neural network language models directly on client devices, 
+enabling next-word prediction in a smartphone virtual keyboard without transferring sensi­
+tive data. Here, FL environment simplifies the process of implementing privacy by default, 
+granting customers control over how their data is used. Google’s GBoard is a popular 
+application that utilizes FL to enhance query suggestions in the Android phone keyboard 
+(Yang et al. 2018). Emoji can be predicted from text entered on a mobile keyboard using a 
+word-level recurrent neural network, which has been demonstrated by Ramaswamy et al. 
+(2019). The work shows that it is possible to train production-quality models for applica­
+tions involving natural language interpretation using federated learning while maintaining 
+user data on their devices. The system (Zhu et al. 2019) for processing financial documents 
+must have unsegmented text recognition, where the financial documents contain impor­
+tant personal data, such as invoices, transcripts, identity certificates, etc. These data are 
+frequently held on secure servers owned by various organizations, and they must not be 
+
+--- Page 29 ---
+moved past the firewall of the respective institution. Here FL offers a data-secure method for 
+combining disparate datasets for model training. The FL framework (Liu et al. 2020) aims 
+to generate various image representations from distinct tasks, which are then integrated to 
+form highly detailed picture representations for vision-and-language grounding tasks, such 
+as image captioning and visual question answering (VQA). To learn such visual representa­
+tions, the study proposed the Aligning, Integrating and Mapping Network (aimNet). For FL 
+models, a variable ensemble distillation aggregation technique (Lin et al. 2020) allows for 
+cost savings, improved privacy, and resilient integration across a range of heterogeneous 
+client models. However, the only way to directly average model parameters is if all of the 
+models have the same size and structure, which could be a limitation in a lot of situations. 
+NLP models are trained in a distributed computing environment using FedNLP (Lin et al. 
+2021), which efficiently performs NLP tasks like text summarization and sequence tag­
+ging. AdaFL (Cai et al. 2023), is an add-on to the FedNLP framework by improving the 
+adapter configuration over the training session where shallow knowledge is learned rapidly 
+by training fewer and smaller adapters at the top layers of the model and by assigning 
+participant devices to trial groups, AdaFL continuously tracks possible adaptor combina­
+tions. It demonstrates up to 155.5 times faster model convergence time than vanilla FedNLP. 
+Hilmkil et al. (2021) looked into FL parameters for transformer language model tuning. 
+Additionally, three BERT transformer variations- BERT, ALBERT, and DistilBERT-were 
+assessed for several NLP tasks like text categorization and sentiment analysis. Basu et al. 
+(2021a) offers a text classification model built upon contextualized transformers (BERT and 
+Roberta) linked with privacy features like federated learning and differential privacy. They 
+describe how to analyze desired privacy-utility tradeoffs and how to privately train NLP 
+models using the Financial Phrase Bank dataset. FL framework named SEFL (Deng et al. 
+2022), significantly improves performance by eliminating the need for trusted entities like 
+aggregators or cryptographic primitives. FedBERT (Tian et al. 2022), is a pre-training tool 
+for BERT that uses split learning with FL to pre-train an extended model with the ability to 
+function exceptionally well while limiting the disclosure of raw data. The recommendation 
+system with federated learning (Mansour et al. 2020) is promoted with the development of 
+a language model that can promptly deliver the next suggestion when users make a request. 
+Businesses are using chatbots to promote their services, but there are privacy challenges like 
+access control and data leakage, which need to be addressed. Jalali and Hongsong (2024) 
+suggests a framework combining FL with Blockchain and FHE with face recognition and 
+increases chatbot accuracy by 90%. ChatGPT has generated interest in the revolutionary 
+potential of chatbots to automate language tasks worldwide. Su et al. (2024) leverages the 
+strengths of DFL and SMPC to create chatbot systems that are both privacy-preserving and 
+secure. Here, the encrypted global model is stored via IPFS, and clients need to decrypt 
+using their private keys.
+5.2  FL applications in healthcare
+Advancements in artificial intelligence has resulted in the creation of numerous applications 
+that identify and predict diseases, handle medical diagnostic evidence, and also in pharma­
+ceutical sectors. However, gathering medical data from several hospitals is challenging due 
+to patient privacy protections. Therefore, FL is essential to the healthcare industry because 
+it permits the creation of diagnostic tools and predictive models while protecting patient 
+
+--- Page 30 ---
+privacy and regulatory compliance. Without a central patient database, FL enables coopera­
+tive model training across several healthcare facilities. With the development of FL-based 
+healthcare applications, standards and privacy regulations for electronic medical informa­
+tion for patients are required. The various ethical and legal issues currently arising in the 
+right to patient privacy and ways to improve patient data utilization without compromising 
+privacy are analyzed in Price and Cohen (2019). Federated learning can improve security 
+and efficiency when paired with edge computing, Blockchain, and privacy-preserving algo­
+rithms. Application of FL in healthcare is broadly classified into 3 categories, namely:
+●
+conditions like diabetes, cancer, and heart problems by combining data from many 
+sources without exchanging patient records. Furthermore, various globally accessible 
+public medical databases like the Molecular Taxonomy of Breast Cancer International 
+Consortium (METABRIC), The Cancer Genome Atlas (TCGA), and the National Can­
+cer Database (NCDB), have facilitated the development of training algorithms such 
+as transfer learning, leading to substantial advancements in medical research (Li et al. 
+2023a). FedHealth (Chen et al. 2020), a federated transfer learning platform for wearable 
+healthcare, allows precise, individualized healthcare without compromising privacy and 
+security for Parkinson’s disease diagnosis. Encrypting patient data in memory and disk, 
+a federated cloud architecture-based rheumatic heart disease classifier (Blanquer et al. 
+2020) improves privacy without relocating patient data. Basu et al. (2021b) explores the 
+use of NLP techniques in diagnosing medical conditions like depression, focusing on 
+the use of differential privacy in FL setup. The research provides insights into private 
+training of NLP models and offers an open-source implementation for future healthcare 
+and mental health studies. Elayan et al. (2021) proposed methods to improve healthcare 
+sustainability IoT-driven platforms for data analysis, preserving privacy and supporting 
+decentralized data structure, and experimenting with FL algorithms for skin disease 
+detection. Auto-FedAvg (Xia et al. 2021), is a data-driven technique that automatically 
+adjusts aggregation weights based on data distributions and models’ training progress. 
+The technique outperforms FL algorithms on a CIFAR-10 dataset and shows efficiency 
+in medical image analysis tasks. Collaborative learning of data from different sources 
+using clustered federated learning for COVID-19 diagnosis is explored (Qayyum et al. 
+2022), the study promises better results comparing with specialized FL baseline and 
+multi-modal conventional FL. Hybrid framework developed by Yaqoob et al. (2023) for 
+heart disease classification, utilizing support vector machines and modified artificial bee 
+colony optimization, with federated matched averaging for privacy. It addressed train­
+ing latency, communication cost, and SPoF. FeSEC (Asad and Yuan 2024), is a secure 
+and efficient FL framework developed to improve accuracy and privacy preservation in 
+COVID-19 detection, utilizing sparse compression and homomorphic encryption for 
+efficient communication among remote hospitals.
+●
+compromising patient privacy. The creation of image-based diagnostic tools for MRI, 
+CT, and X-ray imaging modalities is made possible by FL methods. In order to help 
+clinicians diagnose patients, Lee et al. (2019) employed a multi-federated learning net­
+work built on the APOLLO framework to convert real-world data into medical diagnos­
+tic evidence. The framework (Silva et al. 2019) offers an application for multi-centric 
+
+--- Page 31 ---
+brain imaging data analysis and uses FL to examine the connections between brain 
+anatomy and disease using big datasets gathered from various clinics. The open-source 
+federated learning front-end framework (Silva et al. 2020) addresses data access and 
+transfer challenges in healthcare. It accommodates various models and optimization 
+methods and demonstrates the workflow for deploying learning models. The lack of 
+labeled training sets remains an issue when dealing with medical picture segmentation; 
+FKD-Med (Sun et al. 2024), is developed for privacy-sensitive data aggregation across 
+many healthcare institutions with knowledge distillation (KD) to improve communica­
+tion efficiency. The study was tested on two medical picture segmentation datasets, and 
+it improved data privacy, reduced communication costs, and increased accuracy.
+●
+facilitates and dispersed data sources to support drug research and development while 
+maintaining data privacy. Prediction on the hospitalization rate of heart disease patients 
+is studied (Brisimi et al. 2018), and a community-based FL model is developed to pre­
+dict mortality and ICU stay time (Huang et al. 2019). In order to secure patient data, 
+Goecks et al. (2020) suggested employing FL in biomedicine to train a model using data 
+from several healthcare systems. FL addresses various statistical and system challenges 
+in biomedical science (Xu et al. 2021) by providing access to diverse clinical, pharma­
+ceutical, and hospital data while ensuring data privacy.
+5.3  FL applications in IoT and edge computing
+FL is suitable for preserving privacy on IoT devices since it allows strong privacy controls, 
+access control, and robust classifiers without compromising sensitive information. FL safe­
+guards user privacy and ensures data security throughout the device phase by exchanging 
+protected limits. It is advised to employ FL in various IoT and edge networks as a reli­
+able, intelligent, and efficient alternative to traditional centralized methods (Kholod et al. 
+2020). The study discusses machine learning’s role in safeguarding IoT networks; the paper 
+addresses potential risks and threats related to IoT systems. It highlights the application of 
+FL for IoT security, addressing security threats and performance issues. Various ML models 
+like neural networks, support vector machines (SVM), and CNNs have been employed, 
+along with technologies like elliptic-curve cryptography and Blockchain, to enhance pri­
+vacy and security in FL. It enables training ML-based intrusion detection systems (IDS) on 
+distributed IoT devices, improving security against various attack types. FL utilizes cryp­
+tographic approaches like homomorphic encryption and secure function evaluation to pre­
+serve privacy while exchanging model updates securely. Differential Privacy techniques are 
+employed in FL to ensure privacy-preserving learning. Federated learning models in IoT 
+networks are designed to capture compressed representations of anomalous observations, 
+enhancing privacy protection. FL addresses privacy concerns by securely updating local 
+and global models to prevent exposure of sensitive user data (Ghimire and Rawat 2022).
+To address data and content level privacy issues, Yin et al. (2021) suggests a hybrid 
+privacy-preserving FL method that blends function encryption techniques with Bayesian 
+differential privacy techniques. The sparse differential gradient (SDG) is used to address 
+efficiency concerns. The Local Bayesian Differential Privacy technique adjusts privacy 
+budget allocation, noise addition, and service quality. During data aggregation, harmful 
+attempts are prevented by enhanced function encryption. Lu et al. (2020a) combines fed­
+
+--- Page 32 ---
+erated learning with permissioned Blockchain to offer a privacy-preserving data-sharing 
+mechanism for multiple distributed parties in IIoT applications. By using multiparty data 
+retrieval, these permissioned Blockchains takes the place of a trusted curator to connect each 
+participant. The plan increases computing resource efficiency and usage while strengthening 
+security without relying on a single source of trust. VFL is a verifiable FL framework for 
+big data in industrial IoT, which uses Lagrange interpolation to confirm the aggregated gra­
+dients are accurate (Fu et al. 2022). The VFL ensures the security of the model and private 
+gradient, maintaining constant verification overhead regardless of participant count. The 
+approach prevents malicious aggregation servers from returning forged gradients. The rapid 
+advancement of IoT and smart services has led to the development of various cyber-physical 
+systems (CPS), including intelligent connected cars, smart farming, and smart logistics. 
+Zhang et al. (2020) enables smart services that use trusted federated learning frameworks 
+for training machine learning models and ensure the services are trustworthy to monitor 
+the CPS behaviors. PerFit is a cutting-edge cloud-based system that combines data pri­
+vacy protection and federated learning for intelligent IoT applications (Wu et al. 2020). It 
+allows for reduced latency and faster processing capacity by addressing heterogeneity in 
+models, data statistics, and devices in IoT applications. Imteaj and Amini (2019) proposed 
+a framework to create sensors for a range of decision-making applications such as tem­
+perature, ambient light, and gyroscope sensors etc. Using distributed sensing to create a 
+system where dispersed devices autonomously activate and collect all available sensor data. 
+It lowers the cost of adding new sensors for independent Internet of Things applications and 
+permits remote data collection. To solve the distributed optimization problem with privacy 
+concerns, the differential privacy and multiparty computation are used. Kwon et al. (2020) 
+presents a multiagent deep reinforcement learning algorithm for FL in the ocean environ­
+ment using Internet-of-Underwater-Things (IoUT) devices. The FL-based distributed deep 
+learning system aggregates local model parameters from each IoT device to create a global 
+learning model, ensuring reliable delivery of parameters to a centralized FL machine. The 
+algorithm aims to enhance deep learning throughput performance by computing efficient 
+solutions using a MADDOG-based algorithm with fewer iterations. Du et al. (2020) can 
+improve learning efficiency and privacy by efficiently utilizing network resources of FL in 
+vehicular IoT systems. It can handle unbalanced data distribution and non-IID data, enhanc­
+ing performance. Here FL addresses challenges like mobility, communication bandwidth, 
+and quality of service (QoS) constraints, leading to more intelligent and efficient systems. 
+Zhou et al. (2018) proposed a differential FL-based framework for real-time data processing 
+in multi-robot environments. The proposed framework collects essential data while ensur­
+ing data privacy and enabling real-time processing. FL faces challenges with centralized 
+optimization, relying on a central server, which can lead to network scalability issues and 
+SPoF. Savazzi et al. (2020) developed a fully distributed FL algorithm that generates data 
+functionality inside the network, overcoming SPoF. Samarakoon et al. (2019) addresses 
+the issue of joint power and resource allocation (JPRA) for low-latency communication by 
+using an FL-based system that combines transmit power and resource allocation in vehicu­
+lar networks. Gupta et al. (2022a) designed an approach to improve the security and pri­
+vacy of IoT-generated data stored in cloud environments by integrating K-anonymization, 
+ciphertext-policy attribute-based encryption (CP-ABE), and a voting classifier. The model 
+ensures data protection, optimizes privacy preservation, and improves processing efficiency.
+
+--- Page 33 ---
+Edge computing involves processing data locally on edge devices or servers close to the 
+data source, which helps to minimize latency and decrease bandwidth usage (Singh et al. 
+2022a). FL enhances edge computing by allowing collaborative model training on these 
+devices while preserving data privacy. Some applications of FL within edge computing 
+include:
+●
+produce vast amounts of user data. These data can be exploited by malicious attackers 
+to steal and manipulate information. To tackle this problem, Mothukuri et al. (2021a) 
+proposed a FL-based anomaly detection approach, which enhances the accuracy of the 
+global machine learning model by utilizing federated training cycles on gated recurrent 
+units (GRUs) models and incorporating updates from multiple sources. According to 
+experimental results, it performs better at protecting user data privacy and detecting at­
+tacks than typical machine learning versions. Through cooperatively analyzing stream­
+ing data, FL enables edge devices, like industrial sensors, IoT devices, and surveillance 
+cameras, to discover anomalies and security concerns in real-time. Federated Learning 
+reduces communication latency and improves anomaly detection accuracy. Huong et al. 
+(2021) explores integrating edge computing with smart manufacturing systems to en­
+hance real-time data processing and reduce anomaly detection delay, utilizing Federated 
+Learning for improved cyber threat response. Poorazad et al. (2024) enhances anomaly 
+detection through synchronous and buffered learning, preserving data privacy through 
+HE and addressing communication bottlenecks for efficient model training across di­
+verse clients.
+●
+watches, smartphones, and IoT devices can provide consumers with customized recom­
+mendations based on their preferences and behavior patterns. Smartwatches and fitness 
+trackers have become increasingly popular these days as they can detect brain activity, 
+monitor health factors, and evaluate hydration levels (Iqbal et al. 2021). AI-enabled 
+smart home devices may learn from human behavior and automate many household 
+functions (Gill et al. 2022). On edge devices, collaborative model training guarantees 
+data sovereignty and user privacy. In study (Neumann et al. 2023), lossy quantization 
+is involved, which not only compresses the data but also acts as a form of parameter 
+obfuscation, which provides a defense against certain attacks that recreate input data 
+using model parameters.
+●
+tonomous vehicles to learn and adapt to a variety of road surroundings, traffic patterns, 
+and driving circumstances. FL protects passenger privacy while improving autonomous 
+driving systems’ safety and functionality. Samarakoon et al. (2019) explores the prob­
+lem of JPRA for ultra-reliable low-latency communication in vehicular networks, em­
+phasizing the reduction power consumption of the network while ensuring high reliabil­
+ity with respect to probabilistic queuing delays. The safety and privacy of passengers 
+are seriously threatened by data leaks in vehicular cyber-physical systems (VCPS), par­
+ticularly when there are several users and transmission channels. To improve data pri­
+vacy, Lu et al. (2020b) suggests a safe architecture, a federated learning mechanism that 
+protects privacy, and a two-phase mitigation strategy that consists of cooperative data 
+leakage detection and intelligent data transformation. A federated learning framework 
+
+--- Page 34 ---
+(Pokhrel and Choi 2020b) that prioritizes privacy and communication efficiency and 
+improves the performance of the Internet of Vehicles (IoV) by training on-vehicle learn­
+ing models through the local exchange of inputs, outputs, and learning parameters. Due 
+to the intermittent and unreliable communications in IoV, the reliability and efficiency 
+of data sharing need to be enhanced and hence, a federated learning architecture com­
+bining locally directed acyclic graph (DAG) and permissioned Blockchain is proposed 
+by Lu et al. (2020c) to improve security and dependability of model parameters, while 
+incorporating deep reinforcement learning for node selection. Autonomous Blockchain-
+based federated learning architecture (Pokhrel and Choi 2020a) for privacy-aware ve­
+hicular communication networking is proposed, which uses local on-vehicle ML model 
+updates, leveraging the Blockchain’s consensus mechanism. The framework includes 
+adjustable network and BFL parameters, quantifying their influence on system perfor­
+mance and determining optimal block arrival rates. Unmanned aerial vehicles (UAV) 
+are increasingly used in wireless networks for communication, military, medical supply 
+delivery, and surveillance. Federated deep learning (FDL) techniques proposed by Brik 
+et al. (2020) address resource limitations and energy inefficiency and, optimize network 
+operations and ensure QoS. Zeng et al. (2020) developed framework implementing FL 
+algorithms within a UAV swarm where a leading and other UAVs in the framework 
+train local FL models on gathered data. It maximises the FL convergence rate consider­
+ing the energy and the latency that the swarm’s control mechanism requires. A traffic 
+flow prediction (TFP) system based on FL was proposed by Qi et al. (2021). They have 
+combined FL-based TFP algorithms and GRU neural networks with Blockchain tech­
+nology. By substituting a group of trusted nodes in place of the central server, Block­
+chain mitigates the security vulnerabilities associated with both the central server and 
+clients. Every local model update is managed by the nodes. Additionally, they safeguard 
+the client’s data by implementing DP by incorporating Gaussian noise into local model 
+updates. The suggested model performed better in terms of accurate traffic flow predic­
+tion when compared to LSTM, stacked autoencoder (SAE) and SVM. In study (Qu et al. 
+2021), each UAV shares the final model after combining local models from one-hop 
+neighboring UAVs and training a local FL model using its own data. The study shows 
+that the difference in cross-entropy loss is smaller when compared to centralized FL.
+Measuring the level of privacy users experience within a system, the level of protection 
+provided by privacy-enhancing technologies, and resistance to attacks is the aim of pri­
+vacy impact analysis, whereas the computational cost, communication cost, scalability, and 
+so on affect the performance measure. The performance metrics like accuracy, recall, and 
+precision are used to evaluate the federated models, and factors that impact the design and 
+efficiency of privacy-preserving federated systems are explained in this section and can be 
+considered as the means of privacy and performance analysis. Accuracy metrics are used 
+to measure how accurately an adversary can estimate or predict certain characteristics of 
+
+--- Page 35 ---
+private data. The study (Wagner and Eckhoff 2018) explains that accuracy of an adver­
+sary’s estimate does not directly correlate with privacy, since it doesn’t necessarily reflect 
+the adversary’s certainty or correctness. But inaccurate estimates can enhance privacy. The 
+reasoning is that when an adversary’s estimate is incorrect, the likelihood of successfully 
+extracting sensitive information from the data is reduced, thereby increasing privacy protec­
+tion. The aforementioned performance metrics are obtained from four distinct categories as 
+shown in Table 9: True/False Positive, denoting situations in which the model accurately or 
+incorrectly detects the presence of a class; and True/False Negative, signifying situations in 
+which the model correctly or incorrectly detects the absence of a class.
+
+--- Page 36 ---
+●
+Accuracy: The proportion of all samples that were accurately classified as actually posi­
+tive or truly negative. 
+●
+Recall: Out of all genuine positives, the number of samples that were appropriately 
+classified as positive. 
+●
+Precision: Out of all the samples that were recognised as positive, the number of sam­
+ples that were accurately detected as positive. 
+Along with prediction accuracy and detection precision, the performance was measured 
+with metrics like privacy protection degree with total privacy budget ϵ of the client during 
+training and accuracy difference between two prediction accuracy of two training models 
+(Le et al. 2023). In this case, stronger privacy protection is indicated by a smaller privacy 
+budget.
+6.1  Data privacy and correctness
+Privacy is obtained by incorporating a combination of privacy-enhancing technologies like 
+DP, HE, and SMPC. Each scheme evaluates privacy based on the type of techniques imple­
+mented. In study (Cao et al. 2020), parameters like impact on root dataset, poisoned root 
+dataset, number of clients, number of malicious clients, etc, are considered to analyze pri­
+vacy. The choice of appropriate Gaussian noise impacts the privacy evaluation, as excess 
+noise will reduce the utility of data, and inadequate noise does not preserve privacy. The 
+most important aspect σ establishes the degree of DP satisfaction and noise size. Evaluate 
+the model performance with different values of ϵ and δ values taken where σ is determined 
+by ϵ, the privacy loss parameter and δ, parameter that accounts for the probability of the 
+failure of the DP. According to Zhao et al. (2021a), as ϵ declines, so does the model accu­
+racy for the same value of δ. Additionally, when ϵ is fixed, the value of δ decreases and so 
+does the accuracy of the model. A smaller δ suggests that DP is more difficult to be broken. 
+Privacy evaluation based on privacy budget estimation, the impact of the maximum privacy 
+budget on learning time, convergence rate analysis, examine how the number of devices 
+influences the rate of convergence. Zhao et al. (2021a) analyses privacy in terms of prevent­
+ing direct leakage and indirect leakage and safeguarding the anonymity of the clients to the 
+server. Blockchain-enabled FL has the ability to offer privacy with the use of smart contracts 
+to manage model aggregation and update processes in FL. Proof-of-accuracy consensus 
+is implemented by the research (Li et al. 2021b), wherein the chain structure guarantees 
+immutability and traceability by ensuring that only valid and honest blocks are added to 
+
+--- Page 37 ---
+the chain. Wang et al. (2022a) achieves privacy protection via paillier algorithm that shows 
+malicious participants cannot decipher ciphertext in polynomial time, and can’t access other 
+nodes’ ciphertexts containing model updates. Miao et al. (2022) implements CKKS and 
+computing various client ratings or score and model aggregation and thereby meets the 
+client requirement of privacy by disabling the solver and verifier from recovering the cli­
+ent’s original plaintext. In scheme (Gao et al. 2023a), privacy of participant’s parameter is 
+protected with the use CKKS approximate HE. They prove that the cloud server nor the 
+trusted authority can access the secret key, and thereby, data leakage can be avoided. By 
+verifying the integrity of the uploaded parameters of the aggregated results given to cli­
+ents, the technique checks the validity of the aggregated results. DP noise improves privacy 
+security and offers measurable privacy protection for the modeling process. According to 
+idea of DP, a suitable amount of Gaussian noise can be introduced to datasets to provide 
+measurable privacy protection across the entire dataset, thus preventing query attacks. The 
+performance can be analyzed various privacy budgets; in general, a smaller privacy budget 
+indicates greater data availability, whereas a bigger privacy budget corresponds to a larger 
+additional noise scale (Wu et al. 2022). To ensure privacy and high performance, a user-
+level privacy-preserving method is introduced, preventing password intrusion, vulnerability 
+intrusion, and data disclosure from untrusted third parties (Wu et al. 2022). Wang et al. 
+(2023b) proposed gradient encryption algorithm that satisfies correctness because of the 
+uniqueness of Lagrange interpolation and privacy by the implementation of Shamir’s secret 
+sharing that offers confidentiality via a pseudo-random property. In Wang et al. (2023b), 
+all gradient-related calculations are treated as the constraints of a zero-knowledge succinct 
+non-interactive argument of knowledge (zk-SNARK) to produce a local gradient proof that 
+cannot be falsified, thus validating the trustworthiness of the local gradient.
+6.2  Resistance to attacks
+For the purpose of evaluating models against attacks, Cao et al. (2020) took into account 
+attacks such as data and model poisoning, in addition to the krum, trim and scaling attacks. 
+These attacks raise the test error rate, and hence, they were taken into consideration when 
+evaluating the model. Data poisoning impacts the model’s accuracy, whereas model poison­
+ing hinders the convergence of the model. Li et al. (2020b) relies on committee consensus to 
+resist malicious attacks. Li et al. (2021b) performs random and reverse poisoning detection 
+to filter the malicious data holders and malicious miners. In order to determine the effective­
+ness of multi-krum, authors used the dataset to assess the impact of changing the proportion 
+of overall updates using multi-krum in each round against the different poisoning rates. The 
+impact of malicious nodes is observed to test performance on model accuracy (Wang et al. 
+2022a). They simulated label-flipping poisoning attacks and showed that more malicious 
+nodes would have a greater impact on accuracy. It recommends clients increase the reputa­
+tion threshold while keeping a low screening ratio to decrease the likelihood of malicious 
+users taking part in the training. Gao et al. (2023b) is an asynchronous FL with a server that 
+evaluates the model accuracy by the proportion of malicious clients among the total number 
+of clients and demonstrates the effectiveness of the quality-based aggregation method. Data 
+poisoning is avoided using the screening algorithm that prevents the replacement of data 
+and labels in Wang et al. (2023b). Model Poisoning is handled with the use of gradient local 
+proof generation in Wang et al. (2023b). Marx et al. (2023) performs analysis by considering 
+
+--- Page 38 ---
+a subset of clients to be malicious and also maliciously corrupt certain multi-party comput­
+ing clusters and considering only static adversaries.
+6.3  Computational cost
+Blockchain-enabled FL brings large computational burden brought due to blockchain’s 
+privacy-preserving measure making it a major disadvantage. Although they demand a lot 
+of processing power, methods like SMPC, HE, ZKPs and cryptographic encryption are cru­
+cial for maintaining data confidentiality and integrity but require extensive computational 
+resources. Particularly when implemented in resource-constrained situations like edge 
+devices, these privacy techniques can have a substantial effect on system performance by 
+raising latency in model training and aggregation, using more energy, and possibly creating 
+bottlenecks. Furthermore, by introducing extra processing delays, consensus techniques like 
+proof-of-work (PoW) and proof-of-stake (PoS) can make these difficulties much worse. FL 
+and blockchain integration must therefore balance between privacy and efficiency by using 
+off-chain processing solutions, optimized cryptographic protocols, and hardware accelera­
+tors like GPUs and TPUs to increase computational efficiency without sacrificing privacy 
+and security. Computational cost can be calculated based on the initialization phase, proof 
+generation and verification, and lastly, aggregation & update phase. Wang et al. (2023b) 
+noted that as the length of the gradient vector grows, the time required for Paillier encryp­
+tion, decryption, and addition also increases significantly. Shayan et al. (2021) allocates the 
+majority of its time to the aggregation phase, as the aggregators must gather secret shares 
+from all approved updates and exchange the aggregated shares among themselves to con­
+struct a block. Miao et al. (2022); Sezer et al. (2023) evaluate the performance in on and 
+off-chain phases. During the on-chain phase, uploading data to the Blockchain incurs a gas 
+fee. Gas costs are regarded as a performance metric, and Miao et al. (2022) minimizes gas 
+consumption by uploading only the results to the Blockchain, leaving the more intensive 
+computations to be handled by the server. In scheme (Sezer et al. 2023), network delays 
+can affect the system and increase the computing load. Every transaction is guaranteed to 
+be authentic and legitimate by a digital signature, and the computational complexity of the 
+algorithm is determined by the size of the algorithm’s key. Because the digital signature 
+is utilized for verification and the same key size is employed (Sezer et al. 2023), the com­
+plexity of each transaction is linear. Average computational cost increases as the number 
+of groups increases, and the group size has an impact on the efficiency (Gao et al. 2023b). 
+When a significant number of users use privacy-preserving techniques, they incur compu­
+tational expense. While differential privacy is more effective with lower model accuracy, 
+homomorphic encryption has a much higher processing overhead, particularly when there 
+are many gradients (Chen et al. 2023). After aggregating ciphertexts through homomorphic 
+addition and performing partial decryption (Almashaqbeh and Ghodsi 2023), the model 
+owner obtains the result. While the cost of aggregating ciphertexts increases with the num­
+ber of clients, the decryption cost is determined only by the model’s size. Usually, the gra­
+dient descent algorithm has the learning rate parameter set to 0.01. The SGD algorithm is 
+more prone to variations in the learning rate, even if it performs better with initial learning 
+rates. SGD’s performance is more consistent at a fixed learning rate, resulting in a single 
+gradient descent direction at the same learning rate. So, comparison of the robustness of 
+
+--- Page 39 ---
+various algorithms with learning rate is an essential metric for performance evaluation (Wu 
+et al. 2022).
+6.4  Communication cost
+Communication cost refers to the expenses incurred from the size of the packets transmitted 
+between clients and the server; the messages exchanged during handshakes, and the transfer 
+of authentication information, as well as communication between clients (Kanchan et al. 
+2023). While the packets sent from the server to the clients remain unchanged, each client 
+sends encrypted messages along with additional messages, such as signatures or secret keys, 
+to ensure privacy protection. Calculating the total number of messages transmitted per itera­
+tion is based on factors such as the total number of clients and the number of clients selected 
+for each iteration. The time spent on encryption, decryption, and waiting for the client to 
+return the result account for the majority of the aggregation time cost (Wang et al. 2023a). 
+Minimal overhead in communication demonstrates the responsiveness of the model, lowers 
+error rates, and improves practicality. In schemes that contain encryption, consider gradient 
+vector length & size of ciphertext to analyze the communication overheads of the encryption 
+scheme (Wang et al. 2023b). Depending on the technique used, communication overheads 
+may rise or fall as the node dropout rate rises. It has been shown communication overhead 
+decreases with an increase in dropouts (Wang et al. 2023b). The fog-based IoT approach 
+(Baucas et al. 2023) clusters the wearable IoT devices, making them the new workers rather 
+than each one being a distinct worker. This offsets the training and other overheads and 
+lessens the effect of the variety of wearable IoT devices on the total update time. Sub-
+aggregators are the only source of additional overhead (Chen et al. 2023). Each node’s cost 
+increases linearly with the gradient size since it directly impacts the transmitted data size. 
+Since all nodes transmit a copy of the parameters, the number of users and sub-aggrega­
+tors does not impact each node’s communication overhead. To improve communication 
+efficiency in FL, two primary approaches can be considered: iterative sending of smaller 
+messages or reducing the total number of communication rounds (Zhang et al. 2021). An 
+effective strategy to minimize the size of transmitted data is model compression techniques, 
+which help optimize bandwidth usage (Lang et al. 2023a, b; Nguyen et al. 2022). Addition­
+ally, reducing communication rounds can be achieved by selectively transmitting only the 
+most critical model updates based on their significance (Zhao et al. 2021a). A combination 
+of these methods can significantly lower communication costs between mobile devices and 
+servers; however, this may lead to an increase in computational overhead. Striking an opti­
+mal balance between communication efficiency and computational demands remains a key 
+challenge and an important direction for future research.
+6.5  Scalability
+The openness of FL, which allows nodes to join or leave the FL task without affecting the 
+FL process, is called scalability. Here, the nodes are not predefined or preconfigured, which 
+supports scalability. Every node participates in the same number of rounds in synchronous 
+FL, while in asynchronous FL, the gradient ciphertexts are aggregated by a certain number 
+of nodes, regardless of whether they are in the same round. Scheme (Wang et al. 2023b) is 
+suitable for synchronous and asynchronous FL and supports scalability. Wang et al. (2023b) 
+
+--- Page 40 ---
+applies to both synchronous and asynchronous FL and is designed to support scalability. 
+Shayan et al. (2021) findings indicate that as the noising aggregator increases, the time per 
+iteration also increases, resulting in higher overhead due to the exchange of secret shares 
+between more peers, which in turn requires greater coordination during aggregation. In 
+Ethereum systems, event-based contracts and off-chain usage, that is, low gas consumption, 
+give positive results in terms of scalability (Sezer et al. 2023). The study (Gu et al. 2024) 
+investigates the impact of thermal stress on FL performance in distributed systems based on 
+large-scale heterogeneous IoT with low-power devices. It analyzes several metrics, such as 
+training time, CPU/GPU utilization, temperature, and power consumption, under varying 
+thermal stress scenarios. The findings reveal that even a small number of devices experienc­
+ing thermal stress can cause a decrease in both the global model and the overall performance 
+of the system. Furthermore, the study emphasizes that the more clients are affected by ther­
+mal stress, the greater the negative impact on the performance of the federated learning 
+system.
+This section outlines the implementation of existing schemes and the various datasets com­
+monly used in the literature to support future research. Table 11 gives ideas of existing 
+implementations that can be explored further, and Table 12 lists the datasets. This section 
+also discusses the challenges and key areas of concern that need to be addressed in the 
+domain of FL. In spite of various literature and studies, there are a few areas of concern that 
+can be explored further, namely:
+●
+Robust FL to manage diverse data: More flexible FL framework that can handle clients 
+with heterogeneous datasets is required as clients’ data might vary greatly and include 
+various formats including text, photos, and video. This can be achieved by utilizing en­
+semble learning techniques to effectively merge the dynamic models shared by 
+
+[... TRUNCATED — full text exceeds context limit ...]

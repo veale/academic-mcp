@@ -15,6 +15,7 @@ An MCP server that searches academic papers, fetches full text, and returns cont
 │  ├── get_paper           (metadata by DOI)                       │
 │  ├── fetch_fulltext      (multi-strategy HTML + PDF extraction)  │
 │  │     mode: full | sections | preview | section | range         │
+│  │     source: auto | html                                       │
 │  ├── search_in_article   (BM25 search + dispersion heatmap)      │
 │  ├── search_and_read     (combined search → full text)           │
 │  ├── find_pdf_urls       (list available URLs)                   │
@@ -82,18 +83,19 @@ An MCP server that searches academic papers, fetches full text, and returns cont
 | `range` | raw character slice using `range_start` / `range_end` offsets |
 | `full` (default) | entire article text (can be 50,000+ characters — avoid for targeted questions) |
 
-**Recommended workflow:** `fetch_fulltext(doi, mode="sections")` → inspect keyword-enriched headings → `fetch_fulltext(doi, mode="section", section="...")` or `search_in_article(doi, terms=[...])` → `fetch_fulltext(doi, mode="range", ...)` for specific passages.
+**Recommended workflow:** `fetch_fulltext(doi, mode="sections")` → inspect keyword-enriched headings → `fetch_fulltext(doi, mode="section", section="...")` or `search_in_article(doi, terms=[...])` → `fetch_fulltext(doi, mode="range", ...)` for specific passages. If `mode="sections"` returns ≤ 2 sections or uninformative keywords, try `fetch_fulltext(doi, source="html")` to bypass the PDF cache and fetch a fresh copy of the publisher's article page via the stealth browser — this often yields better section structure from the publisher's `<h2>`/`<h3>` tags. The HTML result updates the cache only if it produces >1,500 words and ≥ 3 parsed sections.
 
-**Source-appropriate section detection.** Section boundaries are derived from the native structural signal of each extraction source rather than post-hoc text pattern matching. For PDF sources, four strategies are tried in order:
+**Source-appropriate section detection.** Section boundaries are derived from the native structural signal of each extraction source rather than post-hoc text pattern matching. The default PDF backend is now **pymupdf4llm**, which produces Markdown output with native table, multi-column, and bold/italic support. Section headings are detected by a custom `hdr_info` callback that reuses the same font-analysis logic described below, so pymupdf4llm benefits from all the heading-detection tuning without relying on its built-in size-only heuristic. For PDF sources, four strategies are tried in order:
 
 - **PDF bookmark / outline tree** (`section_detection: pdf_toc`) — LaTeX documents compiled with `hyperref` (ACM `acmart`, NeurIPS, ICML, ACL, IEEE, Springer LNCS, and virtually all modern templates) automatically embed a PDF bookmark tree mapping `\section`, `\subsection`, `\subsubsection` to a structured outline. PyMuPDF exposes this via `doc.get_toc()`, giving properly spaced titles, correct hierarchy, and page numbers with no font-analysis heuristics. The server uses this when the outline has ≥ 3 entries and ≥ 60% of them can be located in the extracted text. Word-to-document-position matching uses three passes: exact, case-insensitive, and whitespace-collapsed (handles LaTeX PDFs where text extraction produces `"EvaluatingZeroRating..."` but the bookmark title is `"Evaluating Zero Rating..."`). This is also used for Word-origin PDFs with heading-style bookmarks. Confidence: highest.
 
 - **HTML sources** (`section_detection: html_headings`) — `<h2>` / `<h3>` tags are authoritative. Unique markers (`§§SEC:id:level:title§§`) are injected into the HTML before trafilatura runs, then parsed out of the output to give exact character positions without any string matching. Confidence: high.
 
-- **PDF font analysis** (`section_detection: pdf_font_analysis`) — PyMuPDF's `get_text("dict")` returns per-span font metadata. Spans smaller than the dominant body-text size by more than 1 pt are discarded before building the text output — this eliminates footnotes, endnotes, page numbers, and running journal-title headers in one pass. **Bbox-aware span joining** inserts spaces between spans when the horizontal bbox gap exceeds 0.15 em of the font size, fixing the run-together word problem in LaTeX PDFs where words are positioned by x-coordinate rather than literal space characters. The heading detector uses three signals on the remaining spans:
-  1. **Size-based** — span ≥ 1.5 pt larger than body size.
-  2. **Bold at body size** — bold flag set, span < 100 chars.
-  3. **Italic at body size** — >70% of the line's body-size character content is italic, line < 100 chars, ≤ 12 words, does not end with a period (catches italic headings common in humanities journals).
+- **PDF font analysis** (`section_detection: pdf_font_analysis`) — PyMuPDF's `get_text("dict")` returns per-span font metadata. Spans smaller than the dominant body-text size by more than 1 pt are discarded before building the text output — this eliminates footnotes, endnotes, page numbers, and running journal-title headers in one pass. **Bbox-aware span joining** inserts spaces between spans when the horizontal bbox gap exceeds 0.15 em of the font size, fixing the run-together word problem in LaTeX PDFs where words are positioned by x-coordinate rather than literal space characters. A **heading-line pre-scan** (`_precompute_heading_lines`) runs before extraction, recording which lines on every page are composed entirely of bold or large spans with no regular-weight text — this is the key filter that prevents inline bold within paragraphs (which shares a line with regular text) from being misidentified as headings. The heading detector uses four signals on the remaining spans:
+  1. **Size-based** — span ≥ 1.5 pt larger than body size. A digit guard runs first to catch page numbers displayed at larger font sizes before they reach the size-based check.
+  2. **Bold at body size** — bold flag set, span < 100 chars. Includes a `bold_at_or_near_body` tolerance (±1.5 pt) to catch journals that format headings in a slightly smaller bold font than body text (e.g. 10.5 pt bold headings in an 11.5 pt body). A `[` prefix guard filters out bold citation markers like `[1]`.
+  3. **Italic at body size** — >70% of the line's body-size character content is italic, line < 100 chars, ≤ 12 words, does not end with a period (catches italic headings common in humanities journals). A case-citation guard filters out italic legal citations containing `v.` / `vs.` patterns (e.g. "Leander v Sweden").
+  4. **Multi-word ALL CAPS** — lines where the text contains a space and is entirely upper-case, catching section headings common in law and humanities journals.
 
   For **LaTeX PDFs** (detected via `producer`/`creator` metadata — pdfTeX, XeTeX, LuaTeX, MiKTeX, dvips, etc.), font *names* are used for level assignment rather than size clustering: Biolinum Bold → level 2 (ACM `\section`), Libertine Bold → level 3 (ACM `\subsection`), CMBX/LMBX design size ≥ 12 → level 2 else level 3, CMSS/LMSS bold → level 2, Times-based by size differential. For non-LaTeX PDFs, headings are clustered by `(font_size, is_bold, is_italic)` and the largest/boldest group is level 2. Font baseline from first 30 pages. Confidence: reliable.
 
@@ -115,6 +117,10 @@ An MCP server that searches academic papers, fetches full text, and returns cont
 **Batch sections bibliographic metadata.** `batch_sections` displays a one-line citation (`Author et al. (year) — Title. Venue`) above each paper's section listing, drawn from the cached bibliographic metadata. This avoids the need to cross-reference DOIs with search results when surveying multiple papers.
 
 The `sections` mode output includes a `Section detection:` line that tells you which method was used and its reliability. Cached `text_heuristic` entries are automatically re-processed on access so improvements to the heuristic take effect without manual cache clearing.
+
+**pymupdf4llm as default PDF backend.** `pymupdf4llm` is now a main dependency (not optional) and `USE_PYMUPDF4LLM` defaults to `true`. It produces Markdown output with native handling of tables, multi-column layouts, and bold/italic formatting. Section headings are detected by a custom `hdr_info` callback that feeds each span through the same heading-detection logic as the font-analysis pipeline — size-based, bold-at-or-near-body, italic, and multi-word ALL CAPS signals — so pymupdf4llm benefits from all heading-detector tuning without relying on its built-in size-only heuristic. On failure or if the package is not installed, extraction falls back transparently to the existing `extract_text_with_sections` pipeline.
+
+**Lazy cache upgrade.** When `USE_PYMUPDF4LLM` is enabled (the default), cached articles whose `section_detection` is `pdf_font_analysis` or `pdf_toc` are automatically re-extracted with pymupdf4llm the next time they are accessed — provided the original PDF is still on disk in the cache. The upgraded result replaces the old cache entry, so improved section detection takes effect without manual cache clearing.
 
 **Keyword-enriched sections output.** Every `mode="sections"` response includes TF-IDF keywords computed per section — words that are frequent in that section but rare across the article as a whole. Keywords appear on the line below each heading, prefixed with `→`. When section detection is sparse (only 2–3 headings found, leaving large uncovered gaps), the gaps are automatically split into ~3,500-character keyword-labelled chunks interleaved with the structural headings. Keywords for gap chunks are computed locally within each gap so they reflect the concepts actually discussed there. The detection note gains `+ keyword infill` when infill was added. All offsets (structural sections and infill chunks alike) work with `mode="range"`.
 
@@ -157,6 +163,7 @@ cp .env.example .env
 | `PDF_CACHE_DIR` | `~/.cache/academic-mcp/pdfs` | Where to cache downloaded PDFs |
 | `PDF_CACHE_MAX_BYTES` | `2147483648` (2 GB) | Max cache size before LRU eviction kicks in |
 | `MAX_CONTEXT_LENGTH` | `100000` | Max characters returned to the LLM |
+| `USE_PYMUPDF4LLM` | `true` | Use pymupdf4llm for Markdown PDF extraction (tables, multi-column, bold/italic). Falls back to the legacy pipeline on failure. |
 
 ### Zotero settings
 

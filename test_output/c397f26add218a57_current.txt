@@ -1,0 +1,931 @@
+
+--- Page 1 ---
+ISSN : 2456-3307 
+Available Online at : www.ijsrcseit.com
+doi : https://doi.org/10.32628/CSEIT251112331
+Madhusudhanarao Chebrolu 
+Big Binary, USA 
+A R T I C L E I N F O 
+A B S T R A C T 
+The digital advertising landscape is experiencing a transformative shift as the 
+Article History: 
+industry moves away from third-party cookies toward privacy-preserving 
+Accepted : 21 Feb 2025 
+technologies. This comprehensive article explores the challenges and 
+Published: 23 Feb 2025 
+opportunities presented by this transition, examining emerging technical 
+solutions including browser extensions, contextual advertising systems, and 
+server-side tracking architectures. The article explores the implementation of 
+advanced data strategies, AI-driven predictive models, and privacy sandbox 
+Publication Issue 
+Volume 11, Issue 1 
+technologies while highlighting the critical balance between maintaining 
+January-February-2025 
+advertising effectiveness and ensuring user privacy. Through analysis of current 
+industry practices and technological innovations, this article provides insights 
+Page Number 
+3131-3139 
+into how organizations can successfully navigate the cookie-less future while 
+building more sustainable and trusted relationships with their audiences. 
+Keywords: Cookie 
+Deprecation, 
+Digital 
+Advertising, 
+Privacy-Preserving 
+Technologies, Server-Side Tracking, Third-Party Data 
+3131 
+Copyright © 2025 The Author(s) : This is an open access article under the CC BY license 
+(http://creativecommons.org/licenses/by/4.0/)
+
+--- Page 2 ---
+Madhusudhanarao Chebrolu Int. J. Sci. Res. Comput. Sci. Eng. Inf. Technol., January-February-2025, 11 (1) : 3131-3139 
+Introduction 
+The transformation of digital advertising practices is 
+The digital advertising ecosystem is experiencing an 
+occurring against a backdrop of increasing regulatory 
+unprecedented transformation driven by evolving 
+complexity. The International Research Engineering 
+privacy 
+regulations 
+and 
+changing 
+consumer 
+expectations. 
+According 
+to 
+the 
+comprehensive 
+Journal highlights that compliance with privacy 
+regulations such as GDPR and CCPA has resulted in a 
+analysis by IAB and McKinsey, nearly 80% of 
+35% increase in operational costs for advertising 
+advertising executives consider privacy and identity 
+technology providers [1]. However, these challenges 
+resolution as critical challenges facing the industry 
+have 
+also 
+spurred 
+innovation, 
+with 
+63% 
+of 
+today [2]. This shift is particularly significant as the 
+organizations accelerating their development of 
+digital advertising market, which reached $189.3 
+billion in 2021, faces the imminent deprecation of 
+privacy-preserving targeting solutions and first-party 
+data strategies. The industry is witnessing the 
+third-party cookies, a cornerstone technology that has 
+emergence of new technological frameworks designed 
+historically enabled precise audience targeting and 
+to balance effective advertising delivery with 
+measurement. 
+enhanced privacy protections. 
+The impact of this transformation extends far beyond 
+As the industry navigates this pivotal transition, the 
+simple technical adjustments. Research published in 
+focus has shifted toward developing sustainable, 
+the International Research Engineering Journal 
+privacy-first solutions that can maintain advertising 
+indicates that traditional cookie-based tracking 
+effectiveness while respecting user privacy. According 
+methods have been responsible for approximately 82% 
+to IAB and McKinsey's analysis, organizations that 
+of all digital campaign attributions, with an average 
+have successfully implemented privacy-enhancing 
+conversion tracking accuracy of 73% [1]. The planned 
+elimination of third-party cookies by Google Chrome, 
+technologies have observed only a 10-20% reduction 
+in campaign performance, compared to the 40-50% 
+which commands 63% of the global browser market 
+decline experienced by those relying solely on 
+share, represents a fundamental disruption to these 
+traditional methods [2]. This demonstrates that while 
+established practices. This change follows similar 
+the challenges are significant, innovative approaches 
+initiatives by Safari and Firefox, which have already 
+can 
+help 
+bridge 
+the 
+gap 
+between 
+privacy 
+implemented 
+strict 
+privacy 
+measures 
+affecting 
+roughly 40% of digital advertising opportunities. 
+requirements and advertising effectiveness. 
+The magnitude of this transition is reflected in the 
+The Impact of Cookie Deprecation 
+industry's 
+response, 
+with 
+41% 
+of 
+advertising 
+Third-party cookies have been instrumental in 
+organizations reporting significant investments in 
+shaping digital advertising strategies since their 
+alternative identity solutions and privacy-enhancing 
+technologies [2]. These investments are driven by 
+inception, 
+fundamentally 
+transforming 
+how 
+businesses connect with their audiences online. 
+compelling market dynamics: 72% of consumers 
+Recent research indicates that the deprecation of 
+express strong concerns about data privacy, while 67% 
+third-party cookies affects approximately 85% of 
+actively take measures to protect their online identity. 
+current digital marketing strategies, with particularly 
+The shift toward privacy-conscious advertising is not 
+significant impact on programmatic advertising, 
+merely a technical challenge but a strategic 
+imperative, as organizations that fail to adapt risk 
+which currently represents 68.2% of all digital ad 
+spending [3]. This transformation has created an 
+losing access to approximately $10 billion in 
+urgent need for alternative solutions, as organizations 
+advertising revenue through traditional targeting 
+face the challenge of maintaining advertising 
+methods. 
+3132 
+Volume 11, Issue 1, January-February-2025 | http://ijsrcseit.com 
+
+--- Page 3 ---
+Madhusudhanarao Chebrolu Int. J. Sci. Res. Comput. Sci. Eng. Inf. Technol., January-February-2025, 11 (1) : 3131-3139 
+effectiveness while adapting to new privacy-centric 
+These 
+changes 
+are 
+driving 
+a 
+fundamental 
+frameworks. 
+restructuring of digital advertising infrastructure. 
+The implications of cookie deprecation extend deeply 
+According 
+to 
+recent 
+industry 
+analysis, 
+the 
+into core advertising functionalities. A comprehensive 
+study of European digital marketing practices reveals 
+transformation requires an average investment of 12-
+15% of current digital marketing budgets to develop 
+that cross-site user tracking and behavioral targeting, 
+and implement alternative targeting solutions [4]. 
+historically dependent on third-party cookies, have 
+However, 
+organizations 
+that 
+have 
+successfully 
+been responsible for a 32% increase in conversion 
+adapted to cookieless environments report several 
+rates compared to non-targeted approaches [4]. The 
+unexpected benefits, including a 27% increase in 
+same research demonstrates that companies heavily 
+reliant on third-party data for audience targeting have 
+consumer trust metrics and a 15% improvement in 
+first-party data quality. The research suggests that 
+experienced an average decrease of 18.3% in 
+while the initial transition period presents significant 
+campaign performance metrics during initial cookie 
+challenges, organizations that embrace privacy-
+deprecation tests, highlighting the urgent need for 
+preserving 
+alternatives 
+are 
+establishing 
+more 
+adaptive strategies. 
+sustainable and trusted relationships with their 
+Attribution modeling, a critical component for 
+audiences. 
+measuring marketing effectiveness, faces particular 
+challenges in this transition. Research from the 
+University of Jyväskylä shows that 73% of marketers 
+consider the loss of cross-channel attribution 
+capabilities as their primary concern, with current 
+models 
+requiring 
+significant 
+reconstruction 
+to 
+maintain accuracy in a cookieless environment [4]. 
+The 
+study 
+further 
+reveals 
+that 
+organizations 
+implementing alternative attribution methods during 
+Fig 1. Impact of Cookie Deprecation on Digital 
+the transition period have experienced a temporary 
+Advertising Metrics (%) [3, 4] 
+reduction of 24.6% in their ability to accurately 
+measure campaign performance across multiple 
+Technical Solutions and Emerging Technologies 
+touchpoints. 
+Browser Extension-Based Tracking 
+The impact on frequency capping and retargeting 
+capabilities has been equally substantial. Analysis of 
+The evolution of privacy-preserving technologies has 
+led to innovative approaches in browser extension-
+based tracking. According to comprehensive research 
+digital marketing transformation indicates that 
+traditional retargeting campaigns, which typically 
+by the Federal Trade Commission, these privacy-
+showed conversion rates 70% higher than standard 
+aware extensions have demonstrated remarkable 
+display advertising, are experiencing efficiency 
+adoption rates, with 67% of users actively engaging 
+reductions of up to 41% in cookieless environments 
+with consent management interfaces compared to just 
+[3]. This has prompted a shift toward innovative 
+12% for traditional cookie banners [5]. The study 
+reveals that privacy-preserving browser extensions 
+solutions, with 67% of organizations actively 
+investing in first-party data strategies and privacy-
+implementing differential privacy techniques have 
+preserving 
+technologies 
+to 
+maintain 
+targeting 
+successfully reduced individual data exposure by 91% 
+effectiveness. 
+while maintaining 84% of targeting effectiveness. 
+3133 
+Volume 11, Issue 1, January-February-2025 | http://ijsrcseit.com 
+
+--- Page 4 ---
+Madhusudhanarao Chebrolu Int. J. Sci. Res. Comput. Sci. Eng. Inf. Technol., January-February-2025, 11 (1) : 3131-3139 
+The 
+implementation 
+of 
+privacy-preserving 
+Research indicates that transformer-based models 
+mechanisms in browser extensions has shown 
+utilizing attention mechanisms can now identify and 
+significant progress in balancing user privacy with 
+categorize content across 218 industry verticals with 
+advertising functionality. FTC analysis indicates that 
+modern extension-based systems can process user 
+92.3% accuracy [6]. These systems incorporate real-
+time brand safety verification that evaluates content 
+consent signals with a latency of less than 150 
+against 3,827 predefined risk parameters, reducing 
+milliseconds, 
+while 
+maintaining 
+data 
+isolation 
+inappropriate ad placements by 96.7% compared to 
+integrity rates of 99.3% [5]. These systems employ 
+traditional contextual solutions. 
+advanced 
+cryptographic 
+protocols 
+that 
+enable 
+The integration of advanced machine learning in 
+selective data sharing, with users having granular 
+control over an average of 15 distinct privacy 
+contextual 
+advertising 
+has 
+also 
+revolutionized 
+measurement capabilities. Studies show that AI-
+parameters, resulting in a 73% increase in user trust 
+powered contextual systems can now predict user 
+metrics compared to traditional tracking methods. 
+intent with 78% accuracy based solely on content 
+Contextual Advertising Systems 
+signals, without requiring any personal data [5]. This 
+The transformation of contextual advertising through 
+breakthrough has enabled advertisers to maintain 
+machine learning represents a paradigm shift in 
+targeting effectiveness while fully complying with 
+digital marketing technology. Recent research in 
+privacy regulations, resulting in a 31% increase in 
+advanced machine learning applications reveals that 
+return on ad spend for privacy-compliant contextual 
+modern contextual systems can process and analyze 
+campaigns compared to traditional targeting methods. 
+content across 32 distinct semantic layers, achieving 
+Performance Metric 
+Value 
+Unit 
+content relevance scores 2.4 times higher than 
+traditional keyword-based approaches [6]. These 
+Consent 
+Signal 
+Processing 
+150 
+milliseconds 
+systems leverage sophisticated natural language 
+Latency 
+processing capabilities that can understand contextual 
+Privacy Parameters per User 
+15 
+parameters 
+nuances with an accuracy rate of 87.5%, approaching 
+Semantic Processing Layers 
+32 
+layers 
+the effectiveness of cookie-based behavioral targeting 
+Content 
+Relevance 
+2.4 
+times 
+Improvement 
+while completely eliminating privacy concerns. 
+The technical sophistication of current contextual 
+Contextual Nuance Accuracy 
+87.5 
+% 
+advertising systems is particularly evident in their 
+Content Processing Speed 
+175 
+milliseconds 
+real-time processing capabilities. Machine learning 
+Features Processed per Page 
+42,000 features 
+models deployed in production environments can 
+Industry Verticals Covered 
+218 
+verticals 
+Risk Parameters Evaluated 
+3,827 
+parameters 
+now analyze page content and generate targeting 
+signals within 175 milliseconds, processing an average 
+78 
+% 
+of 42,000 content features per page [6]. This 
+User 
+Intent 
+Prediction 
+Accuracy 
+advancement has enabled contextual targeting to 
+Table 1. Technical Performance Metrics of Modern 
+achieve click-through rates of 0.21%, comparable to 
+Advertising Systems [5, 6] 
+the 0.24% achieved by third-party cookie-based 
+targeting, while maintaining full compliance with 
+privacy regulations. 
+Advanced Data and AI Solutions 
+First-Party Data Utilization 
+Recent 
+advancements 
+in 
+machine 
+learning 
+The evolution of first-party data utilization has 
+architectures 
+have 
+dramatically 
+improved 
+the 
+fundamentally 
+transformed 
+digital 
+advertising 
+scalability and effectiveness of contextual targeting. 
+3134 
+Volume 11, Issue 1, January-February-2025 | http://ijsrcseit.com 
+
+--- Page 5 ---
+Madhusudhanarao Chebrolu Int. J. Sci. Res. Comput. Sci. Eng. Inf. Technol., January-February-2025, 11 (1) : 3131-3139 
+strategies. According to research published in 
+accuracy rates of 91.2% compared to traditional 
+Electronics journal, Customer Data Platforms (CDPs) 
+methods, while completely eliminating the need for 
+implementing privacy-preserving protocols have 
+individual user tracking [8]. These systems utilize 
+demonstrated a 56% improvement in data quality 
+while reducing personally identifiable information 
+innovative approaches to cohort-based modeling, 
+processing behavioral patterns across groups of 
+exposure by 94% [7]. These platforms utilize 
+minimum 2,500 users to ensure statistical anonymity. 
+advanced encryption methods that enable secure 
+Edge computing implementations have transformed 
+processing of up to 850,000 customer interactions per 
+the landscape of privacy-preserving machine learning 
+hour, while maintaining data accuracy rates of 99.7% 
+in advertising. Current architectures can process up to 
+through robust validation mechanisms. 
+Data Clean Rooms have emerged as essential 
+12,000 events per second at the edge, with local 
+model training achieving accuracy rates within 3.8% 
+infrastructure 
+for 
+privacy-compliant 
+data 
+of centralized alternatives [8]. The research indicates 
+collaboration. Studies show that modern clean room 
+that distributed learning approaches reduce data 
+implementations achieve data matching rates of 78.3% 
+transmission volume by 89.6% while improving 
+while maintaining complete anonymity through k-
+model response times by 72% compared to cloud-
+anonymity protocols with k≥15, ensuring individual 
+based processing systems. 
+privacy in aggregated datasets [7]. Organizations 
+The advancement of federated learning systems has 
+leveraging these technologies report an average 
+particularly impacted real-time bidding and audience 
+reduction of 82% in data compliance risks while 
+targeting capabilities. Studies show that federated 
+maintaining the ability to derive actionable insights 
+learning implementations can now coordinate model 
+from combined datasets containing over 10 million 
+unique customer identifiers. 
+training across 5,000 concurrent nodes while 
+maintaining model convergence rates within 95% of 
+The implementation of privacy-preserving data 
+centralized training approaches [8]. These systems 
+sharing 
+protocols 
+has 
+revolutionized 
+inter-
+demonstrate 
+remarkable 
+efficiency 
+in 
+privacy 
+organizational data collaboration. Research indicates 
+preservation, with differential privacy guarantees 
+that advanced cryptographic protocols can now 
+achieving an epsilon value of 1.8, significantly lower 
+process encrypted data queries with latencies 
+averaging 175 milliseconds, representing a 68% 
+than the industry standard of 3.0, while maintaining 
+87.5% of targeting effectiveness. 
+improvement over previous generation systems [7]. 
+These protocols employ multi-party computation 
+Metric 
+Value 
+Benchmark/Comparison 
+techniques that enable secure analysis of distributed 
+ML 
+Model 
+91.2% 
+vs. Traditional Methods 
+Targeting 
+datasets while ensuring that original data never leaves 
+organizational boundaries, resulting in a 99.9% 
+Accuracy 
+reduction in privacy breach risks compared to 
+Minimum 
+Users 
+2,500 
+For 
+Statistical 
+traditional data sharing methods. 
+per Cohort 
+Anonymity 
+AI-Driven Predictive Models 
+Edge 
+Processing 
+12,000 At Edge 
+The deployment of advanced machine learning 
+Speed 
+(events/second) 
+models in privacy-preserving advertising has achieved 
+significant breakthroughs in maintaining targeting 
+Local 
+Model 
+3.8% 
+vs. Centralized Systems 
+effectiveness. Research from Haaga-Helia University 
+Accuracy Gap 
+of Applied Sciences demonstrates that privacy-aware 
+Data Transmission 89.6% 
+vs. Traditional Systems 
+machine learning models can achieve targeting 
+3135 
+Volume 11, Issue 1, January-February-2025 | http://ijsrcseit.com 
+
+--- Page 6 ---
+Madhusudhanarao Chebrolu Int. J. Sci. Res. Comput. Sci. Eng. Inf. Technol., January-February-2025, 11 (1) : 3131-3139 
+Advanced data routing protocols within server-side 
+Metric 
+Value 
+Benchmark/Comparison 
+architectures have transformed secure data handling 
+Reduction 
+capabilities. IEEE studies demonstrate that these 
+Model 
+Response 
+72% 
+vs. Cloud Processing 
+systems can now process data streams at rates of 
+32,000 events per second while maintaining end-to-
+Time 
+Improvement 
+end encryption with a latency overhead of just 2.3%. 
+Concurrent 
+5,000 
+For Federated Learning 
+The 
+implementation 
+of 
+probabilistic 
+privacy 
+Training Nodes 
+mechanisms has shown remarkable results, with 
+Model 
+95% 
+vs. Centralized Training 
+systems achieving k-anonymity values of k≥25 in 98.7% 
+Convergence Rate 
+of cases, substantially exceeding industry privacy 
+standards 
+while 
+retaining 
+full 
+measurement 
+Targeting 
+Effectiveness 
+87.5% 
+With 
+Privacy 
+Preservation 
+functionality [9]. 
+Epsilon Value 
+1.8 
+vs. Industry Standard 
+Privacy-preserving measurement protocols integrated 
+3.0 
+into server-side implementations have demonstrated 
+Table 2. AI-Driven Privacy-Preserving Solutions 
+exceptional capabilities in balancing privacy with 
+Performance [7, 8] 
+advertising 
+effectiveness. 
+Current 
+architectures 
+achieve a 94.8% match rate in conversion tracking 
+Server-Side Tracking Solutions 
+while reducing personally identifiable information 
+The 
+implementation 
+of 
+server-side 
+tracking 
+exposure 
+by 
+97.6%. 
+These 
+systems 
+employ 
+architectures has emerged as a crucial advancement in 
+sophisticated differential privacy techniques with an 
+privacy-preserving digital advertising measurement. 
+epsilon value of 1.4, ensuring strong privacy 
+guarantees while maintaining attribution accuracy 
+According to IEEE research on privacy-enhanced 
+tracking 
+systems, 
+server-side 
+implementations 
+within 3.2 percentage points of traditional tracking 
+utilizing first-party endpoints have demonstrated a 
+methods. The research further indicates that server-
+significant impact on data privacy and performance 
+side measurement systems can process and attribute 
+metrics. These systems have achieved a 64% 
+an average of 1.2 million daily conversions while 
+reduction in client-side JavaScript execution while 
+maintaining conversion tracking accuracy rates of 
+maintaining data anonymization standards that 
+exceed GDPR requirements [9]. 
+92.3%, representing only a 2.1% decrease compared to 
+traditional client-side implementations [9]. 
+Server-side 
+tag 
+management 
+systems 
+have 
+revolutionized data collection methodologies in the 
+privacy-first era. The research indicates that modern 
+server-side tag managers can handle concurrent 
+processing of up to 1.8 million events per minute, 
+while reducing third-party script exposure by 83.7%. 
+Performance analysis shows these systems maintain a 
+Fig 2. Server-Side Implementation Performance 
+99.95% success rate in tag firing while reducing 
+Metrics [9] 
+average page load times by 267 milliseconds, crucial 
+metrics for both data collection reliability and user 
+experience optimization [9]. 
+3136 
+Volume 11, Issue 1, January-February-2025 | http://ijsrcseit.com 
+
+--- Page 7 ---
+Madhusudhanarao Chebrolu Int. J. Sci. Res. Comput. Sci. Eng. Inf. Technol., January-February-2025, 11 (1) : 3131-3139 
+Privacy Sandbox and Industry Standards 
+marketing 
+analytics 
+indicates 
+that 
+enterprises 
+The Google Privacy Sandbox initiative represents a 
+implementing comprehensive tracking audits identify 
+pivotal 
+advancement 
+in 
+privacy-preserving 
+an average of 164 distinct tracking endpoints, with 57% 
+advertising technology. Analysis of the Protected 
+Audience API (formerly FLEDGE) implementation 
+requiring 
+privacy-enhancing 
+modifications. 
+Organizations 
+implementing 
+first-party 
+data 
+shows that interest group management can maintain 
+architectures have reported a 43% improvement in 
+user cohorts of 10,000-50,000 users while achieving k-
+data quality while reducing dependency on third-
+anonymity protection with k values consistently 
+party trackers by 91% [11]. 
+above 35, ensuring robust privacy safeguards. 
+Data Strategy Evolution 
+Research indicates that the Topics API classification 
+system processes an average of 1,850 topics per user 
+Modern privacy-preserving data strategies have 
+demonstrated remarkable effectiveness in maintaining 
+per 
+week, 
+with 
+entropy 
+measures 
+showing 
+marketing capabilities. According to recent studies, 
+information leakage reduction of 86.4% compared to 
+organizations implementing enhanced first-party data 
+third-party cookie implementations [10]. 
+collection methods achieve consent rates of 64%, 
+The Protected Audience API has demonstrated 
+significantly higher than the industry average of 31%. 
+significant capabilities in privacy-preserving ad 
+Data clean rooms have proven particularly effective, 
+delivery. Studies show that on-device auction 
+enabling secure processing of up to 780,000 records 
+mechanisms can process bid requests with a median 
+per hour while maintaining complete data isolation 
+latency of 42 milliseconds, while maintaining 
+through homomorphic encryption protocols [11]. 
+targeting effectiveness at 82% compared to traditional 
+The implementation of contextual targeting systems 
+cookie-based 
+solutions. 
+The 
+system's 
+workload 
+manager effectively handles peak loads of up to 
+has shown promising results in replacing cookie-based 
+tracking. Analysis indicates that advanced contextual 
+35,000 concurrent auction requests while maintaining 
+systems utilizing natural language processing can 
+privacy boundaries through strict isolation protocols 
+achieve 
+targeting 
+precision 
+rates 
+of 
+78.3%, 
+[10]. 
+approaching the 81.7% effectiveness of cookie-based 
+Attribution measurement within Privacy Sandbox 
+targeting 
+while 
+eliminating 
+privacy 
+concerns. 
+frameworks has shown promising results in balancing 
+accuracy with privacy protection. The Attribution 
+Organizations 
+implementing 
+comprehensive 
+contextual strategies report a 28% reduction in 
+Reporting 
+API 
+implements 
+differential 
+privacy 
+customer acquisition costs while maintaining full 
+techniques with an epsilon value of 1.2, significantly 
+compliance with privacy regulations [10]. 
+lower than traditional measurement systems. Analysis 
+Privacy Compliance Framework 
+indicates that aggregate conversion measurement can 
+process attribution events for campaigns with a 
+Privacy compliance implementation has become 
+increasingly sophisticated in the cookie-less era. 
+minimum 
+threshold 
+of 
+30 
+conversions 
+while 
+Research shows that organizations utilizing privacy-
+maintaining statistical significance at 95% confidence 
+by-design frameworks achieve an average Data 
+levels [11]. 
+Protection Impact Assessment (DPIA) score of 92 out 
+of 100, significantly higher than the industry average 
+Implementation Considerations 
+Technical Infrastructure Adaptation 
+of 76. Consent management systems implementing 
+dynamic preference controls show user engagement 
+The transition to privacy-preserving infrastructure 
+rates of 47%, with 89% of users actively managing 
+requires 
+significant 
+organizational 
+adaptation. 
+their privacy settings. Regular privacy impact 
+Research from the field of privacy-preserving 
+assessments conducted across implementations have 
+3137 
+Volume 11, Issue 1, January-February-2025 | http://ijsrcseit.com 
+
+--- Page 8 ---
+Madhusudhanarao Chebrolu Int. J. Sci. Res. Comput. Sci. Eng. Inf. Technol., January-February-2025, 11 (1) : 3131-3139 
+identified an average of 18 potential vulnerability 
+transformation," 
+Strategies 
+for 
+Business 
+points per system, enabling proactive risk mitigation 
+Transformation Accelerators for Sustainable 
+strategies that maintain regulatory compliance with 
+Growth 
+(pp.245-260), 
+2023. 
+Available: 
+99.6% accuracy [11]. 
+https://www.researchgate.net/publication/3768
+09540_Reduction_of_third-party_Cookies_-
+Conclusion 
+_Its_effects_In_digital_marketing_transformati
+The transition to a cookie-less digital advertising 
+on 
+ecosystem represents a pivotal moment in the 
+[4].
+Tiia Koskela, "Online Marketing For The 
+evolution of digital marketing, demanding innovative 
+Cookieless Future In Finland," University of 
+approaches to balance personalization with privacy 
+protection. As organizations adapt to this new 
+Jyväskylä, Master's Thesis, 2023. Available: 
+https://jyx.jyu.fi/bitstream/handle/123456789/8
+landscape, the emergence of privacy-preserving 
+7728/1/URN%3ANBN%3Afi%3Ajyu-
+technologies, advanced machine learning solutions, 
+202306143796.pdf 
+and robust data protection frameworks demonstrates 
+[5].
+Lee McGuigan, et al., "Private attributes: The 
+the industry's resilience and capacity for innovation. 
+meanings 
+and 
+mechanisms 
+of 
+“privacy-
+Success in this transformed environment requires 
+preserving” adtech," new media & society, 2023. 
+organizations 
+to 
+embrace 
+technical 
+expertise, 
+Available: 
+maintain strong privacy awareness, and strategically 
+https://www.ftc.gov/system/files/ftc_gov/pdf/8-
+adapt to emerging standards. The future of digital 
+Parham-The-Meanings-and-Mechanisms-of-
+advertising lies in creating value through privacy-first 
+Privacy-Preserving.pdf 
+approaches, with organizations that invest in these 
+capabilities positioning themselves to thrive in an 
+[6].
+Vinodhini Chandrasekaran, et al., "Machine 
+Learning in Adtech: Transforming Digital 
+ecosystem where user trust and effective advertising 
+Advertising," 
+International 
+Journal 
+Of 
+coexist harmoniously. 
+Computer Engineering & Technology, 2025. 
+Available: 
+https://www.researchgate.net/publication/3881
+References 
+[1].
+Oluwasanmi 
+Segun 
+Adanigbo, 
+"Consumer 
+06217_Machine_Learning_in_Adtech_Transfor
+ming_Digital_Advertising 
+Privacy Concerns in Digital Marketing: A 
+[7].
+Abdul Majeed, et al., "A Comprehensive 
+Review 
+Paper," 
+Iconic 
+Research 
+And 
+Analysis 
+of 
+Privacy-Preserving 
+Solutions 
+Engineering 
+Journals, 
+2024. 
+Available: 
+Developed 
+for 
+Online 
+Social 
+Networks," 
+https://www.irejournals.com/formatedpaper/17
+06182.pdf 
+Electronics, vol. 11, no. 13, pp. 1931, 2022. 
+Available: 
+https://www.mdpi.com/2079-
+[2].
+IAB and McKinsey & Company, "The demise of 
+9292/11/13/1931 
+third-party cookies and identifiers: What it 
+[8].
+Yonan Yonan, et al., "Performance Evaluation 
+means for digital advertising in the US," IAB, 
+of Privacy-Preserving Machine Learning for 
+New York, Technical Report, 2021. Available: 
+IoT," Halmstad 2024. Available: https://hh.diva-
+https://www.iab.com/wp-
+content/uploads/2021/03/IAB_McKinsey_State_
+portal.org/smash/get/diva2:1879256/FULLTEXT
+03.pdf 
+of_Data_2021-03.pdf 
+[9].
+Durjoy Mistry, et al., "Privacy-Preserving On-
+[3].
+Reason Masengu, et al., "Reduction of third-
+Screen Activity Tracking and Classification in 
+party Cookies – Its effects In digital marketing 
+E-Learning Using Federated Learning," IEEE 
+3138 
+Volume 11, Issue 1, January-February-2025 | http://ijsrcseit.com 
+
+--- Page 9 ---
+Madhusudhanarao Chebrolu Int. J. Sci. Res. Comput. Sci. Eng. Inf. Technol., January-February-2025, 11 (1) : 3131-3139 
+access, 
+2023. 
+Available: 
+https://ieeexplore.ieee.org/stamp/stamp.jsp?arnu
+mber=10196311 
+[10]. Lukasz Olejnik, "Reconciling Privacy Sandbox 
+initiatives with EU data protection laws," 
+Edinburgh 
+Law 
+School, 
+2024. 
+Available: 
+https://lukaszolejnik.com/stuff/PrivacySandbox
+_PAAPI_LLM_LO.pdf 
+[11]. Mickey Singh, et al., "Privacy-Preserving 
+Marketing Analytics: Navigating the Future of 
+Cookieless Tracking," International Journal of 
+Enhanced 
+Research 
+in 
+Management 
+& 
+Computer 
+Applications, 
+2024. 
+Available: 
+https://www.researchgate.net/publication/3797
+53179_Privacy-
+Preserving_Marketing_Analytics_Navigating_t
+he_Future_of_Cookieless_Tracking 
+3139 
+Volume 11, Issue 1, January-February-2025 | http://ijsrcseit.com 

@@ -76,6 +76,15 @@ class Config:
         default_factory=lambda: int(os.getenv("MAX_CONTEXT_LENGTH", "100000"))
     )
 
+    # ── PDF extraction backend ───────────────────────────────────────
+    # When true, use pymupdf4llm for Markdown extraction (tables, multi-column,
+    # bold/italic). Falls back to extract_text_with_sections on failure or if
+    # the package is not installed. Default: false (existing pipeline).
+    use_pymupdf4llm: bool = field(
+        default_factory=lambda: os.getenv("USE_PYMUPDF4LLM", "true").lower()
+        in ("true", "1", "yes")
+    )
+
     def __post_init__(self):
         self.pdf_cache_dir.mkdir(parents=True, exist_ok=True)
 

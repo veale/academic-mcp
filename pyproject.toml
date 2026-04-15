@@ -18,6 +18,7 @@ dependencies = [
     "numpy>=1.26.0",         # Required by sentence-transformers
     "trafilatura>=2.0.0",
     "rank-bm25>=0.2.2",
+    "pymupdf4llm>=1.27.0",   # Markdown PDF extraction (tables, multi-column, bold/italic)
 ]
 
 [project.optional-dependencies]

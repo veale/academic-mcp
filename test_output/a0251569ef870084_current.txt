@@ -1,0 +1,223 @@
+
+--- Page 1 ---
+Valsts policijas koledžas Policijas tiesību katedras docente,
+Latvijas Universitātes Juridiskās fakultātes pasniedzēja
+Summary
+The right to privacy is not absolute, and law enforcement intervention is permissible 
+when it adheres to legal standards. The European Court of Human Rights (ECHR) un­
+derscores the importance of having clear and transparent laws regarding surveillance. 
+Privacy is intricately connected to data protection; especially as automated processing 
+becomes increasingly prevalent. The 1981 Strasbourg Convention established foun­
+dational principles for data protection, aiming to strike a balance between privacy 
+rights and the free flow of data. While the General Data Protection Regulation (GDPR) 
+and the Police Directive address data protection, they do not cover law enforcement 
+activities. The interpretation of the Police Directive varies across EU Member States, 
+leading to questions about its direct applicability. Key considerations such as legal 
+clarity, necessity, and proportionality are essential for balancing privacy with security. 
+The author seeks to ascertain whether the provisions of the Police Directive permit 
+direct horizontal effect in EU Member States and examines how its interpretation 
+influences law enforcement collaboration.
+Atslēgvārdi: sadarbība, privātums, drošība, policijas direktīva, datu apstrāde
+Keywords: cooperation, privacy, security, police directive, data processing
+Krimināltiesiskā sadarbība starp valstīm ir jaunu izaicinājumu priekšā. Strauji 
+ienākošās tehnoloģijas maina cilvēku paradumus un izpratni par notiekošajiem 
+procesiem ikdienas dzīvē, ieviešot jaunas iespējas veikt darba uzdevumus attālinātā 
+formā, fiziski atrodoties pat citā kontinentā. Par būtiskiem informācijas apmaiņas 
+instrumentiem kļuvuši sociālie tīkli, kas rada unikālas problēmas izmeklētājiem, 
+kuri cenšas atklāt pārrobežu noziedzīgus nodarījumus, analizējot datus, kas ir svarīgi 
+krimināltiesiskajās attiecībās. Praktizējošiem juristiem ir nepieciešamas prasmes, 
+
+--- Page 2 ---
+lai veiktu efektīvu izmeklēšanu un nodrošinātu pierādījumu pieņemamību ne tikai 
+valstī, kurā tie tika iegūti, bet arī citās, kur notiek tiesvedība. Vēl viens no jaunākajiem 
+tehnoloģiju sasniegumiem, kas būtiski ietekmējis visas nozares, ir mākslīgā intelekta 
+ienākšana cilvēku ikdienā. Tas ir radījis diskusijas par tā lietošanas iespējām noziedzī­
+bas apkarošanā un krimināltiesiskajās attiecībās, jo noziedzīgo darbību pārtraukšanā 
+ir nepieciešama vairāku jurisdikciju iesaistīšana, ko varētu atvieglot mākslīgā inte­
+lekta izmantošana. Notiekošie industrializācijas procesi norāda uz nepieciešamību 
+stiprināt drošību ne vien nacionālā, bet īpaši reģionālā līmenī. Drošības stiprināšana 
+ir sarežģīts process ne tikai tāpēc, ka ir jāpanāk vienprātība problēmas izpratnē 
+vairāku valstu starpā, jāharmonizē tiesiskais regulējums, bet arī jāievēro līdzsvars 
+starp cilvēka privātumu un drošību.
+Mazāk jautājumu rodas, kad notiek diskusija par valsts drošību un indivīdu tiesī­
+bām. Turpretim krimināltiesiskajā sadarbībā šim līdzsvaram bieži vien ir noteicošā 
+loma. Eiropas Padome 1981. gada 28. janvārī parakstīja Konvenciju par personu 
+aizsardzību attiecībā uz personas datu automātisko apstrādi, un 2016. gada 27. aprīlī 
+tika pieņemta Eiropas Parlamenta un Padomes Direktīva 2016/680 par fizisku per­
+sonu aizsardzību attiecībā uz personas datu apstrādi, ko veic kompetentās iestādes, 
+lai novērstu, izmeklētu, atklātu noziedzīgus nodarījumus vai sauktu pie atbildības par 
+tiem, vai izpildītu kriminālsodus, un par šādu datu brīvu apriti, ar ko atceļ Padomes 
+Pamatlēmumu 2008/977/TI (turpmāk – Policijas direktīva). Padomes Pamatlēmums 
+2008/977/TI līdz Policijas direktīvas pieņemšanai bija piemērojams tiesu iestāžu 
+sadarbībai krimināllietās un policijas sadarbībai; tā piemērošanas joma attiecās tikai 
+uz tādu personas datu apstrādi, kurus nosūtīja starp dalībvalstīm vai kurus darīja 
+savstarpēji pieejamus.
+Šīs publikācijas mērķis ir, pētot Eiropas Cilvēktiesību tiesas (turpmāk – ECT) 
+praksi un starptautiskās tiesību normas, izvērtēt Policijas direktīvas 2016/680 inter­
+pretācijas robežas, pievēršoties privātuma un drošības līdzsvara aspektiem pārrobežu 
+krimināltiesiskajā sadarbībā.
+Vispirms nedaudz par privātuma jēdzienu. Cilvēktiesību aizsardzības pamatā ir 
+Apvienoto Nāciju Organizācijas Vispārējā cilvēktiesību deklarācija , kuras 12. pantā 
+teikts, ka “nevienam nedrīkst patvaļīgi pārkāpt privātās dzīves, ģimenes, mājokļa un 
+korespondences neaizskaramību, kā arī apdraudēt viņa godu un reputāciju. Ikvienam 
+ir tiesības uz likuma aizsardzību pret šādiem pārkāpumiem vai apdraudējumiem”. 
+Eiropas Cilvēktiesību konvencijas (turpmāk – ECK) 8. pants garantē tiesības uz 
+privātās un ģimenes dzīves neaizskaramību, vienlaikus norādot, ka “nav atļauts 
+traucēt nevienam izbaudīt šīs tiesības, izņemot likumā noteiktos gadījumus, kas ir 
+nepieciešami demokrātiskā sabiedrībā, lai aizsargātu valsts vai sabiedrisko drošību, 
+
+--- Page 3 ---
+valsts ekonomiskās labklājības intereses, lai novērstu nekārtības vai noziegumus, kā 
+arī lai aizsargātu veselību, tikumību vai citu personu tiesības un brīvības”. 2025. gada 
+sākumā Eiropas Cilvēktiesību tiesas datubāzē HUDOC atrodamas 7329 lietas sais­
+tībā ar ECK 8. panta iespējamiem pārkāpumiem.
+Šajā publikācijā ir vērts pievērst uzmanību 2025. gada 13. februāra ECT spriedu­
+mam lietā “Macharik v. the Czech Republic” , kurā pieteikuma iesniedzēja pamatoja 
+iespējamo iejaukšanos privāttiesiskumā un ECT konstatēja 8. panta pārkāpumu. 
+Čehijā pieteikuma iesniedzējai tika izvirzīta apsūdzība kā līdzdalībniecei par izvairī­
+šanos no nodokļu nomaksas, un viņa tika notiesāta ar brīvības atņemšanu uz diviem 
+gadiem nosacīti, kā arī naudas sodu aptuveni 2000 eiro apmērā. Pieteikuma iesnie­
+dzējas notiesāšana krimināllietā notika, pamatojoties galvenokārt uz viņas e-pasta 
+sarakstes saturu ar citu notiesāto, ko policija ieguva, pamatojoties uz tiesas rīkojumu 
+nodot visu šo ziņojumu saturu no trešās personas, kurai tie bija pārsūtīti. Izvērtējot 
+iespējamo 8. panta pārkāpumu, ECT palāta norāda uz vispārējiem principiem, ka 
+Konvencijas 8. pants aizsargā to apmaiņu konfidencialitāti, kurās personas var iesais­
+tīties saziņas nolūkos, neatkarīgi no attiecīgās sarakstes satura un formas. Saziņa pa 
+e-pastu, tostarp profesionāla rakstura saziņa, ietilpst sarakstes jēdzienā. Saistībā ar 
+sarakstes pārtveršanu ECT izskatīja vairākas sūdzības, bet ne vienmēr tiek konstatēts 
+pārkāpums. Piemēram, lietā “Tena Arregui pret Spāniju” ECT izskatīja sūdzību 
+par privātās dzīves un sarakstes neaizskaramības pārkāpumu, ko izraisīja e-pastu 
+pārtveršana un izpaušana politiskās partijas iekšējā konfliktā. Sūdzību iesniedzējs 
+apgalvoja, ka viņa personīgie e-pasti tika pārtverti un izpausti, pārkāpjot Eiropas 
+Cilvēktiesību konvencijas 8. pantu. Spānijas tiesa kriminālprocesu pārtrauca, secinot, 
+ka e-pastu uzraudzība bijusi vērsta uz iespējamo pārkāpumu identificēšanu partijā 
+un ka netika pierādīts, ka tiesībsargājošās iestādes būtu rīkojušās ar nodomu izpaust 
+sensitīvus datus. ECT atzina, ka Spānijas iestādes bija nodrošinājušas pietiekamu 
+tiesisko aizsardzību un ka pieejami arī civilie tiesību aizsardzības līdzekļi, kurus 
+pieteicējs nebija izmantojis, tādējādi netika konstatēts 8. panta pārkāpums.
+Privātums nav absolūta tiesība, un iejaukšanās no tiesībsargājošo iestāžu puses 
+ir attaisnojama, ja tā ir notikusi saskaņā ar likumu. Neiedziļinoties konkrētās valsts 
+nacionālo tiesību interpretācijas trūkumos, ir respektējams ECT konstatējums, ka 
+“attiecībā uz saziņas pārtveršanu policijas izmeklēšanas nolūkā likumam jābūt pie­
+tiekami skaidram, lai sniegtu pilsoņiem pietiekamu informāciju par apstākļiem un 
+nosacījumiem, kādos valsts iestādes ir pilnvarotas izmantot šo slepeno un potenciāli 
+bīstamo iejaukšanos tiesībās uz privātās dzīves un korespondences neaizskaramī­
+bu” . Nacionālie tiesību akti nedrīkst piešķirt neierobežotas pilnvaras izpildvarai 
+vai tiesnešiem, bet tiem skaidri jānosaka rīcības brīvības apjoms un tās īstenošanas 
+kārtība, nodrošinot aizsardzību pret patvaļīgu iejaukšanos.
+Jēdziens “privātums” pamatā tiek saistīts ar personas datiem, kuru apstrāde 
+arvien mazāk ir manuāla, bet vairāk automatizēta. Reģionālā līmenī tiesību normu 
+attīstība attiecībā uz datu apstrādi ir sākusies jau iepriekšējā gadu tūkstotī. 1981. gada 
+28. janvārī Strasbūrā tika parakstīta Konvencija par personu aizsardzību attiecībā 
+
+--- Page 4 ---
+uz personas datu automātisko apstrādi (turpmāk – konvencija). Ņemot vērā pieau­
+gošo automātiski apstrādāto personas datu plūsmu pāri robežām, Eiropas Padomes 
+dalībvalstīs vienojas, ka ir nepieciešams paplašināt personas tiesību un pamatbrīvību 
+aizsardzību, īpaši tiesības uz privātās dzīves neaizskaramību. Lai saskaņotu līdzsvaru 
+starp privātumu un informācijas brīvu plūsmu, tika noteikti tādi datu aizsardzības 
+pamatprincipi kā datu kvalitāte; datu drošība un datu subjekta papildu aizsardzība. 
+Konvencijas mērķis ir nodrošināt jebkurai personai neatkarīgi no tautības vai 
+dzīvesvietas tās tiesību un pamatbrīvību, it īpaši tiesību uz privātumu, ievērošanu 
+attiecībā uz personas datu automātisko apstrādi. Vienlaikus dalībvalstis ir tiesīgas 
+izdarīt atrunas, un šajā sakarā Latvija izmantoja šīs tiesības, nosakot, ka “saskaņā ar 
+Konvencijas 3. panta 2. punktu tā netiks piemērota attiecībā uz personas datiem, kas 
+atzīti par valsts noslēpuma objektiem, kā arī personas datu apstrādi, ko veic publiskās 
+institūcijas nacionālās drošības un krimināltiesību jomā”. Īsti nav atrodama papildu 
+informācija par šādas atrunas nepieciešamību, jo konvencijas mērķis un noteiktie 
+datu apstrādes pamatprincipi ir vērsti uz godīgu datu apstrādi, kas notiek saskaņā 
+ar likumu, likumā paredzētajiem mērķiem, adekvātiem un samērīgiem iegūšanas 
+mērķiem, precīziem datiem, kuri saglabāti tādā veidā, kas dod iespēju identificēt datu 
+subjektus ne ilgāku laiku, kā nepieciešams nolūkam, kura dēļ šie dati tiek glabāti.
+Starptautiskās tiesību normas un to piemērošana dalībvalstīs iezīmēja datu aizsar­
+dzības jautājumos atsevišķas neskaidrības. 2016. gada 27. aprīlī Eiropas Parlaments un 
+Padome pieņēma regulu 2016/679, kas attiecas uz fizisko personu aizsardzību saistībā 
+ar personas datu apstrādi un šo datu brīvu apriti, kā arī atceļ Direktīvu 95/46/EK 
+(turpmāk – Vispārīgā datu aizsardzības regula). Ir būtiski atzīmēt, ka Vispārīgās 
+datu aizsardzības regulas darbības jomā nav iekļauta personas datu apstrāde, ko 
+veic kompetentās iestādes, izmeklējot un atklājot noziedzīgus nodarījumus, kā arī 
+saucot pie atbildības par kriminālsodiem. Turklāt Vispārīgās datu aizsardzības regu­
+las tvērumā nav ietverta to kompetento iestāžu darbība, kas nodrošina sabiedrisko 
+drošību un novērš sabiedriskās drošības apdraudējumus. Līdzās Vispārīgajai datu 
+aizsardzības regulai tika pieņemta Policijas direktīva .
+Autores empīriskie novērojumi ir tādi, ka dalībvalstu praksē pastāv atšķirības 
+Policijas direktīvas interpretācijā. Kopumā problēmu esamību ar direktīvu inter­
+pretāciju un transponēšanu dalībvalstīs apstiprina arī Eiropas Savienības Tiesas 
+(turpmāk – EST) atziņas spriedumā lietā C-316/22 “Gabel Industria Tessile SpA un 
+Canavesi SpA pret A2A Energia SpA u. c.”: “LESD 288. panta trešā daļa jāinterpretē 
+tādējādi, ka tā nepieļauj, ka valsts tiesa strīdā starp privātpersonām nepiemēro valsts 
+tiesību normu, ar kuru noteikts netiešs nodoklis, kas ir pretrunā skaidrai, precīzai 
+un beznosacījumu netransponētai vai nepareizi transponētai direktīvas normai, ja 
+
+--- Page 5 ---
+vien valsts tiesībās nav noteikts citādi [..]” Ar šo atziņu “EST pirmo reizi atzina, ka 
+direktīvas horizontāla tieša iedarbība var būt pieļaujama gadījumos, kad to paredz 
+attiecīgās dalībvalsts tiesību akti. Šis spriedums radījis plašas diskusijas un ir licis 
+pārskatīt vienu no ES tiesību sistēmas galvenajiem teorētiskajiem pieņēmumiem” . 
+Analizējot tiesībsargājošo iestāžu funkcijas krimināltiesiskajā sadarbībā, ir jāizvērtē, 
+vai Policijas direktīvas horizontāla tieša iedarbība ir pieļaujama. Tas būtu nozīmīgi, 
+jo arī no ECT spriedumiem izriet tādas atziņas, ka “nav iespējams panākt abso­
+lūtu noteiktību tiesību aktu izstrādē, un risks, ka noteiktības meklējumi var radīt 
+pārmērīgu stingrību. Daudzi likumi neizbēgami ir formulēti terminos, kuri lielākā 
+vai mazākā mērā ir neskaidri un kuru interpretācija un piemērošana ir prakses 
+jautājumi” . Šīs atziņas patiesumu autore var apstiprināt ar saviem empīriskajiem 
+novērojumiem.
+Sabiedriskās drošības nodrošināšana, noziegumu novēršana un personu tiesību 
+un brīvību aizsardzība nav iespējama bez iejaukšanās privātajā dzīvē. Šeit ir svarīga 
+līdzsvara ievērošana starp privātumu un kompetento iestāžu darbību, kas nedrīkst 
+būt pretrunā individuālo cilvēktiesību aizsardzībai un sabiedriskās drošības nodro­
+šināšanai. “Lai tiešā veidā varētu paļauties uz direktīvas normu, tai ir jāizpilda trīs 
+kritēriji. Pirmkārt, direktīvas normai ir jābūt pietiekami skaidrai un precīzai; otrkārt, 
+tai ir jābūt beznosacījuma, proti, tās ieviešana nevar būt atkarīga no citu nosacījumu 
+izpildes vai prasīt tālāku institūciju rīcību, un, treškārt, tā nedrīkst atstāt rīcības 
+brīvību dalībvalstij.” Saskaņā ar šiem kritērijiem autore turpmāk izvērtē Policijas 
+direktīvas piemērošanas pieļaujamību dalībvalstīs tiešā veidā.
+Vai Policijas direktīvas normas ir pietiekami skaidras un precīzas? Nepieciešamība 
+pēc specifiskiem noteikumiem attiecībā uz personas datu aizsardzību un personas 
+datu brīvu apriti tiesu iestāžu sadarbībā krimināllietās un policijas sadarbībā tika 
+noteikta Lisabonas līgumā . Policijas direktīva nosaka vienotus noteikumus personas 
+datu apstrādei krimināltiesību aizsardzības nolūkos, tādējādi uzlabojot konsekvenci 
+starp ES dalībvalstīm. Vienlaikus transponēšanas laikā ir radušās atšķirības to pie­
+mērošanas apjomā.
+Vai Policijas direktīva ir atkarīga no citu nosacījumu izpildes un vai pieprasa 
+tālāku institūciju rīcību? Sniedzot atbildi uz šo jautājumu, ir jāatzīst, ka Policijas 
+direktīva ir atkarīga no citu nosacījumu izpildes un vienlaikus pieprasa tālāku rīcību 
+no dalībvalstu institūcijām. Direktīva paredz saskaņotu noteikumu ieviešanu perso­
+nas datu aizsardzībā un brīvā apritē, kā arī ir nepieciešams skaidrs un precīzs juri­
+diskais pamats dalībvalstīs, nosakot konkrētus mērķus, datu apstrādes nolūkus un 
+aizsardzības procedūras, lai novērstu ļaunprātīgu izmantošanu. Krimināltiesiskajā 
+sadarbībā personu datu apstrāde notiek pēc dažādām subjektu kategorijām, kurām ir 
+jābūt skaidri nodalītām: aizdomās turēto, notiesāto, cietušo, liecinieku utt. personas 
+dati.
+
+--- Page 6 ---
+Policijas direktīvas normas atstāj dalībvalstij daļēju rīcības brīvību. No vienas 
+puses, Policijas direktīva nosaka stingrus noteikumus personu datu apstrādei, 
+norādot, ka tai jābūt likumīgai, godprātīgai, pārredzamai un saskaņā ar likumā 
+noteiktiem mērķiem. Šajā aspektā dalībvalstu rīcības brīvība ir ierobežota un jābūt 
+vienotiem un stingriem standartiem. No otras puses, pastāv dalībvalstu rīcības 
+brīvība tādos aspektos, ka dalībvalstis nosaka datu glabāšanas termiņus, garantijas 
+ilgtermiņa uzglabāšanai arhīvā, zinātniskos un statistikas nolūkos; paredz likumā 
+tiesībaizsardzības iestādēm iespēju veikt slepenu izmeklēšanu un video novērošanu 
+nepieciešamības gadījumā, samērīgi ar nodarījumu. Arī nosacījums, ka personas 
+datus var apstrādāt tad, ja nepieciešamo mērķi nav iespējams sasniegt ar citiem 
+līdzekļiem, ļauj dalībvalstīm interpretēt un piemērot to atšķirīgi tiesiskajā regulē­
+jumā nacionālā līmenī. Prasība nodrošināt efektīvas garantijas, novērst pārmērīgu 
+datu apstrādi un saglabāšanu, garantēt datu subjekta tiesības arī norāda uz elastīgu 
+interpretācijas iespēju.
+1.	 Policijas direktīva neparedz absolūtu vienveidību un atstāj zināmu rīcības brīvību 
+dalībvalstīm, lai nacionālā līmenī varētu pielāgot tiesisko regulējumu atbilstoši 
+specifiskajām prasībām un juridiskai sistēmai.
+2.	 Vispārīgās datu aizsardzības regulas darbības jomā nav iekļauta personas datu 
+apstrāde, ko veic kompetentās iestādes, izmeklējot un atklājot noziedzīgus noda­
+rījumus, kā arī saucot pie atbildības par kriminālsodiem.
+3.	 Policijas direktīva nenosaka vienotus noteikumus visiem gadījumiem, un tā neat­
+tiecas uz personas datu apstrādi valsts drošības jautājumos un citās specifiskās 
+dalībvalstu veiktās darbībās saskaņā ar Līguma par Eiropas Savienību V sadaļas 
+2. nodaļu .
+4.	 Pastāv dalībvalstu rīcības brīvība privātuma aizsardzībā, jo tās ir tiesīgas noteikt 
+stingrākus aizsardzības pasākumus datu apstrādei krimināltiesiskajā jomā, nekā 
+tie ir paredzēti Policijas direktīvā.
+5.	 Policijas direktīva pieļauj izņēmumus attiecībā uz publisko iestāžu piekļuvi per­
+sonas datiem, nosakot, ka datu pieprasījumiem jābūt motivētiem un rakstiskā 
+formā, vienlaikus nenosakot absolūtus ierobežojumus.

@@ -72,6 +72,8 @@ class CachedArticle:
                                   titles with exact hierarchy
       - ``"pdf_font_analysis"`` — font-size threshold on PyMuPDF span data;
                                   reliable for most academic PDFs
+      - ``"pymupdf4llm_markdown"`` — pymupdf4llm Markdown extraction with
+                                  AcademicHeaderDetector; also provides tables
       - ``"text_heuristic"``    — conservative regex on plain text (ft-cache);
                                   approximate, may miss subsections
       - ``"keyword_skeleton"``  — TF-IDF chunks; no structural headings found

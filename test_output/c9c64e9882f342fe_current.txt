@@ -1,0 +1,2048 @@
+
+--- Page 1 ---
+Making Sense of Private Advertising: A Principled
+Approach to a Complex Ecosystem
+Alishah Chator∗
+Gabriel Kaptchuk∗
+Kyle Hogan
+Massachusetts Institute of Technology
+klhogan@csail.mit.edu
+Baruch College
+alishah.chator@baruch.cuny.edu
+University of Maryland
+kaptchuk@umd.edu
+Mayank Varia
+Boston University
+varia@bu.edu
+Srinivas Devadas
+Massachusetts Institute of Technology
+devadas@mit.edu
+Abstract
+In this work, we model the end-to-end pipeline of the advertising
+ecosystem, allowing us to identify two main issues with the current
+trajectory of private advertising proposals. First, prior work has
+largely considered ad targeting and engagement metrics individu-
+ally rather than in composition. This has resulted in privacy notions
+that, while reasonable for each protocol in isolation, fail to compose
+to a natural notion of privacy for the ecosystem as a whole, permit-
+ting advertisers to extract new information about the audience of
+their advertisements. The second issue serves to explain the first:
+we prove that perfect privacy is impossible for any, even minimally,
+useful advertising ecosystem, due to the advertisers’ expectation of
+conducting market research on the results.
+Having demonstrated that leakage is inherent in advertising, we
+re-examine what privacy could realistically mean in advertising,
+building on the well-established notion of sensitive data in a specific
+context. We identify that fundamentally new approaches are needed
+when designing privacy-preserving advertising subsystems in order
+to ensure that the privacy properties of the end-to-end advertising
+system are well aligned with people’s privacy desires.
+Keywords
+advertising, privacy norms, universal composability, information
+leakage, attribute privacy
+1
+Introduction
+Behavioral advertising, in which people are preferentially shown
+advertisements that align with their interests and demographics,
+has become the financial backbone of the internet and the default
+business model for large swaths of the technology sector. This
+advertising ecosystem—and the user-tracking infrastructure that
+powers it—are widely known to be privacy invasive [50], not only
+due to the collection of sensitive, personal data, but also because of
+the ways in which that data is used [17, 36, 95, 96].
+A great deal of research has focused on the harms caused to peo-
+ple through the use of their data for the targeting of advertisements.
+Targeting algorithms are designed to maximize profit for the con-
+stituents of the advertising industry, not to serve the best interests
+of the viewer, and prior studies have shown that behavioral target-
+ing is used to perpetuate harmful biases [3, 35, 54, 75, 88], facilitate
+the spread of disinformation [15, 34, 53, 102], and exploit sensi-
+tive information such as mental health data to target vulnerable
+populations [6, 17, 24, 98].
+While targeting has been the most widely-researched compo-
+nent of behavioral advertising, matching ads to users is not the
+only functionality of the ecosystem. Advertisers expect to conduct
+market research using the relative success of their different adver-
+tisements. To do so, they demand metrics on how users responded
+to ads—did they buy something after viewing the ad? Subscribe to
+the advertiser’s mailing list? If so, which ad drove this engagement?
+Ad networks keep records of this information and submit it back to
+advertisers, allowing them to improve their understanding about
+the preferences of their consumers and refine future ad campaigns.
+Targeted advertising is not unique to digital advertising: print
+advertisements have long been targeting their ads towards specific
+groups of people using both the context in which the ad will be
+displayed (e.g., the magazine or billboard on which to advertise)
+as well as cues within the ad material itself (e.g., visuals, audio,
+etc.). A famous example is the 90’s Subaru campaign that was
+targeted towards the LGBT community by including, e.g., queer-
+coded license plates on the depicted cars [39, 65]. The shift to digital
+advertising is, therefore, not a change in type, but a change in
+magnitude and precision. Digital advertising, with its specific target
+audiences and accurate attribution of user behavior to associated ad
+views, allows advertisers to conduct market research that is far more
+invasive than was possible with print media, calling into question
+the ethics of campaigns that focus on sensitive audiences. This is
+the case not only due to the well-understood harms of collecting
+sensitive data for targeting ads [85], but also because it is currently
+unclear what or how much information advertisers are able to learn
+about these sensitive audiences from the metrics released on their
+ad campaigns.
+In response, researchers and technology companies have pro-
+posed a shift towards “privacy-preserving advertising systems,” a
+collection of proposals [8, 13, 42, 46, 48, 51, 52, 56, 73, 74, 83, 84,
+90, 92, 100, 106, 107] that aim to maintain the existing advertising
+business model while making the process of (1) targeting adver-
+tisements and (2) reporting metrics on advertisement efficacy in a
+privacy-preserving manner. Proponents of privacy-preserving ad-
+vertising systems have made significant progress in refining the
+
+--- Page 2 ---
+1.1
+Our Contributions
+In this work, we provide a careful accounting of the structure un-
+derpinning the advertising ecosystem. In doing so, we make the
+following contributions:
+– A clean, formal, and flexible abstraction of the end-to-end
+advertising process. Our model, detailed in Section 4, makes
+extensive use of parameterizing functions to ensure that our
+abstraction is flexible enough to describe the behavior of the real-
+world advertising pipeline as well as ongoing proposals to make
+it more private. We choose Canetti’s Universally Composable
+(UC) security framework [21] as the runtime for our modeling
+in order to give structure to our analysis.
+– A formal illustration of the inherent tension between pri-
+vacy and utility. In Section 3, we highlight a gap between the
+individual focus of current private advertising protocols and
+the structure of advertising itself which considers audiences, or
+groups of people. Leveraging our model, we concretize this gap
+in Section 5 by providing lightweight minimum utility notions re-
+quired of each component of an advertising ecosystem, which we
+use to prove an inherent incompatibility with the group privacy
+notion, attribute privacy [105]. Specifically, we prove that any
+useful advertising ecosystem must necessarily leak some infor-
+mation about its users—even when it employs strong, individual
+privacy protections, such as differential privacy. We characterize
+this leakage both theoretically and empirically in terms of the
+difference in sample complexity [22]—the campaign size required
+for a private advertising ecosystem to leak the same information
+as its non-private counterpart.
+– A refocus on normative privacy notations. Having shown
+that some leakage is inherent in advertising, in Section 6 we
+advocate for rooting future discussions of privacy in data sen-
+sitivity as understood by end users, ad tech platforms, and reg-
+ulatory bodies. Data sensitivity is well-studied when it comes
+to private ad targeting, but is largely ignored by private metrics
+protocols, which focus exclusively on the quantity of leakage.
+We propose that by making metrics targeting-aware, protocols
+could incorporate the idea of sensitivity and serve as a second
+layer of enforcement–and accountability–for private advertising,
+refocusing on what information is revealed about users.
+2
+Background on (Private) Advertising
+2.1
+The Advertising Ecosystem
+The language used within the advertising literature can be difficult
+to parse for the unfamiliar reader. As such, we provide a brief
+overview of digital advertising, focusing on the creation of metrics
+data (we direct the reader to other surveys for more detail [77]).
+We illustrate the life cycle of an advertising campaign in Figure 1.
+A campaign, or collection of ads directed at a target audience, begins
+at step 0 when the advertiser registers it with the ad network. In
+this case, the advertiser is using their campaign to conduct an A/B
+test, a common practice that we discuss in depth in Section 3, by
+registering two ads: one ad (A) depicting a family with children and
+design of these systems, some of which have even been deployed
+in popular browsers [42, 69, 100].
+Unpacking “privacy” within advertising. In this work, we take
+a step back to re-examine “privacy-preserving advertising systems”
+from first principles. This choice is motivated by the desire to better
+understand what is possible to achieve when adding privacy to
+advertising when, largely, the concept feels like an oxymoron.
+Ultimately, we find that this initial reaction is not far off: any
+useful behavioral advertising ecosystem must necessarily permit
+advertisers to extract information about end users, regardless of
+what privacy protections are in place. Leveraging the language
+of ideal functionalities, we give an implementation-independent
+modeling of privacy-preserving advertising that focuses on the
+minimal functionality required by the ecosystem.
+Notably, our model departs from prior work in that it focuses
+on the entire end-to-end advertising pipeline, with a particular em-
+phasis on the ways that privacy-preserving targeting and privacy-
+preserving metrics interact with one another and form a feedback
+loop. By seeing privacy-preserving advertising in this way, we are
+able to identify real-world advertising use cases in which common
+notions of privacy for targeting and metrics fail to compose sat-
+isfyingly, which undermines natural privacy guarantees for the
+end-to-end system despite targeting and metrics protocols indepen-
+dently achieving reasonable standards for privacy. We emphasize
+that this composition failure is not merely the result of specific, ill-
+designed protocols from early research; instead, it is fundamental
+to the nature of targeted advertising itself.
+Looking further: we also examine how to consider privacy for-
+mally in the context of advertising. While perfect privacy may not be
+possible for advertising, we observe that it is also not necessarily re-
+quired or even desirable. For instance, while contextual advertising
+(where ads are targeted only to the context in which they will be dis-
+played, i.e., the website or article) can suffer from the same problems
+as behavioral advertising in the worst case, it is still strongly pre-
+ferred as an alternative to behavioral advertising. While the privacy
+provided by contextual advertising may be imperfect, it is likely
+“good enough” [63, 99]. Hence, using the language of information
+leakage alone makes it difficult to distinguish between advertising
+systems that are widely considered “invasive” and those that are
+not. We additionally observe that a narrow focus on building mech-
+anisms to regulate—without eliminating—information leakage, like
+differential privacy [37], risk treating all types of information leak-
+age identically and missing the ways in which people feel differently
+about some sensitive information categories. As a result, we adopt
+the framework of attribute privacy [105] to evaluate privacy in the
+context of advertising.
+Relatedly, not all advertising campaigns have the same poten-
+tial for privacy harm, even if they do leak the same amount of
+information. For this reason, we also employ the framework of
+contextual integrity [71] to reason about the sensitivity of the data
+involved. This sentiment is captured, if not well-enforced, by cur-
+rent tech policy and legal regulations for ad targeting, but absent
+from consideration in private metrics. This motivates a more holis-
+tic approach toward the design of privacy-preserving advertising
+systems that reason carefully about the amount of information
+revealed by metrics and the sensitivity of that leakage.
+
+--- Page 3 ---
+Figure 1: An illustration of the advertising ecosystem, depicting the process of generating metrics on a behavioral advertising
+campaign. See Section 2.1 for details.
+another ad (B) without children. In both cases the ads are directed
+at an audience of “busy people looking for a convenient meal”.
+Later, 1 when a user browses to a publisher website displaying
+ads, that website will send a request 2 to the ad network containing
+data on the site itself as well as an identifier for the user. The ad
+network then runs a targeting model and a real-time bidding auction
+Adveil [83] presents a protocol for the full advertising pipeline,
+and it considers the fact that metrics reports can be revealing of per-
+sonal data even if they are not directly linkable to an individual user.
+Themis [74] is an early industry proposal that uses a consortium
+blockchain to provide transparency and accountability for metrics
+data. It, again, provides unlinkability between users and their re-
+ports, but it does not have further privacy protections for metrics
+data. CookieMonster [90] is a recent work out of the W3C Pri-
+vate Advertising Technology Community Group (PATCG), which is
+working to standardize a private metrics protocol. CookieMonster
+provides a full model and security analysis for differentially-private
+ad metrics with emphasis on handling complexities in privacy loss
+budgets. It grew out of earlier work on Interoperable Private At-
+tribution (IPA) [73] and is part of the work on Privacy Preserving
+Attribution (PPA) [47]. Apple’s Private Attribution Measurement
+(PAM) [100] and Google’s Attribution Reporting API (ARA) [42]
+are both alternative, differential-privacy-based proposals—though
+PAM was recently superseded by PPA.
+To the best of our knowledge, ours is the first work to formally
+model and prove the presence of leakage for all advertising systems,
+rather than the absence of leakage for a specific system.
+3
+Defining Privacy for Advertising
+3 , incorporating data from the advertiser, in order to select which
+ad to deliver to the user 4 . The user views the ad 5 and may, at
+some point in the future 6 subscribe to a meal kit service (likely
+on a different site) as a result of seeing this ad.
+Engagement with an advertiser, such as making a purchase or
+even adding items to a cart, is known as a conversion. The ad net-
+work attributes 7 the user’s conversion to the impression, or ad
+view, it believes was responsible. In this case, that was the most
+recent impression, ignoring ads from unrelated campaigns. This
+process is known as attribution, and attributing a conversion to the
+most recent impression is a strategy called “last touch.”
+Eventually, the ad network collects attribution data 8 from all
+users who viewed ads in this campaign and uses it to compute
+metrics 9 that the advertiser can use to determine which ad from
+the campaign was more successful in driving purchases.
+In more detail, these metrics largely correspond to a count of
+how many conversions were attributed to each ad, and they are
+what allow the advertiser to run its A/B test and refine their strat-
+egy for future campaigns to focus more effort on ad content that
+drove higher engagement [14, 55]. For this example, ad A outper-
+formed ad B, so the advertiser will likely focus future advertising
+spend towards parents. We go into more detail on the leakage from
+advertising metrics and its potential for harm in Section 3.
+2.2
+Related Work
+While there is a rich history of academic research on privatizing
+advertising [8, 13, 46, 48, 51, 52, 56, 62, 74, 83, 84, 90, 92, 106, 107],
+the majority of this work has not considered the potential impact
+of releasing metrics data (beyond the possibility of linking an in-
+dividual conversion report to the specific user who generated it).
+Exceptions to this include AdVeil [83], Themis [74], CookieMonster
+[90], and various industry proposals for privatizing metrics (Apple’s
+PCM/PAM [5, 100], Google’s ARA [42], Meta/Mozilla’s IPA [73],
+and a W3C standardization effort PPA [47]) that we discuss next.
+Privacy is a multifaceted [86] and contextually embedded [70] con-
+cept that does not permit a unified definition, so we first concretize
+what we mean by privacy within advertising. We begin with a
+leakage-based notion; ideally, advertising systems that aim to pre-
+serve privacy should prevent any information from leaking about
+users. Emerging proposals for private advertising are rapidly mov-
+ing towards this “no-leakage” world by pushing more of the tar-
+geting logic to clients’ own devices (e.g., FLEDGE [78]). Such a
+shift is a step in the right direction—away from the mass surveil-
+lance [16, 29, 82, 94, 103] that currently supplies personal data for
+ad targeting. However, delivering relevant ads is only one step in
+the advertising pipeline.
+Advertisers also want metrics on how these ads perform. Ads
+can be expensive, and performance metrics allow advertisers to
+direct their spending to campaigns that drive a better return on ad
+spend (ROAS) [77]. Yet, even very basic metrics, such as which ads
+were delivered, violate our zero-leakage goals as, due to the nature
+
+--- Page 4 ---
+of targeting, the ads themselves are revealing of their audience
+[25, 66]. Recognizing that metrics leakage could cause significant
+harm, there has been a widespread effort [47, 90] to make the met-
+rics computed on advertisement performance differentially private,
+limiting the amount of information contained about individuals.
+However, as we demonstrate in this work, advertising requires
+more than individual privacy in order to adequately protect the
+information that users consider to be important.
+We use this section to introduce metrics as a critical component
+of the advertising ecosystem, outline why it renders perfect privacy
+impossible for advertising, and argue that seemingly-natural fixes—
+such as differentially-private metrics—fail to adequately mitigate
+the privacy harms that can arise from advertising ecosystems.
+3.1
+Market Research as Information Leakage
+if many of the audience members are parents, then ad A will be
+shown more frequently.
+Market research is an iterative process. Consider our earlier
+campaign example of marketing ready-made meal kits: the first
+iteration could test whether the audience of “busy people who don’t
+cook” also tends to have the “new parent” feature. Supposing that
+this turns out to be the case, the advertiser can then test whether
+“busy new parents who don’t cook” tend to prefer “health-focused”
+meals and so forth. Thus, this practice does not only reveal a “little
+bit more” information about audiences, but can be used (over time)
+to extract tremendous amounts of information about audiences.
+Much market research is, like this example, relatively innocuous.
+However, this same infrastructure can be (and is) used to learn
+about arbitrary topics. We see examples of this with researchers
+leveraging these platforms to carry out their own research studies
+[81]—studies that are suspiciously close to “human subject research”
+that is generally expected to be under the close supervision of
+institutional review boards. For instance, consider the study by
+Chan et al. that uses advertising to assess whether conservatives
+are likely to have stronger brand attachment [26]. Another study
+used advertising to assess public perceptions of refugees, though it
+did acknowledge the ethical considerations of the research [1].
+The upshot is that market research—an inherently desired compo-
+nent within any advertising system—enables a level of data-mining
+that goes far beyond improving the quality of advertising. How-
+ever, the existing discussion of privacy in advertising is centered
+on individual privacy, whereas the leakage we describe here is a
+group privacy harm.
+The insights that advertisers derive from metrics go far beyond
+simple counts of how often advertisements are shown, and they
+are used to conduct market research on how users engage with the
+ads they are shown. By collecting metrics on the relative successes
+of their current advertising campaigns, advertisers can refine the
+content and target audience of future campaigns to focus their ad
+spending on serving appealing content to the people who are most
+likely to engage with it [41].
+The most clear example of this type of market research is the A/B
+test, a practice where advertisers can create two versions of an ad
+and test which is preferred by their target audience or, conversely,
+test which of two possible target audiences gets better results for
+a given ad campaign. A/B tests are so commonplace that major
+advertising platforms have built-in tools for advertisers to set up
+their experiments.
+3.2
+Distributional Privacy for Advertising
+To illustrate how such tests are conducted, we revisit Figure 1
+and consider an instant meal-kit company that wants to decide
+whether to focus its ad spend toward parents with young children.
+Such a company could set up its campaign in two main ways, testing
+on the target audience or on the ad content:
+(1) Create two different ads, both depicting someone in a rush using
+the meal-kit to prepare a quick meal, but ad features a toddler
+and ad does not.
+(2) Show the generic meal-kit ad (i.e., one without any particular
+features that suggest its relevance to parents) to two different
+audiences, audience A being, e.g., “busy parents looking for a
+convenient meal option” while audience B removes the parent
+feature, e.g., “people looking for a convenient meal option.”
+No matter which A/B testing approach is leveraged, the result
+is fundamentally the same: advertisers learn whether members of
+their audience are more likely to be parents with young children
+based on the relative performance of A and B. In case (1), this
+follows from one of the core axioms of advertising: people are more
+likely to engage with ads that are more relevant to them [57, 64].
+By contrast, in case (2) the targeting algorithm will preferentially
+show the ad it believes to be more relevant to the audience, i.e.,
+At first glance, this may seem like a natural place to utilize dif-
+ferential privacy (DP) [37], and indeed most proposals for private
+advertising metrics systems use DP. However, simply privatizing
+the aggregated metrics in this way is insufficient. Market research
+involves inference over a target audience or group of people, not
+an individual user, and DP is intentionally designed to enable this
+type of inference [38].
+Unlike a typical research study, the selection process for adver-
+tising audiences is designed to ensure that their members are not
+representative of the general population [28, 59]. Instead, audiences
+will often overwhelmingly represent small, arcane minority groups
+whose members may not even realize that such a grouping exists
+[67]: examples of audience profiles include “receptive to emotional
+messaging,” “rollercoaster romantics,” “heavy buyers of pregnancy
+tests,” and “strugglers and strivers – credit reliant” [6].
+Many of these audiences represent vulnerable populations and
+allowing advertisers to extract arbitrary information about them
+can be harmful even when it doesn’t permit linking this informa-
+tion to individuals. Manipulative advertising practices use these
+inferences to tailor their messaging to the viewer, increasing its
+effectiveness [11, 89, 104]. A common example of this practice is in
+political advertising where ads are typically microtargeted to spe-
+cific populations with the intent to influence their vote [60, 79, 108].
+An additional challenge is that DP doesn’t provide protection
+against an advertiser applying the group-level inferences made over
+the audience to its individual members [81]. A common example
+
+--- Page 5 ---
+for DP is that learning the group trend that “smoking causes cancer”
+would also imply that any specific smoker is at risk of cancer. But
+advertising takes this a step further due to “custom audiences”
+that can be composed of specific, identifiable individuals such as
+those on the advertiser’s mailing list. For these audiences, a better
+analogy might be revealing that members of a specific sci-fi book
+club have an unusually high rate of cancer. Unlike in the case of
+smoking, this is not a global inference implying that sci-fi books
+cause cancer, but is instead reflective of the health status of these
+specific people. Revealing this type of inference—even with DP
+guarantees—is likely counter to peoples’ expectation of privacy,
+especially given the information asymmetry in advertising where
+inferences are revealed to the advertisers, but not their audience.
+For this reason, we instead employ attribute privacy [105] to cap-
+ture the potential privacy harms from advertising market research.
+Figure 2: UC functionalities for advertising ecosystem.
+3.3
+Attribute Privacy in the Advertising Context
+For advertising metrics, we can think of 𝑔 () as computing the
+fraction of the audience who possess the sensitive attribute.
+• Θ is the set of possible distributions that could have generated
+the audience shown in 𝑋. Each 𝜃 is intended to capture possible
+correlations across attributes.
+Formally, the sensitivity of an output statistic 𝐹 (𝑋) over the
+dataset 𝑋 is computed as follows:
+Attribute privacy, proposed by Zhang et al. [105], describes the
+ability of an adversary to learn information about specific, sensi-
+tive attributes of a population given summary statistics about that
+population. It defines sensitivity around the maximum contribution
+that the distribution of some sensitive feature in a population may
+have on the output of statistics computed over that population.
+In this section, we provide the formal definition of attribute
+privacy, which is built on the pufferfish privacy framework [58].
+E[𝐹 (𝑋)|𝑠
+,𝜃] − E[𝐹 (𝑋)|𝑠
+,𝜃]
+.
+(1)
+Δ 𝐹 = max
+max
+Later, in Section 6, we provide some guidance on how attribute
+privacy could be integrated into the advertising ecosystem as a
+potential enforcement mechanism for user-focused privacy policies.
+Definition 3.1 (Dataset Attribute Privacy, Definition 3 from Zhang
+et al. [105]). Let (𝑋
+,𝑋
+, . . . ,𝑋
+) be a record with 𝑚 attributes
+that is sampled from an unknown distribution D, and let 𝑋 =
+[𝑋 , . . . ,𝑋 ] be a dataset of 𝑛 records sampled i.i.d. from D where
+𝑋 denotes the (column) vector containing values of the 𝑖th attribute
+of every record. Let 𝐶 ⊆[𝑚] be the set of indices of sensitive
+attributes, and for each𝑖 ∈ 𝐶, let𝑔 (𝑋 ) be a function with codomain
+U .
+A mechanism M satisfies (𝜖,𝛿)-dataset attribute privacy if it is
+(𝜖,𝛿)-Pufferfish private for the following framework (𝑆, Q, Θ):
+Set of secrets: 𝑆 = {𝑠
+:= 1[𝑔 (𝑋 ) ∈U
+] : U
+⊆U ,𝑖 ∈ 𝐶}.
+Set of secret pairs: Q = {(𝑠
+,𝑠
+) ∈ 𝑆 × 𝑆,𝑖 ∈ 𝐶}.
+Distribution: Θ is a set of possible distributions 𝜃 over the dataset
+𝑋. For each possible distribution D over records, there ex-
+ists a 𝜃 ∈ Θ that corresponds to the distribution over 𝑛
+i.i.d. samples from D.
+For advertising, we consider 𝐹 (𝑋) to be the metrics for an advertis-
+ing campaign (e.g., a count of ad clicks, conversions, or purchases).
+Sensitivity captures the maximum impact on 𝐹 (𝑋), which occurs
+for the pair of potential secrets (𝑠
+,𝑠
+) in which all or none of the
+audience (respectively) have the sensitive attribute and for the 𝜃
+with the tightest correlation between this attribute and the conver-
+sion rate. In words: if possessing the sensitive attribute makes a
+user significantly more (or less) likely to engage with an ad, then
+varying the prevalence of this feature within the audience will have
+a strong impact on reported number of conversions. For instance, in
+our example A/B test from the previous section with an audience of
+“busy people who don’t cook,” a toddler-focused ad is much more
+strongly correlated with the sensitive attribute (parental status)
+than an ad focused on the types of food contained in the meal kit.
+We demonstrate later in Section 5 that a lack of attribute privacy
+is inherent to advertising; i.e., any minimally useful ads ecosystem
+will reveal some new information about its audiences. However, cur-
+rent instantiations and associated privacy definitions give very little
+control over what information leaks. In Section 6, we discuss the
+concept of sensitivity in depth and argue that advertising requires
+more than individual privacy in order to meet users’ expectations.
+4
+Modeling the Advertising Ecosystem
+To contextualize this definition in the advertising setting, con-
+sider the dataset 𝑋 to be an advertising audience with 𝑛 members,
+each represented by a feature vector (𝑋
+,𝑋
+, . . . ,𝑋
+) of length 𝑚
+indicating the attributes of the 𝑗 user. Some attributes will be
+considered sensitive and represented in 𝐶 ⊆[𝑚]. Then:
+• The secret pairs (𝑠
+,𝑠
+) for a sensitive attribute 𝑖 are possible
+realizations of some function 𝑔 (𝑋 ) over that sensitive attribute.
+In this section, we present our minimalist modeling of the advertis-
+ing ecosystem. Our modeling captures the minimum information
+leakage present in the advertising ecosystem, and it represents
+an ecosystem that has been designed to eliminate all unintended
+information flows back to advertisers. We perform this modeling
+from the perspective of advertiser by having the advertiser set
+target audiences and receive summary reports on ad display and
+
+--- Page 6 ---
+of the academic proposals for private ad targeting and auctions
+[106, 107].
+Ideal Functionality F
+F is parameterized with a number of individuals 𝑛 and
+a distribution over the user feature space D.
+Initialize: Upon receiving an init message from F
+for 𝑈𝑠𝑒𝑟 :
+The Browsing Function 𝑓 and Engagement Function 𝑓 . We
+make use of two (randomized) parameterizing functions, 𝑓 and
+𝑓 in order to capture human behavior in our model. Specifically,
+𝑓 decides which website a user 𝑈𝑠𝑒𝑟 will visit, and 𝑓 decides
+how a user 𝑈𝑠𝑒𝑟 will interact when presented with a particular
+advertisement (e.g., will they generate a “conversion,” by purchasing
+the advertised product). These are best thought of as “black boxes”
+that need not be opened in order to understand the end-to-end
+functioning of the system.
+(1) if 𝑈𝑠𝑒𝑟 does not already have recorded features, sam-
+ple features for 𝑈𝑠𝑒𝑟 from D and record.
+(2) Send an init message to F with 𝑈𝑠𝑒𝑟 and its
+recorded features.
+Figure 3: F
+, our way of modeling the features provided
+to people in society.
+The Attribution Function 𝑓 . Within the advertising ecosystem,
+each conversion event must be attributed to an advertisement im-
+pression (see Section 2). The attribution function 𝑓 performs the
+logic of this attribution. For example, a common attribution func-
+tion is “last-touch attribution,” where the most recent impression
+prior to a conversion receives all the “credit” for the conversion. In
+the name of generality, the parameterizing attribution function 𝑓
+takes in a set of impressions (along with the context in which the im-
+pression occurred) and allocates scores to each of these impressions
+according to arbitrary logic. In practice, 𝑓 could be instantiated by
+the Privacy Preserving Attribution protocol [47].
+engagement. While other actors in the advertising ecosystem (e.g.,
+publisher websites and ad networks) certainly have their own func-
+tionality goals, advertisers are the driving force behind the feedback
+loop on user data through the advertising ecosystem. In Section 5
+we will use this model to “prove insecurity,” i.e., show that useful ad-
+vertising ecosystems will necessarily leak information about their
+users. Thus, if some future system provably instantiates our ideal
+functionalities, that should not be misconstrued as a demonstration
+that it is privacy-preserving in a normative sense. Instead, such a
+system would have at least the leakage we demonstrate here, and
+may have substantially more.
+4.1
+Parameterizing Functions
+The Reporting Function 𝑓 . Advertisers learn about the perfor-
+mance of various advertisements within a campaign by generating
+a report. The exact nature of how this report is compiled from
+the attribution scores is system specific, but we encourage readers
+who want a concrete example to think about the report as simply a
+histogram of advertisement performance (i.e., a measure of how ef-
+ficiently advertisement impressions became conversions). In many
+of the emerging private advertising system proposals [5, 42, 47, 73],
+report generation is done with differential privacy. We capture
+this process generically with the 𝑓 parameterizing function, which
+could be instantiated by any of these proposals or by some future
+protocol with an alternative privacy mechanism.
+4.2
+Ideal Advertising Functionalities
+Before providing an overview of our model, we first introduce
+definitions for an ad and an audience (we represent the latter using
+feature vectors in this work).
+Our model makes heavy use of parameterizing functions when
+specifying ideal functionalities. These parameterizing functions
+mean that our model is flexible enough to capture a wide variety
+of potential advertising systems, including those that attempt to
+preserve privacy, those that are widely understood to be privacy
+invasive, or even systems that would make little sense to deploy
+in practice. We note that it might be best to think of some of these
+functions as being stateful (e.g., if a privacy budget must be managed
+over many queries); for simplicity, we do not explicitly manage
+state for these functions, but observe that it is trivial to modify
+our modeling to make them stateful. We briefly introduce these
+parameterizing functions before presenting our formal model.
+Definition 4.1 (Ad). An advertisement ad = {𝑥 , ...,𝑥 },𝑥 ∈{0, 1}
+is a binary vector of length ℓ. Each index in the vector represents a
+particular (implicit) quality the media for that advertisement could
+encode. When a particular index is 1, that means the feature is
+present in the media. Importantly, we use this formalism to describe
+a piece of media directly, rather than allowing an advertiser to
+present media and then choose a binary vector associated with that
+media; in this way, we assume that it is impossible for an advertiser
+to lie about the features of an ad.
+The Targeting Filter 𝜌 and Targeting Function 𝑓 . We model the
+decision to select which ad for a user𝑢𝑠𝑒𝑟 when they visit a website
+as a two phase process: (1) from the set of𝑢𝑠𝑒𝑟 ’s features, a subset
+features’ is extracted using a (deterministic) filter function 𝜌 and
+is then (2) fed into an arbitrary (randomized) selection function 𝑓 ,
+the output of which is an advertisement. The filter function 𝜌 can
+be thought of as a policy that limits the type of information that the
+targeting logic 𝑓 is allowed to access. Real-world instantiations of
+𝜌 could model: (1) intentional restrictions such as Google’s Topics
+API [43] and (2) unintentional inaccuracies in targeting profiles.
+Then, 𝑓 could embed any “secret sauce” used by the advertising
+network to select the most effective advertisement to match to a
+user, including an opaque machine learning model or even one
+Definition 4.2 (Audience). An audience = {𝑥 , ...,𝑥 },𝑥 ∈{0, 1}
+is also a binary vector of length ℓ. Each index in this vector encodes
+an attribute that members of the audiences should have. We assume
+that the meanings of indices for advertisements and audiences are
+consistent with one another—that is, the𝑖 element of each encodes
+the same feature.
+
+--- Page 7 ---
+Ideal Functionality F
+F has a set of users {𝑈𝑠𝑒𝑟 ,𝑈𝑠𝑒𝑟 , ...,𝑈𝑠𝑒𝑟 } each with a set of features (specified by F
+) and a browsing-history. Additionally,
+for each 𝑈𝑠𝑒𝑟 , F also maintains three indices into their browsing-history: targeting , engagement , and attribution .
+Browsing: Upon receiving a browsing message from F
+for 𝑈𝑠𝑒𝑟 :
+(1) If 𝑈𝑠𝑒𝑟 has no features, send an init message to F
+and record the response. Set targeting , engagement , and attribution to 0.
+(2) Send 𝑈𝑠𝑒𝑟 ’s identity, features, and full browsing-history to F
+.
+(3) Upon receiving a response from F
+with site, append site to the browsing-history for 𝑈𝑠𝑒𝑟 . Then, send ok message to
+F
+.
+Ad Targeting: Upon receiving a target message from F
+for 𝑈𝑠𝑒𝑟 :
+(1) If targeting = null (i.e., browsing has not been called for this user) respond fail to F
+.
+(2) Send 𝑈𝑠𝑒𝑟 ’s identity, features, and browsing-history[0 : targeting ] to F
+.
+(3) Upon receiving a response from F
+for 𝑈𝑠𝑒𝑟 of the form (site, ad), if browsing-history[targeting ] contains an matching entry
+site, then overwrite the entry with (site, ad) and increment targeting . Then, send ok to F
+.
+Ad engagement: Upon receiving an engagement message from F
+for 𝑈𝑠𝑒𝑟 :
+(1) If engagement = targeting (i.e., engagement decisions were made for all impressions), respond fail to F
+.
+(2) Respond to F
+with 𝑈𝑠𝑒𝑟 ’s features and the tuple browsing-history[engagement ] = (site, ad).
+(3) Upon receiving a response from F
+with ad and conversion for 𝑈𝑠𝑒𝑟 , overwrite browsing-history[engagement ] to be
+(site, ad, conversion) and increment engagement . Then, send ok message to F
+.
+Attribution: Upon receiving a attribute message from F
+for 𝑈𝑠𝑒𝑟 :
+(1) Let 𝑗 = attribution . Starting with 𝑗, find the first entry of browsing-history with a tuple (site, ad, conversion) such that conversion
+is non-None. Set attribution to be the index of this entry. If no such index exists, respond fail to F
+instead.
+(2) Send an attribution message to F for 𝑈𝑠𝑒𝑟 with browsing-history[𝑗 : attribution ].
+Figure 4: F holds data about each user and is responsible to shuttling information between F , F , and
+F . Handles user features along with all data related to ad impressions and conversions.
+Model overview. We give a high-level depiction of our model in
+Figure 2. Namely, our model consists of five main ideal function-
+alities: F
+, F , F
+, F
+, and F
+. In
+Model flow details. Next, we illustrate how these functionalities
+work and provide a detailed description of the way data flows
+through the system. We note that some of our functionalities also
+allow for interactions to occur in a different order.
+(1) Populating user features: The features associated with
+each user are set up on demand. Specifically, F
+is set up with
+a total number of individuals 𝑛 that it will create and a distribu-
+tion from which each individual’s features will be sampled. The
+environment does not need to explicitly initiate this sampling pro-
+cess, as F
+will perform this “just in time” whenever F
+encounters a user with no recorded features.
+Figure 3, F
+is responsible for sampling the features for each
+of the 𝑛 users in the system from some distribution D. Importantly,
+this means that the exact features for each user is hidden from the
+environment—although the distribution D may be known to the
+environment. In Figure 4, F is a subroutine that serves as
+the shared data infrastructure of the entire system, including hold-
+ing each user’s features and information about their interactions
+with the advertising system. We note that F might be im-
+plemented in a distributed manner, such that different elements of
+the data may be held by different real-world computational parties.
+In Figures 5 to 7, F
+, F
+, and F
+make up the
+core of the advertising ecosystem. Concretely, F
+is respon-
+sible for choosing advertisements to deliver to users, F
+is responsible for determining the websites that a user visits and
+how a user will interact with advertisements on those websites,
+and F
+is responsible for attributing conversion events and
+reporting on the performance of advertisements.
+(2) Registering Ad Campaigns: When an advertiser wants to
+send an advertisement, they begin by sending a Register Cam-
+paign message to F
+(Figure 5) that specifies the explicit
+target audience to which they want to advertisements to be shown
+as well as the features of the advertisements {ad , . . . , ad } in the
+campaign (e.g., embedded within the visual media). We emphasize
+that the modeling is done such that the advertiser cannot “lie” about
+the semantic content of the advertisement—the feature vector is
+the advertisement.
+
+--- Page 8 ---
+Ideal Functionality F
+Ideal Functionality F
+F is parameterized by 𝑓 that selects a site for a user
+to visit and 𝑓 that determines how a user will interact with
+an advertisement.
+Browsing: Upon receiving an browsing message for 𝑈𝑠𝑒𝑟
+from 𝐸𝑛𝑣:
+F is parameterized by a stateful, randomized func-
+tion 𝑓 and a filtering function 𝜌. It also maintains a set
+active-campaigns.
+Register Campaign: Upon receiving a campaign
+:
+(audience, {ad , . . . , ad }) message from the 𝐸𝑛𝑣:
+(1) Add campaign to active-campaigns.
+(2) Send an ok message to the 𝐸𝑛𝑣.
+Target Ad: Upon receiving an ad message from 𝐸𝑛𝑣 for𝑈𝑠𝑒𝑟 :
+(1) Send a browsing message to F for 𝑈𝑠𝑒𝑟 .
+(2) Upon receiving a response from F for 𝑈𝑠𝑒𝑟
+with features, and full browsing-history, generate
+site ← 𝑓 (features, browsing-history).
+(3) Send 𝑠𝑖𝑡𝑒 to F for 𝑈𝑠𝑒𝑟 .
+(4) Upon receiving ok from F , send ok message
+to 𝐸𝑛𝑣.
+Ad Engagement: Upon receiving an engagement message
+for 𝑈𝑠𝑒𝑟 from 𝐸𝑛𝑣:
+(1) Send a target message to F for 𝑈𝑠𝑒𝑟 .
+(2) Upon receiving a response from F with
+features and browsing-history for 𝑈𝑠𝑒𝑟 :
+(a) run features’ ← 𝜌(𝑈𝑠𝑒𝑟 , features) to obtain
+features’ ⊆ features
+(b) Extract
+site
+from
+the
+final
+element
+of
+browsing-history.
+(3) Compute ad ← 𝑓 (active-campaigns, features’,
+site).
+(4) Send F a message with the identifier𝑈𝑠𝑒𝑟 and
+a tuple of the form (site, ad).
+(5) Upon receiving ok or fail from F , send ok to
+the 𝐸𝑛𝑣.
+(1) Send an engagement message to F for 𝑈𝑠𝑒𝑟 .
+(2) Upon receiving a response from F with
+𝑈𝑠𝑒𝑟 ’s features and a tuple (site, ad), generate
+conversion ←
+𝑓 (features, site, ad). Note that
+conversion may be None.
+(3) Respond to F with𝑈𝑠𝑒𝑟 , ad, and conversion.
+(4) Upon receiving ok or fail from F , send ok
+message to 𝐸𝑛𝑣.
+Figure 5: Targeting functionality F
+Figure 6: Engagement functionality F
+parameterizing function 𝑓 , determines if the user turns generates
+a conversion on that impression. Note that the input to 𝑓 is the
+features associated with the advertising media ad (as the user ac-
+tually sees the media, not the target audience). The results of this
+determination are then stored back in F .
+(3) Initiating browsing: The environment prompts the user to
+browse a website by calling the Browsing interface of F
+.
+Note that the environment does not know the specific features
+of any given user, so we don’t have the environment specify the
+website directly. Rather, we use 𝑓 to choose the website that the user
+visits, possibly based on the user’s features. Specifically, F
+requests𝑈𝑠𝑒𝑟 ’s features from F and obtains the site using
+𝑓 , which is defined over the features of the user and their previous
+browsing history. Then, F
+informs F that 𝑈𝑠𝑒𝑟
+has visited site.
+(6) Attribution: Before any metrics information can be pro-
+vided, F
+must first attribute each conversion event to at least
+one impression. The environment prompts this through the At-
+tribute interface of F
+. When invoked in this way, F
+calls to F and retrieves the user’s conversion history. Then,
+F
+updates the “scores” of each ad based on the output 𝑓 . It
+is easiest to think of this step as attributing the full “credit” for the
+conversion to the last impression.
+(4) Advertisement Targeting and Delivery: To model the
+delivery of an advertisement to a user that has been prompted to
+visit a website, the environment uses the Target Ad interface of
+F
+. This triggers a target message to F in order to
+obtain the necessary information about the user and the context
+(i.e., site) in which the ad will be displayed. Next, F
+uses
+𝜌 and 𝑓 to select the ad that will be shown to the user. Note that
+the input to 𝑓 should operate over the the audience associated
+with the advertisements. The chosen advertisement is then sent to
+F to be stored.
+(7) Report Creation: Finally, the environment (as the adver-
+tiser) requests a report on the performance of its campaign. To
+do this, the environment invokes the Generate Report interface
+of F
+, specifying a campaign (i.e., a set of advertisements).
+These are then transformed into a report by the 𝑓 function, which
+is also responsible for adding noise or any other privacy protection
+mechanism.
+(5) User Engagement: After the user has viewed the adver-
+tisement (i.e., F holds a tuple containing a site and an
+ad), the environment triggers possible user engagement using the
+Ad engagement interface of F
+. In response, F
+retrieves the necessary information from F and, using the
+
+--- Page 9 ---
+Ideal Functionality F
+Targeting. We begin with our utility function for targeting. Specif-
+ically, a useful targeting system should be one that delivers ads that
+are more relevant to people with higher probability. We formalize
+this notion by saying that the probability that an one advertisement
+is chosen over another is proportional to the difference in 𝑐𝑙𝑜𝑠𝑒
+between the targeting audience and the user’s features.
+F is parameterized by an attribution function 𝑓 and re-
+port generation function 𝑓 . Additionally, F maintains
+an updatable map ad-scores.
+Attribute: Upon receiving an attribute message from 𝐸𝑛𝑣
+for 𝑈𝑠𝑒𝑟 :
+Definition 5.1 (Targeting Utility). A targeting function 𝑓 is 𝛼-
+useful with respect to a distance measurement 𝑐𝑙𝑜𝑠𝑒 and filter func-
+tion 𝜌 if, given inputs active-campaigns, features, and site, for
+all (audience , ad ), (audience , ad ) ∈ active-ads, if
+𝑐𝑙𝑜𝑠𝑒(audience , features)−
+𝑐𝑙𝑜𝑠𝑒(audience , features) = Δ, then,
+Pr [ad ← 𝑓 (active-campaigns, 𝜌(features), site)] −
+Pr [ad ← 𝑓 (active-campaigns, 𝜌(features), site)] ≥ 𝛼 ·Δ.
+(1) Send a attribute message to F for 𝑈𝑠𝑒𝑟 .
+(2) Upon
+receiving
+a
+response
+from
+F
+for
+𝑈𝑠𝑒𝑟
+with
+list
+browsing-history,
+run
+[(ad , score ), (ad , score ), ...]
+←
+𝑓 (browsing-history).
+(3) For each ad in the output, add score to the entry for
+ad in ad-scores.
+(4) Send an ok message to 𝐸𝑛𝑣.
+Generate Report: Upon receiving a Report message from
+𝐸𝑛𝑣 for a campaign : (audience, {ad , . . . , ad }),
+Engagement. A foundational assumption of advertising is that
+individuals are more likely to engage with advertisements that are
+more “like them.” We formalize this idea using a closeness metric,
+similar to the one in Definition 5.1 for targeting utility.
+(1) Let ad-scores| be a map that is a subset of
+ad-scores such that
+ad-scores| =
+{(ad , score ) ∈ ad-scores | ad ∈{ad , . . . , ad }} .
+Definition 5.2 (Engagement Utility). We say that an engagement
+function 𝑓 is 𝛼-useful with respect to a distance measurement 𝑐𝑙𝑜𝑠𝑒
+if for any set of user features features, website site, pair of adver-
+tisements (ad , ad ), and non-None conversion event conversion:
+(2) Generate report ← 𝑓 (ad-scores| ).
+(3) Respond to 𝐸𝑛𝑣 with a message containing report.
+if 𝑐𝑙𝑜𝑠𝑒(ad , features) − 𝑐𝑙𝑜𝑠𝑒(ad , features) = Δ,
+then Pr [conversion ← 𝑓 (features, site, ad )]
+− Pr [conversion ← 𝑓 (features, site, ad )] ≥ 𝛼 · Δ.
+Figure 7: Metrics functionality F
+5
+Inherent Tension Between Privacy and
+Usefulness
+Attribution. Attribution is considered useful if it is more likely to
+attribute a conversion to the impression that generated it than an
+unrelated impression. For the purposes of our analysis, we model
+utility of F
+relative to the ground truth as generated by
+F
+. One of the limitations of our model is that F
+does not model cases where many impressions contribute to a single
+conversion event. So, while our attribution functionality is generic
+and can handle multi-touch attribution, the ground truth for this
+analysis is that a single ad is responsible for each conversion.
+Now that we have introduced our abstract modeling of the adver-
+tising ecosystem, in this section we formalize two key concepts: (i)
+what does it mean for this ecosystem to be “useful” (what is the
+minimal functionality we need from our parameterizing functions)
+and (ii) what does it mean to add privacy to this ecosystem. We use
+this formalism to show, analytically and empirically, that privacy
+and utility are inherently in tension.
+5.1
+Defining Utility
+Definition 5.3 (Attribution Utility). An attribution function 𝑓
+is 𝛼-useful with respect to an engagement function 𝑓 if for any
+feature vector features, any pair of advertisements (ad , ad ) and
+associated websites site, and any non-None conversion event
+conversion:
+if Pr [conversion ← 𝑓 (features, site, ad )] −
+active-ads. In order to make the notation more direct, we define
+a set active-ads that represents the set of advertisements from
+which targeting may choose. Specifically, for any active-campaigns,
+let active-ads be defined as follows:
+Pr [conversion ← 𝑓 (features, site, ad )] = Δ,
+active-ads = {(audience, ad) |
+then Pr [𝑠𝑐𝑜𝑟𝑒𝑠[ad ] > 𝑠𝑐𝑜𝑟𝑒𝑠[ad ] |
+{audience, ad-set} ∈ active-campaigns, ad ∈ ad-set}.
+𝑠𝑐𝑜𝑟𝑒𝑠 ← 𝑓 (conversion, browsing-history)] ≥ 𝛼 · Δ
+if browsing-history contains both ad and ad .
+Metrics. Metrics is considered useful if it permits statistical tests
+to be conducted on the results. That is, if some test, such as an
+Measuring closeness. We also require a concept of relevancy to
+capture the idea that behavioral advertising is intended to show
+users ads that are relevant, or closely matched, to their interests and
+demographics. We represent this with a 𝑐𝑙𝑜𝑠𝑒 metric that takes as
+input two (binary) feature vectors and outputs a score that increases
+as the distance between the inputs shrinks.
+
+--- Page 10 ---
+where (D ,𝑎𝑢𝑥) ←A (1 , D ) and𝑏
+←−{0, 1}, and the probability
+is taken over the random choices of A, 𝑏, and the execution. We
+define the adversary’s advantage Adv
+:= 𝑝.
+A/B test, could be conducted on the raw attribution data, it should
+still be possible to conduct this test on the aggregated and possibly
+noisy version of this data output by metrics. That is, the utility of
+metrics is defined based on what the advertiser intended to do with
+the attribution data.
+Definition 5.4 (Metrics Utility Preserving). For all ℎ, we say that a
+randomized metrics report generation function 𝑓 : D →D is 𝛼-
+utility-preserving with respect to a (possibly randomized) processing
+function 𝑓 : D →{0, 1} if for all ˆ 𝑑 = {𝑑 , ...,𝑑 } ∈D ,
+|Pr[𝑓 ( ˆ 𝑑) = 1] − Pr[𝑓 ({𝑓 ( ˆ 𝑑)}) = 1]| < 𝛼,
+where the probabilities are over the randomness of 𝑓 and 𝑓 .
+5.2
+Formal Statement
+In this section, we state and prove our formal result: there is an
+innate tension between preventing leakage and preserving utility
+in an advertising ecosystem.
+In this definition, D should be thought of as the ground truth
+distribution of features across people in society, whereas D repre-
+sents the advertiser’s prior knowledge about how people’s features
+are distributed. Hence, the distance between these distributions cor-
+responds to the precision of information gained by distinguishing.
+When D is close to D , distinguishing will be more challenging,
+but the advertiser can learn finer-grained information [22].
+With this notion in hand, we can now state that whenever there is
+an adversary that can succeed at distinguishing within non-private
+advertising systems, then there exists an adversary that can succeed
+in any private version of that system that preserves utility. More
+precisely, a useful F
+requires that the campaign size 𝑛 was
+large enough to still obtain a useful result from the output of 𝑓
+.
+Here, 𝑛 plays the role of sample complexity from distribution testing,
+which is the number of samples necessary to distinguish between
+two distributions. Thus, our approach here is to show that with a
+sufficiently-sized campaign in the private setting, an adversary can
+learn the same information as in the non-private setting. Borrowing
+from the conventions used in distribution testing, we focus on the
+goal of distinguishing with advantage
+in the non-private setting.
+Specifically, we prove the following two lemmas.
+Theorem 1. Any ads ecosystem composed of instantiations of
+F
+, F
+, and F
+that are useful (as defined by
+Definitions 5.1 to 5.4, with the additional restriction that any non-
+trivial implementation of F
+must use differential privacy)
+for a given ad campaign will not satisfy attribute privacy for some
+attribute of that campaign’s audience.
+Lemma 2. Let A = (A , 𝐸𝑛𝑣, A ) be an adversary. Consider any
+two ad ecosystems:
+We prove this theorem by showing that anything that could be
+learned by an advertiser in a non-private advertising system could
+similarly be learned by advertiser in a private advertising system.
+Proving this statement formally requires defining a game-based
+privacy definition on top of our UC modeling. To that end, we define
+the following random variable.
+Definition 5.5. Let EXEC
+be a random variable de-
+noting the output distribution of an environment 𝐸𝑛𝑣 when interact-
+ing with the ideal functionalities F
+, F , F
+,
+– A non-private ecosystem with a targeting function 𝑓 that is 𝛼 -
+useful with respect to a 𝑐𝑙𝑜𝑠𝑒 metric and the identity function 𝐼 as
+the lens, an engagement function 𝑓 that is 𝛼 -useful with respect
+to 𝑐𝑙𝑜𝑠𝑒, an attribution function 𝑓 that is 𝛼 -useful with respect
+to 𝑓 , and that uses the identity function 𝐼 for reporting.
+– A private ecosystem with a (possibly different) targeting function
+𝑓
+that is 𝛼
+-useful with respect to the same 𝑐𝑙𝑜𝑠𝑒 metric and
+filtering lens 𝜌 , and with a reporting function 𝑓
+, where 𝜖 < 1
+that is 𝛼 -utility-preserving with respect to a processing function
+𝑓 : D →{0, 1}.
+F
+and F
+(connected as shown in Figure 2) in an in-
+stance of the UC experiment.
+For any distribution D over {0, 1} , for (D ,𝑎𝑢𝑥) ←A (1 , D ),
+where D has the same support as D and both are over the domain
+X, and for any collection of active-ads: if Adv
+≥
+,
+then Adv
+, where 𝑛 <
+Typically in a game-based definition, we have a challenger that
+sets up the parameters of the game (sampling randomness as needed)
+and an adversary that is required to guess some function of the
+challenger’s randomness.
+≥
+·
+. Here, 𝐾 is a
+computable term that depends only on X, active-ads, D , D and
+·
+<
+·
+.
+Definition 5.6 (Distinguishing). We say that an adversary A =
+(A , 𝐸𝑛𝑣, A ) succeeds in distinguishing with probability 𝑝 with re-
+spect to a distribution D , processing function 𝑓 D →{0, 1}, and
+an advertising system defined by the parameters (𝑓 , 𝜌, 𝑓 , 𝑓 , 𝑓 , 𝑓 ,𝑛)
+if:
+Lemma 3. For any ads ecosystem where there exists an adver-
+sary with distinguishing advantage Adv
+> 0, this ads
+ecosystem will not satisfy attribute privacy.
+𝑝 = 2 · Pr[A (𝑓 (EXEC
+),𝑎𝑢𝑥) = 𝑏] − 1,
+Proof Sketch. We formally prove Theorem 1 in Section C. It follows
+immediately from Theorems 2 and 3.
+To prove Theorem 2, we show that utility implies the ability to
+distinguish the underlying distribution used by the ads ecosystem.
+Namely, any successful distinguisher for a given advertising cam-
+paign in a non-private ads ecosystem can be used to construct a
+distinguisher for the same campaign run in a useful, private ads
+
+--- Page 11 ---
+ecosystem, albeit with a larger campaign size. The main idea behind
+our proof of Theorem 2 is that, while the private version of an ads
+ecosystem may have less utility than a non-private version, as long
+as it preserves some utility, then it is possible to amplify this signal
+to match the utility of the non-private version. The “cost” of ampli-
+fication is in increasing the size of the campaign 𝑛, which provides
+the adversary with more samples to use in its distinguishing. We
+can leverage distribution testing techniques [9, 18, 23] to find a
+bound on this new campaign size 𝑛 .
+The proof of Theorem 3 follows from the definition of attribute
+privacy (Definition 3.1) and the ability of our distinguisher to iden-
+tify the underlying distribution used by the private ads ecosystem.
+Specifically, if attribute privacy were achieved for all parameters
+governing the distribution of users in F
+, then by definition
+Figure 8: Impact of privatization on sample complexity.
+the summary statistic output by F
+should be independent
+of changes to this distribution. However, were this the case, then
+the output of F
+would be independent of the choice of 𝐷 or
+𝐷 and no successful distinguisher could exist. Since Theorem 3
+assumes the opposite, there must exist some parameter of the un-
+derlying distribution for which attribute privacy is not preserved.
+We explore the idea that not every attribute may require such pro-
+tection, i.e., that some inferences may be acceptable, in Section 6.
+5.3
+Empirical Sample Complexity
+The ‘non-private’ line still shows a substantial increase over the
+baseline due to the loss of accuracy from targeting and the drop in
+user engagement, while the ‘private’ line indicates the impact of
+further reducing targeting accuracy and, more importantly, intro-
+ducing noise from differential privacy. The private and non-private
+lines begin to converge at higher sample complexity due to the
+lower relative impact of differential privacy for larger sample set
+sizes. We provide plots on the individual impacts of 𝛼-targeting,
+𝛼-engagement, and 𝜖-differential privacy in Section D.
+To provide some intuition and empirical data for the concrete sam-
+ple complexity increase that we showed theoretically in Theorem 2,
+we implemented our ideal advertising functionalities in Python
+6
+Redefining Privacy for Advertising
+and ran the distinguishing game from Section 5.2 for concrete real-
+izations of our parameterizing functions and 𝛼-utility parameters.
+Recall that 𝛼-utility for targeting is an indication of how tightly
+the parameterizing function respects its definition of 𝑐𝑙𝑜𝑠𝑒(), or
+how accurate targeting is able to be. The expectation is that private
+advertising ecosystems will likely have less of an ability to find the
+true closest ad for a user—whether through using less user data or
+less precise data—and we handle this challenge by decreasing the
+𝛼 parameter for targeting from the non-private version. Relatedly,
+𝛼-utility for engagement represents how likely a user is to click on
+an ad at all; this is entirely about user behavior, so it does not vary
+between the private and non-private ad ecosystems. Our metrics
+parameterizing function is instantiated using differential privacy,
+as this is the most common method currently being proposed.
+To run our empirical distinguishing game, we fix a campaign
+with two ads (𝑎𝑑 and 𝑎𝑑 ) differing in a single bit 𝑏 , and a
+distribution D representing the “ground truth” distribution of
+users. We then create an alternate distribution D based off the
+same covariance matrix as D , varying the marginal probability
+of 𝑏 in D to gradually increase the total variation distance
+between D and D . We plot the sample complexity required to
+distinguish D from D at a p-value of 0.05 using the uniformly
+most powerful tests from Awan and Slavkovic [7] for a private
+ads ecosystem in Figure 8. Then, using a standard binomial test to
+distinguish, we plot a non-private version of the same ecosystem as
+well as a baseline to demonstrate the increase in sample complexity.
+Our results are a clear indication that the path forward for private
+advertising requires a careful re-imagining of what privacy should
+mean. That is, if we accept that some leakage is a necessary part of
+the advertising ecosystem, then how should advertising systems rea-
+son about the risks posed by this leakage? To start this process, we
+begin by introducing the perspectives of three stakeholder groups
+that inform this future: the people receiving targeted advertise-
+ments, advertising networks, and regulatory bodies. By identifying
+commonalities across these viewpoints—and gaps between existing
+policies and end-users needs—we hope a path forward can emerge.
+In Section 6.1, we employ the contextual integrity framework
+[71] to help delimit when leakage may be (in)appropriate. We con-
+trast under what conditions users, ad tech, and regulatory bodies
+consider different categories of data to be sensitive , and thus
+deserving of stronger protections. We then outline how existing en-
+forcement mechanisms tailored to data sensitivity fail, despite laws
+and well-aligned ad tech policies. The principles underlying exist-
+ing private metrics proposals offer technical solutions to some of
+these gaps, but they ultimately fall short of meeting user’s privacy
+expectations. We argue that future proposals for privacy-preserving
+metrics must be targeting-aware in order to (1) discern between the
+implications of different information leakages and (2) understand
+that risks associated with leakage are context dependent. In doing
+so, private metrics systems of the future can apply alternate notions
+of privacy, such as attribute privacy [105], that can protect sensitive
+features about advertising audiences as a whole.
+
+--- Page 12 ---
+Appropriateness of Targeting on Feature
+Sensitive Data
+As perceived by...
+People
+Ad Tech
+Law
+health
+;
+;
+;
+relationship
+.
+.
+✓
+political beliefs
+;
+;
+;
+sexuality
+;
+;
+;
+gender
+✓
+8
+8
+location
+.
+8
+8
+age
+✓
+8
+8
+be more subtle. For example, while relationship status is used to
+target both ads for dating services and those for divorce lawyers,
+people are far less comfortable with the latter than the former, de-
+spite the same data being used in both cases [80]. This sentiment
+is captured by ad tech policy, which prohibits targeting based on
+“personal hardship”—such as divorce—or advertisements that “im-
+pose negativity” (e.g., body shaming). Similarly, targeting on the
+basis of features that people generally find acceptable, like age or
+gender, is illegal when the impact of that advertising results in
+discriminatory systems. As a result, regulations such as the Fair
+Housing Act (FHA) [31] have been used to prohibit use of charac-
+teristics like age, race, and gender for all housing or employment
+advertisements in the United States [72] and to enact changes to
+the targeting algorithm in the same vein [91].
+Figure 9: ✓ is used to indicate that targeting on this feature
+is acceptable/permitted, ; indicates that targeting is always
+considered unacceptable/prohibited, 8 indicates that target-
+ing is permitted unless illegal (in the case of tech policy) or
+discriminatory (in the case of regulations), and . indicates
+that targeting is conditionally acceptable.
+6.1
+Sensitivity in Advertising
+Enforcement problems stymie policies’ promise. Advertise-
+ment targeting is extremely opaque and largely built on machine
+learning models, making both technological and legal enforcement
+of these policies challenging [2, 19, 76]. The behavior of machine
+learning models is prohibitively difficult to interrogate, making it
+challenging to prove discrimination [3, 35, 54, 75, 88, 97]. Despite
+some efforts on the part of ad networks to mitigate bias [91], it
+has been found that these targeting systems distribute advertise-
+ments in a discriminatory way even when it is not the intention of
+advertisers [3]. It is also possible to intentionally circumvent pro-
+tections using proxy features or “lookalike audiences” [4, 45, 98].
+Circumventing protections this way is, of course, against policy,
+but even the ad networks themselves have been caught using an
+opaquely-defined audience to illegally target ads to children [68].
+Often the opaque nature of targeting allows companies to avoid
+accountability with initial lawsuits struggling to prove discrimina-
+tion [40, 93]. Moreover, it took until late 2023 for courts to recognize
+that ad networks, not only advertisers, are liable for the discrimi-
+natory targeting of ads [20]. Successful litigation has often had to
+circumvent the root problem of the use of sensitive data in targeted
+advertising to instead focus on how that data was collected, relying
+on regulations for deceptive business practices [30] or even wiretap-
+ping [10, 101]. This makes it burdensome for users to enforce their
+rights. Finally, while advertising is global, regulations decidedly
+are not and this ultimately limits the ability of even the strongest
+regulations to protect the privacy of all users.
+6.2
+Metrics is Sensitivity Agnostic
+Users, advertising technology companies, and regulators all agree
+that some types of information about individuals are sensitive and
+inappropriate to use in an advertising context. In this section, we
+use the framework of contextual integrity [71] to interrogate the
+conditions under which transmitting metrics from the ad network
+to the advertiser are appropriate. Explicitly, contextual integrity
+considers the flow of specific information types about a subject
+between a sender and recipient via a transmission principle and de-
+termines whether this flow is appropriate. In the setting of this paper,
+ad networks (source) transmit various types of data (ad targeting
+features) about the users (subject) in ad audiences to advertisers
+(recipient) via metrics reports (transmission principle) about ad
+delivery and engagement. Whether this process is perceived as
+appropriate largely depends on what type of information was used
+in targeting, which is the focus of Figure 9.
+Contextual integrity allows us to bring nuance to our data cat-
+egorizations. It isn’t that advertisements can never feature health
+or sexuality information—in fact, it is often actively beneficial to
+promote awareness of mental health support options or to advertise
+events at LGBT organizations. Thus, our focus is specifically on
+data sensitivity in the context using these data types (implicitly or
+explicitly) to target advertisements and conduct market research, not
+simply displaying ads.
+The strongest ad tech policies [44] and modern, advertising-
+specific regulations like the Digital Services Act (DSA) [33] both
+align quite closely with user preferences. Unfortunately, it has
+proved difficult to enforceably put these policies into practice.
+If there existed meaningful enforcement of existing laws and ad
+targeting policies—and confidence that these strong laws and poli-
+cies applied across the full advertising ecosystem—then perhaps we
+would not need to be as concerned about information leakage. But
+without such enforcement, there is a real risk that the information
+leaking from the system will directly concern sensitive data. In this
+section, we turn our attention to metrics in the hope that it can
+make up for the identified failures of targeting.
+Existing policies are sophisticated and nuanced. While some
+types of personal data (like health data) are always considered sen-
+sitive in the context of ad targeting [33, 44, 49], other features can
+Metrics is well-positioned to facilitate policy enforcement.
+Metrics does not face the same structural challenges that make
+aligning targeting systems and people’s privacy preferences so
+difficult. First, the fraught (and legally tricky) decisions on which
+advertisements should be shown to which users have already been
+made. Second, the systems that collect and compute metrics are
+
+--- Page 13 ---
+6.3
+Closing the Gap
+dramatically simpler and more transparent than those used to tar-
+get advertisements. Thus, the metrics infrastructure could aid in
+identifying and documenting policy violations.
+Users also have significant agency that they can exert when it
+comes to metrics. While users have no choice in the advertising
+networks to which they are subjected while browsing the internet,
+users’ choice of browsers and devices are directly tied to the way
+their data is collected and processed within metrics. In principle,
+this creates an opportunity for organizations to compete in order
+to make their metrics systems as well-aligned with user’s privacy
+preferences as possible. Indeed, different groups of ad tech compa-
+nies are currently working on competing proposals for privatizing
+metrics [42, 47]. Importantly, these proposals are designed to be
+interoperable, meaning that no matter which system was used to
+target an advertisement, a variety of organizations, each offering
+a different suite of privacy protections, are capable of producing
+equivalent metrics output.
+While data sensitivity provides clear intuition for managing the
+risks of information leakage, the existing paradigms within which
+advertising systems are designed are insufficient to actualize this
+approach. Within targeting, there has been significant policy work
+to set standards for the treatment of sensitive data, but there are
+structural barriers to enforcing these policies. On the other hand,
+emerging metrics proposals are technologically sophisticated and
+relatively transparent, but are incapable of enforcing normative pri-
+vacy policies because they lack context on how ads were targeted.
+In order to close this gap, we advocate for expanding the ap-
+proaches that are being used to think about privacy when devel-
+oping new targeting and metrics proposals. There is tremendous,
+ongoing technical work integrating differential privacy into met-
+rics computation in which researchers are leveraging cutting-edge
+privacy-enhancing technologies to significantly improve people’s
+concrete privacy [47, 90]. These efforts, however, cannot be the sum
+total of the solution. Specifically, future developments need to ap-
+ply the same, policy-oriented analyses to metrics that are currently
+being applied to targeting. We advocate for the inclusion of group
+privacy notions, like attribute privacy, that explicitly account for
+privacy harms not covered by differential privacy. Namely, as we
+introduced in Section 3.2 and expanded on here, what data is leaked
+can be just as, if not more, important than how much information
+is revealed. This is especially true because advertisers can combine
+“private” metrics with already-known information about individual
+members of the audience, such as their identities [81].
+However, applying attribute privacy to advertising metrics re-
+quires co-design across targeting and metrics protocols as, while
+targeting possesses the necessary information about data sensitivity,
+metrics does not. Distributional privacy notions naturally require
+information about the underlying distribution of users targeted
+by an advertisement which is not currently available to metrics
+protocols. Making metrics systems targeting-aware by giving it
+the audience information for its reports would allow for the use
+of definitions like attribute privacy and could, perhaps, even per-
+mit metrics protocols to monitor targeting for policy violations or
+discriminatory behavior. When targeting and metrics are run by
+different organizations, there may even be incentives to do this type
+of mutual monitoring. While there will no-doubt be significant tech-
+nical (and even legal) hurdles in implementing such a vision, the
+result would be better alignment between the privacy preferences
+of users and the privacy properties of advertising ecosystems.
+7
+Conclusion
+Current proposals fall short. We identify three reasons why
+current proposals for privacy-preserving metrics do not adequately
+enforce policy. First, their technical underpinnings rely on aggre-
+gation [32] and the injection of statistically-calibrated noise (i.e.,
+differential privacy [37]). The result is an implicit understanding
+that privacy in advertising is about preserving the confidentiality
+of individuals’ features. As we observe in this work, however, some
+amount of leakage is inherent, and the leakage these systems per-
+mit is fundamentally de-contextualized, i.e., it is at odds with the
+understanding that not all types of data should be treated the same,
+as demonstrated by Figure 9.
+Second, current metrics proposals are unaware of the content
+and target audience of the advertisements whose performance they
+measure. Thus, an ad campaign promoting clothing is treated identi-
+cally to an ad campaign promoting therapy, despite the difference in
+the sensitivity of the data likely used to target these advertisements.
+Similarly, an ad campaign that uses gender to target clothing adver-
+tisements is indistinguishable from one that uses gender to target
+employment advertisements, despite the difference in how the law
+sees these campaigns. This is intentional; existing metrics systems
+embraced data minimization within their design, and differentiat-
+ing between advertisements or audience would require collating
+this data across multiple systems (i.e., from targeting systems to
+metrics systems). While data minimization is generally the right
+approach for system design, in this case it has rendered metrics
+incapable of discerning between information leakages that people
+might consider harmful and innocuous.
+Third, existing metrics proposals treat differential privacy as a
+privacy panacea, when, in fact, there are cases in which inference
+itself can be harmful (see Section 3.2). Specifically, there are audi-
+ence types, so called “custom audiences,” defined using personally
+identifiable information. In these cases, the inference facilitated
+by differential privacy has qualitatively different risk as learning a
+feature of their audience also gives them confidence that individual
+members of the audience possess this feature, contrary to the likely
+expectations of those audience members.
+In this work we have taken a step back to study what notions of
+privacy are possible within advertising. We showed that any adver-
+tising system that is even minimally useful must also allow some
+amount of information leakage. Taking this as a given, we identify
+the sensitivity of data as an important consideration when it comes
+to managing this leakage—a decision which has significant impli-
+cations on how future privacy-preserving advertising proposals
+should be designed.
+
+--- Page 14 ---
+Acknowledgments
+This research was supported by the DARPA SIEVE program un-
+der Agreement No. HR00112020021 and by the National Science
+Foundation under Grants No. 1955270, 2209194, 2217770, 2228610,
+2230670, and 2330065.
+References
+
+--- Page 15 ---
+
+--- Page 16 ---
+versus D . For the first and last games, our objective is to distinguish
+between distributions D and chosen distribution D . However,
+some of our intermediate games are defined with different types of
+outputs that correspond to partial execution of a hybrid between
+the non-private and private ad ecosystems. Between each game
+we will show that the adversary’s advantage is preserved with the
+appropriate increase to the campaign size—which corresponds to
+the sample complexity of distinguishing between the distributions.
+Overview. To summarize our approach, the goal of this proof is
+to relate the adversary’s advantage of distinguishing in the private
+case with their advantage of distinguishing in the non-private game
+in terms of the relative increase in the sample complexity required
+to distinguish. Recall that, in our setting, the sample complexity
+is the campaign size. The first game G represents distinguishing
+between the two distributions in the non-private setting, and the
+final game G is in the private setting. Each game G makes a slight
+modification to the advertising ecosystem from the game before
+it G , and throughout this sequence of hybrids we show that
+the adversary still has a non-trivial advantage in distinguishing
+given a certain increase in the number of samples available. These
+games primarily leverage how the utility definitions require the two
+distributions to have certain properties to have been distinguishable
+in the non-private setting. We then leverage results and techniques
+from the distribution testing literature to derive the updated sample
+complexity and distinguishing advantage for each game.
+Facts. To begin, we state a few facts relating Hellinger distance
+and sample complexity that we will reference throughout the proof:
+Fact 1 (Folklore, restated in [23]). The Hellinger distance
+characterizes the sample complexity𝑆𝐶 = Θ(1/𝐻 (𝑃,𝑄)) between
+two distributions 𝑃,𝑄.
+Fact 2 ([9], Theorem 4.7). If a distinguisher for two distributions
+𝑃,𝑄 has error 𝛽, then the sample complexity for distingushing between
+these distributions is lower bounded as follows: 𝑆𝐶 >
+Fact 3 ([23], Corollary 2.2). The sample complexity for distin-
+guishing between two distributions 𝑃,𝑄 is upper bounded as follows:
+𝑆𝐶 <
+.
+A
+Proof of Theorem 2
+Fact 4 ([18], Theorem 2). If the sample complexity 𝑆𝐶 for
+distinguishing two distributions 𝑃,𝑄 with success probability ≥ 1 − 𝛽
+is 𝑛, then the sample complexity for distinguishing between these
+distributions 𝑃,𝑄 subject to 𝜖-differential privacy (where 𝜖 < 1)
+𝑆𝐶
+with success probability ≥
+(1 − 𝛽) +
+.
+is bounded as follows:
+𝑛 ≤ 𝑆𝐶
+≤
+=
+In this appendix, we provide a formal proof of Theorem 2. Suppose
+A = (A , 𝐸𝑛𝑣, A ) is an adversary such that Adv
+>
+Recall that the Hellinger distance for two discrete probability
+distributions 𝑃,𝑄 with domain X is given by
+for a non-private ad ecosystem. We proceed via a sequence
+of games to show that this implies that A still has advantage
+Adv
+∑︁
+√︁
+𝑃(𝑥) −
+√︁
+𝑄(𝑥)
+
+𝐻 (𝑃,𝑄) = 1
+2
+>
+in the private case. That is: the adver-
+sary can continue to have a similar advantage in the private case,
+so long as the campaign size is appropriately amplified.
+.
+Here and elsewhere in the proof we will use Í
+as shorthand
+for Í
+.
+Now we will detail the series of games:
+Notation. In each game G , we define Adv
+to be the advantage
+of adversary A = (A
+, 𝐸𝑛𝑣 , A
+) in distinguishing between exe-
+cutions of the specified games starting from input distributions D
+
+--- Page 17 ---
+G (Non-private ecosystem). This game is the non-private ecosys-
+tem, so Adv
+= Adv
+>
+.
+Let 𝑘 be the number of Report messages that 𝐸𝑛𝑣 sends to
+F
+. Then, the output of metrics is a series of reports ˆ𝑟 =
+{𝑟 , ...,𝑟 }. Let 𝑓 be the processing function that the adversary A
+is using to distinguish over. Thus, distinguishing on this output
+would indicate both that:
+G (Add (𝑓
+, 𝜌)): Targeting and Engagement utility mean that
+some information about the difference in the two distributions is
+still leaked, and we can use distribution testing to distinguish here.
+So, in this game, we replace (𝑓 , 𝐼) with (𝑓
+, 𝜌), where 𝑓
+is 𝛼
+useful
+with respect to 𝑐𝑙𝑜𝑠𝑒 and 𝜌. As in the previous game, we focus on
+the task of A being able to distinguish the combined output of
+F
+with respect to the pair:
+(audience , ad ), (audience , ad ) ∈ active-ads.
+(1) There is a difference in the underlying distribution of user
+features in D and D , and
+(2) This difference corresponds to the features targeted by the
+two ads that are being A/B tested.
+From the first observation that D and D are different, Fact 1 gives
+us that the Hellinger distance characterizes the sample complexity
+𝑆𝐶 = Θ(1/𝐻 (D , D )) between two distributions. From the
+second observation that the statistical test 𝑓 is measuring some
+specific property of the distributions (i.e., A/B testing on a feature),
+we find that the distributions must differ in regards to that particular
+property.
+In particular, we want to show that by expanding the campaign
+size, we can construct an adversary that will be able to still distin-
+guish with the same advantage. We leverage the fact that the size
+of the campaign determines the number of samples pulled from
+the distribution D . Thus, by finding the sample complexity for
+distinguishing between the output distributions, we can determine
+the necessary campaign size. We note that the adversary could in
+theory construct a small campaign or one that is not relevant to
+the difference between the distributions, but our requirement that
+the adversary is able to distinguish eliminates the need to consider
+such scenarios.
+We note that advertisers will try to use F
+to deliver an ad
+dependent on a particular test feature. In this case, the addition of
+(𝑓
+, 𝜌) continues to allow targeting based on this feature, however,
+just less accurately (our analysis also holds for the case where
+𝛼
+= 0). Formally, for the pair (audience , ad ), (audience , ad )
+and a feature vector representing a user 𝑥, if
+𝑐𝑙𝑜𝑠𝑒(audience ,𝑥) − 𝑐𝑙𝑜𝑠𝑒(audience ,𝑥) = Δ ,
+then:
+Pr [ad ← 𝑓 (active-campaigns, 𝜌(𝑥), site)]
+− Pr [ad ← 𝑓 (active-campaigns, 𝜌(𝑥), site)] ≥ 𝛼
+· Δ ,
+where 𝛼
+< 𝛼 .
+We note that the size of the campaign that is distinguishable
+in the non-private setting is 𝑛 with success probability
+(since
+the advantage is
+G (Switch to A = (A , 𝐸𝑛𝑣 , A
+)): In this game, we consider an
+adversary who receives the input of Metrics rather than the output.
+This is essentially a data processing inequality: anything that is
+performed by Metrics can instead be performed by the adversary
+itself if it is helpful in its distinguishing role.
+In more detail, consider a modified 𝐸𝑛𝑣’ that does not inter-
+act with F
+, and uses the input to the metrics functionality
+as its output. In particular, the output distribution from 𝐸𝑛𝑣’ is a
+function of the total output from F
+. Now, we will show
+why A implies we can construct a A
+that can distinguish here.
+If the output of F
+is distinguishable, then its input must
+also be distinguishable with advantage at least Adv
+. Note that
+the input to metrics is the output of engagement, which is a list
+of browsing histories {(site, ad, conversion)} for each user. For-
+mally, we can say that for 𝑛 users, the output of engagement is
+{browsing-history , ..., browsing-history }, where for user 𝑖
+with features features :
+). Additionally, the distribution of the output of
+engagement is the distribution of ad conversions. In particular, we
+can look at the conversions for (audience , ad ) in comparison to
+(audience , ad ). We express this by
+browsing-history
+= {(site , ad , 𝑓 (features , site , ad )), ...}
+𝑅 (𝑥) = Pr[𝑥𝑠𝑎𝑚𝑝𝑙𝑒𝑑𝑓𝑟𝑜𝑚 D ] Pr[𝑠ℎ𝑜𝑤𝑥 ad ] Pr[𝑥𝑐𝑙𝑖𝑐𝑘𝑠𝑜𝑛 ad ]
+where
+= D (𝑥) · ( 1 + 𝛼 · Δ
+2
+) · (𝛼 · 𝑐𝑙𝑜𝑠𝑒(ad ,𝑥)).
+ad = 𝑓 (active-campaigns, features , site ).
+From Fact 1 we know 𝑛 = Θ(1/𝐻 (𝑅 , 𝑅 )) and in particular
+from Facts 2 and 3 that
+Additionally, we note that for these to result in a distinguishable
+set of reports, there must be some pair:
+ln(
+(audience , ad ), (audience , ad ) ∈ active-ads
+)
+4 · 𝐻 (𝑅 , 𝑅 ) < 𝑛 <
+1
+𝐻 (𝑅 , 𝑅 ) .
+For the private case, we have the updated distributions for the
+output of engagement:
+𝑅
+(𝑥) = Pr[𝑥𝑠𝑎𝑚𝑝𝑙𝑒𝑑𝑓𝑟𝑜𝑚 D ] Pr[𝑠ℎ𝑜𝑤𝑥 ad ] Pr[𝑥𝑐𝑙𝑖𝑐𝑘𝑠𝑜𝑛 ad ]
+that had distinguishable metrics. Since metrics simply performs
+post-processing on the result of engagement, there exists an ad-
+versary A
+that can distinguish this pair with advantage Adv
+≥
+Adv
+.
+= D (𝑥) · ( 1 + 𝛼
+· Δ
+2
+) · (𝛼 · 𝑐𝑙𝑜𝑠𝑒(ad ,𝑥)).
+Therefore, the campaign size needed for the adversary to distin-
+guish would be
+
+--- Page 18 ---
+ln(
+)
+4 · 𝐻 (𝑅
+, 𝑅
+) < 𝑛
+<
+1
+𝐻 (𝑅
+, 𝑅
+) .
+of these like terms then canceled out between the numerator and
+denominator and we were left with a relatively simple expression
+of the ratio.
+By looking at how the expression
+grows with 𝐾 and noting
+that 0 ≤ 𝐾 we can find additional bounds on 𝑛
+. In particular,
+1 ≤
+<
+so we have
+Note that D , D , 𝑅 , 𝑅 , 𝑅
+, 𝑅
+all have the same domain X, which
+is the universe of potential users.
+In order to compute the bound on expansion factor 𝑧 = 𝑛 /𝑛 we
+must take an upper bound for the private case and a lower bound
+for the non-private case. Let 𝛾 =
+ , then
+𝑛 · 𝛾 < 𝑛 < 𝑛 · 𝛾 𝛼
+𝛼
+.
+𝑧 = 𝛾𝐻 (𝑅 , 𝑅 )
+𝐻 (𝑅
+, 𝑅
+)
+𝑅 (𝑥) −
+√︁
+𝑅 (𝑥)
+
+Í
+√︁
+=
+𝛾
+𝑅
+(𝑥) −
+√︁
+𝑅
+(𝑥)
+
+Í
+√︁
+The lower bound tells us that when 𝐾 approaches 0, which indi-
+cates that 𝐵 << 𝐴 (there is a very small difference in the closeness
+of users to the two audiences) then this ratio is dominated by 𝛾.
+However, the upper bound tells us that when 𝐴 << 𝐵 (there is a
+very large difference in the closeness of users to the two audiences)
+then this ratio is dominated by
+√︄
+∑︁
+D (𝑥) ·
+ 1 + 𝛼 · Δ
+
+· (𝛼 · close(ad ,𝑥))−
+= 𝛾 1
+2
+2
+©­
+«
+√︄
+D (𝑥) ·
+ 1 + 𝛼 · Δ
+2
+. Thus, private targeting mecha-
+nisms make the most difference when there is a large difference in
+how close users are to the two potential audiences in question.
+As a result, there exists an adversary can distinguish by increas-
+ing the number of samples (campaign size) to 𝑛 to distinguish.
+They can use their knowledge of D , D , 𝛼 , 𝛼
+, 𝜌, 𝛼 to compute
+this value. Thus Adv
+= 2/3 = Adv
+.
+
+· (𝛼 · close(ad ,𝑥))ª ®
+¬
+√︄
+∑︁
+/1
+
+· (𝛼 · close(ad ,𝑥))−
+2
+D (𝑥) ·
+ 1 + 𝛼
+· Δ
+2
+©­
+«
+√︄
+D (𝑥) ·
+ 1 + 𝛼
+· Δ
+2
+
+· (𝛼 · close(ad ,𝑥))ª ®
+¬
+G (Distinguish on metrics again): In this game, we use the fact
+that metrics doesn’t do anything currently, so it does not impact the
+adversary’s advantage. Hence, we will switch back to interacting
+with 𝐸𝑛𝑣, whose output is a function of the output of F
+,
+where we are still using 𝐼 as our report creation function. Thus,
+like in the non-private case, reporting is transparently forwarding
+through the results from engagement. Thus, Adv
+= Adv
+.
+D (𝑥) −
+√︁
+D (𝑥)
+
+)
+√︁
+=
+𝛾𝛼
+Í
+close(ad ,𝑥)(
+D (𝑥) −
+√︁
+D (𝑥)
+
+𝛼
+Í
+close(ad ,𝑥)(
+)
+√︁
+D (𝑥) −
+√︁
+D (𝑥)
+
+=
+𝛾 Í
+close(ad ,𝑥)(1 + 𝛼 · Δ )
+√︁
+D (𝑥) −
+√︁
+D (𝑥)
+
+Í
+close(ad ,𝑥)(1 + 𝛼
+· Δ )
+√︁
+= 𝛾 𝐴 + 𝛼 𝐵
+𝐴 + 𝛼
+𝐵 = 𝛾 1 + 𝛼 𝐾
+1 + 𝛼
+𝐾.
+Thus, we have 𝑛 < 𝑛 · 𝛾
+where
+D (𝑥) −
+√︁
+D (𝑥)
+
+𝐴 =
+∑︁
+close(ad ,𝑥)
+√︁
+,
+D (𝑥) −
+√︁
+D (𝑥)
+
+𝐵 =
+∑︁
+close(ad ,𝑥)Δ
+√︁
+and 𝐾 =
+.
+As shown above we computed this ratio by simplifying down
+the expression
+𝛾
+𝑅 (𝑥) −
+√︁
+𝑅 (𝑥)
+
+Í
+√︁
+𝑅
+(𝑥) −
+√︁
+𝑅
+(𝑥)
+ .
+Í
+√︁
+We did this by expanding out the terms defining these distribu-
+tions and identifying that the differences in the numerator and
+denominator both had like terms that could be factored out. Many
+G (Add 𝑓
+): In this final game, we leverage the fact that metrics
+has utility, and therefore being able to still perform statistical tests
+in the private setting means the differences in the distributions
+remain detectable and we can use differentially-private distribution
+testing techniques to distinguish here. In more detail, we now use
+the reporting function 𝑓
+(with respect to 𝑓 ) instead of the identity
+𝐼. Because 𝑓
+is 𝛼 -utility-preserving with respect to 𝑓 , this means
+that the impact of the reporting function on the statistical test
+cannot be more that 𝛼 . As mentioned in Definition 5.4, 𝛼 can be
+thought of as a bound on the change in the error rate for 𝑓 .
+Like in our previous games, our goal here is to show that by
+amplifying the size of the campaign, we can still allow for the
+adversary to distinguish with a noticeable advantage. Crucially, in
+order to use this to find the necessary sample complexity, we need
+to show that the two distributions are not the same, as otherwise
+the result will be undefined.
+We know that the underlying D and D distributions are dif-
+ferent and that from G that this difference is distinguishable on
+the output of engagement. Thus, the question is whether the re-
+porting function may completely flatten this difference. However,
+we know that 𝑓
+is bounded in how much it can impact the result
+of the statistical test 𝑓 that is performed on the data. Since this
+test is measuring a property that is different between D and D
+(observation (2) from G ), that means that 𝑓
+cannot completely flat-
+ten this difference. Thus, the distributions of interest here: 𝑓
+(𝑅
+)
+and 𝑓
+(𝑅
+) must have a non zero difference. (This is a slight abuse
+
+--- Page 19 ---
+of notation but 𝑓
+(𝑅
+) is the final distribution from applying the
+reporting function to the engagement output distribution 𝑅
+.)
+We can make use of Fact 4 which gives us that the sample com-
+plexity for distingushing between these distributions 𝑓
+(𝑅
+), 𝑓
+(𝑅
+)
+𝑆𝐶
+is𝑛
+≤ 𝑆𝐶
+≤
+with advantage 2(
+(
+)+
+)−1 =
+Adv
+.
+Thus, we can apply this and set the amplified campaign size to
+𝑛 =
+<
+· 𝑛 · 𝛾
+. This value is computable with
+the information used to construction 𝑅
+as well as the 𝜖 parameter
+used in reporting. With this campaign size we have a distinguishing
+advantage Adv
+=
+.
+Adv
+.
+The overall lemma follows by combining the bounds on each
+pair of adjacent games. This gives us a distinguishing advantage
+𝑝 = Adv
+=
+Adv
+=
+=
+= 𝑝 −
+Figure 10: Impact of 𝜖 on sample complexity.
+B
+Proof of Theorem 3
+Figure 11: Impact of 𝛼-engagement on sample complexity.
+By Theorem 2 we see that for such an ad ecosystem, we will
+have an adversary A that can distinguish between D and D with
+probability
+We will now show why any ad ecosystem where an adversary
+A = (A , 𝐸𝑛𝑣, A ) has advantage Adv
+> 0 in distin-
+guishing between two distributions D and D , means that this ad
+ecosystem cannot achieve Dataset Attribute Privacy as defined in
+Definition 3.1. In this case, the audience of users is a set of feature
+vectors, where each attribute is just a single bit that is 1 if the user
+has that feature.
+Assume for the sake of contradiction that this ad ecosystem has
+dataset attribute privacy where the private function 𝑔(𝑋 ) is a sum
+of the values of the 𝑖 feature. Also, let 𝑓 be the summary statistic
+𝐹, which reveals how many users in the dataset had that feature.
+From the fact that a distinguisher A exists, we know that the
+output of the environment is distinguishable. This directly implies
+that the output of F
+is distinguishable between the two prob-
+ability distributions D and D . In particular, if 𝑘 was the total
+number of reports that 𝐸𝑛𝑣 requested from F
+, the output it
+distinguishes on is a list of reports ˆ𝑟 = {𝑟 , ...,𝑟 }. Let 𝑓 be the
+processing function such that the output of the adversary is the
+output of 𝑓 (ˆ𝑟). Since, ˆ𝑟 = {𝑟 , ...,𝑟 } is distinguishble, there must
+be some 𝑟 ∈ ˆ𝑟 that is distinguishable.
+By Definition 3.1 if attribute privacy were achieved for all param-
+eters governing the distribution of users in F
+then the output
+. By, Theorem 3 we see that if such a distinguishing
+adversary exists, then this ad ecosystem will not satisfy attribute
+privacy for some attribute of that campaign’s audience.
+Thus, we conclude that any useful ads ecosystem for a given ad
+campaign will not satisfy attribute privacy for some attribute of
+that campaign’s audience.
+D
+Extended Empirical Evaluation
+of 𝑓 (ˆ𝑟) should be independent of which distribution F
+sam-
+pled users from (D vs D ). However, A is able to distinguish on
+this output, which implies that there must be some report where
+the result is dependent on choice of distribution. Therefore, there
+must be some attribute for which attribute privacy is not preserved.
+This is a contradiction to our claim that we had attribute privacy,
+and thus we conclude that the existence of an adversary that can
+distinguish between the underlying distributions in an ad ecosystem
+implies no attribute privacy.
+C
+Proof of Theorem 1
+As shown in Figure 10, lower 𝜖 values increase the amount on
+noise added to the differentially-private metrics which reduces the
+confidence of the distinguisher at low sample sizes. As the number
+of samples increases, the signal to noise ratio improves and the
+sample complexity of the differentially-private lines approaches
+the baseline.
+𝛼-engagement impacts the overall click through rate so reduc-
+ing this value reduces the overall click probability as shown in
+Figure 11. Consequently, this reduces the absolute difference in
+click probability between D and D making distinguishing more
+challenging. Generally, ad campaigns have very low click through
+Our proof of Theorem 1 follows from Theorem 2 and Theorem 3
+in a straightforward manner. Suppose we had an ads ecosystem
+composed of instantiations of F
+, F
+, and F
+that are useful (as defined by Definitions 5.1 to 5.4).
+
+--- Page 20 ---
+at a more manageable level of noise. The framework consists of
+three parts:
+Figure 12: Impact of 𝛼-targeting on sample complexity.
+(1) A set of secrets S: this is the information that should not be
+revealed (or inferrable) by any output statistics. E.g., from
+the examples above, the secrets would be the flu status of
+any individual or their hair color.
+(2) Pairs of potential secrets Q = (S × S): these are the values
+of secrets that should be indistinguishable given the output.
+For example: perhaps it should not be possible to distinguish
+between “Alice has the flu” and “Alice is healthy,” or to dis-
+tinguish between any combination of possible hair colors for
+Alice (e.g., brown vs. green hair, brown vs. blonde hair, etc).
+This list should be viewed as a denylist: any two events X
+and Y that do not form a pair (X, Y) in the list are (implicitly)
+allowed to be distinguishable by the adversary.
+(3) A set of distributions Θ that could plausibly generate the
+dataset: Θ defines the correlations between the individual
+datapoints in the dataset. E.g., different Θ could specify vary-
+ing levels of contagiousness for the flu or different probabili-
+ties that an individual has a certain hair color given the hair
+colors of their family members.
+Definition E.1 (Definition 2.1 from Song et al. [87]). A privacy
+mechanism 𝑀 is said to be 𝜖-Pufferfish private in a framework
+(S, Q, Θ) if for all 𝜃 ∈ Θ with 𝑋 drawn from distribution 𝜃, for all
+secret pairs (𝑠 ,𝑠 ) ∈Q, and for all 𝑤 ∈ Range(𝑀), we have
+𝑒 ≤ 𝑃 (𝑀(𝑋) = 𝑤|𝑠 ,𝜃)
+𝑃 (𝑀(𝑋) = 𝑤|𝑠 ,𝜃) ≤ 𝑒
+(2)
+when 𝑠 and 𝑠 are such that 𝑃(𝑠 |𝜃) ≠ 0, 𝑃(𝑠 |𝜃) ≠ 0.
+rates (less than a percent) so low 𝛼-engagement values are the most
+realistic.
+Figure 12 depicts how 𝛼-targeting has a less strong impact on
+overall sample complexity in distinguishing than either𝛼-engagement
+or the 𝜖 value for differentially-private metrics. This is largely due
+to the way we use it as a modifier for 𝑐𝑙𝑜𝑠𝑒() in the targeting utility
+definition—most users are not a perfect match for the ad feature
+vector and may be relatively close to both ads causing a small dif-
+ference in probability of preferring one over the other even when
+𝛼-targeting is 1. Alternative designs for targeting utility could have
+𝛼-targeting instead indicate how likely targeting is to prefer the
+closer ad, regardless of how close it was and in this case 𝛼-targeting
+would have a stronger impact.
+Additionally, we might expect the audience distribution and
+definition of 𝑐𝑙𝑜𝑠𝑒() to affect how impactful 𝛼-targeting is. E.g., if
+the audience is well-specified and the users tend to share similar
+features aside from the test bit, then 𝑐𝑙𝑜𝑠𝑒() might decide to weight
+that bit more strongly than the others when deciding which ad is
+more relevant.
+Attribute privacy uses the Pufferfish framework to focus on pri-
+vatizing the distribution of sensitive attributes within a dataset.
+There, the secrets S are the output of some function 𝑔() over that
+sensitive attribute. Like most parameters in Pufferfish privacy, ex-
+actly what 𝑔() is will be situational and differ between use cases.
+Here, we care about the fraction of the audience who possesses the
+sensitive attribute so 𝑔() computes this value.
+E
+Background on Pufferfish Privacy
+The Pufferfish privacy framework [58] is intended to capture scenar-
+ios where privacy is desired for sensitive data, and, moreover, the
+sensitive data might be correlated with some of the other features in
+the dataset. Whereas differential privacy treats all data as sensitive
+and therefore requires hiding all correlations, Pufferfish privacy is
+more flexible and allows for revealing some features but only up to
+the point that sensitive data remains hidden. Consider for example
+genetic traits or the transmission of disease: information about the
+hair color of a person’s family members can allow for inferences of
+their own hair color and knowing that many people in a person’s
+community have the flu is revealing of that person’s health data.
+Resolving this under standard DP typically involves considering
+these correlated groups of people as a single entry. While this is
+effective, it introduces unmanageable levels of noise as the group
+size grows.
+The Pufferfish framework allows for differentially-private statis-
+tics on correlated data without assuming that all entries are fully
+correlated. This allows it to achieve protection for correlated data

@@ -1,0 +1,1073 @@
+
+--- Page 1 ---
+REVIEW
+in Africa. Multiple national authorities are likely to 
+be involved in decision-making, according to existing 
+laws in place within each country for certain product 
+classes. Requirements under the Cartagena Protocol 
+on Biodiversity will be considered relevant in most 
+countries, as may existing regulatory frameworks 
+for conventional pesticide, medical, and biocontrol 
+products. Experience suggests that standard regula-
+tory processes, evidence requirements, and liability 
+laws differ from country to country. Regional mecha-
+nisms will be useful to address some of the important 
+challenges.
+Policy · Genetically modified
+drive-modified 
+mosquitoes 
+(GDMMs) are being developed as possible new tools 
+to prevent transmission of malaria and other mos-
+quito-borne diseases. To date no GDMMs have yet 
+undergone field testing. This early stage is an oppor-
+tune time for developers, supporters, and possible 
+users to begin to consider the potential regulatory 
+requirements for eventual implementation of these 
+technologies in national or regional public health 
+programs, especially as some of the practical impli-
+cations of these requirements may take considerable 
+planning, time and coordination to address. Several 
+currently unresolved regulatory questions pertinent 
+to the implementation of GDMMs are examined, 
+including: how the product will be defined; what 
+the registration/approval process will be for placing 
+new GDMM products on the market; how the poten-
+tial for transboundary movement of GDMMs can be 
+addressed; and what role might be played by exist-
+ing multinational bodies and agreements in authori-
+zation decisions. Regulation and policies applied for 
+registration of other genetically modified organisms 
+or other living mosquito products are assessed for rel-
+evance to the use case of GDMMs to prevent malaria 
+Gene drive-modified mosquitoes (GDMMs) hold 
+promise as new tools for control and elimination of 
+malaria and other mosquito-borne diseases (Eckhoff 
+et al. 2016; North et al. 2020; Metchanun et al. 2021). 
+The efficacy of GDMMs for preventing disease trans-
+mission has not yet been demonstrated in field trials, 
+and how best to conduct such trials remains the sub-
+ject of considerable discussion. Yet it is not too early 
+to begin considering the requirements for implemen-
+tation (post-investigational use) of GDMMs as public 
+health tools since these could have substantial ramifi-
+cations for upstream research and development. As a 
+
+--- Page 2 ---
+is expected to be conducted under the authorization 
+and oversight of national regulatory authorities and 
+may involve authorities responsible for determining 
+national or regional disease control priorities (World 
+Health Organization 2021a). It is likely that there 
+will be a period of post-implementation monitoring 
+for safety, efficacy, and/or overall performance in the 
+context of other malaria interventions.
+Some have raised concerns that gene drive tech-
+nologies pose novel risks for which current regulatory 
+systems are unprepared (e.g., Oye et al. 2014; National 
+Academies of Sciences, Engineering, and Medi-
+cine 2016; Meghani and Kuzma 2018; Rabitz 2019; 
+Dolezel 2020), although others suggest that current 
+paradigms will be adequate with some improvements 
+(e.g., EFSA Panel on Genetically Modified Organisms 
+et al. 2020; Romeis et al 2020; Peterson and Rolston 
+2022). Many of the concerns raised have broadly ref-
+erenced the potential challenges for risk assessment, 
+the need for inclusion of public input into regulatory 
+decision-making, and the potential for movement 
+of gene drive-modified mosquitoes across national 
+boundaries. While issues such as risk assessment and 
+stakeholder engagement continue to be addressed 
+elsewhere (as reviewed in World Health Organization 
+2021a), here we focus on a set of practical regulatory 
+and policy questions related to the process of new 
+product approval/registration of gene drive products 
+for the specific use case of GDMMs for the control 
+and elimination of malaria in Africa, an application 
+for which research is rapidly advancing. However, the 
+considerations raised here also may be germane to 
+other proposed uses of gene drive technologies in pub-
+lic health, agriculture and conservation.
+Defining regulatory concepts
+live genetically modified product with the potential to 
+spread and persist in the environment, GDMMs aim to 
+achieve area-wide control with characteristics that dif-
+fer substantially from current insecticide-based mos-
+quito control methods, raising some different regula-
+tory and policy considerations for their development 
+and implementation.
+Gene drive promotes or favors the inheritance of 
+certain genes from generation to generation (Alphey 
+et al. 2020) and can be used to introduce new traits 
+rapidly through an interbreeding population. In engi-
+neered gene drive systems, the modification responsi-
+ble for the new trait (the effector mechanism) might 
+involve altering the sequence of existing genes, disa-
+bling or excising an existing gene, or introducing new 
+genes or genetic elements into the mosquito genome. 
+These systems aim either to reduce the size of the 
+population of vector mosquitoes by inhibiting their 
+reproduction or survival (population suppression) or 
+to modify the mosquitoes to make them less compe-
+tent to transmit a pathogen (population replacement) 
+(World Health Organization 2021a). Self-sustaining 
+drives are intended to persist, passing the modifica-
+tion on through subsequent generations indefinitely. 
+Because of the properties of super-Mendelian inher-
+itance, many self-sustaining drives are expected to 
+spread widely within interbreeding mosquito popu-
+lations. Self-limiting drive systems also have been 
+described, which aim to impose some temporal 
+restriction on the persistence of the modification so 
+that it will eventually disappear from the target mos-
+quito population. Another version under investiga-
+tion, termed localizing or confined drive, intends to 
+impose some spatial restriction on the spread of the 
+modification through the target population (World 
+Health Organization 2021a; Wang et al 2022).
+According to the recommended development path-
+way (World Health Organization 2021a), widespread 
+implementation of GDMMs as public health tools 
+would be considered only after adequate field testing 
+demonstrates their safety for health and the environ-
+ment as well as their potential to reduce vector mos-
+quito populations and/or prevent disease transmission. 
+Implementation will consist of producing GDMMs in 
+an appropriately regulated facility and systematically 
+releasing them into the environment where they will 
+interbreed with wild mosquitoes, thus establishing the 
+introduced trait in the local population of the target 
+species for some period of time. Such implementation 
+For commercial use, the product is considered to be 
+the entity intended to be deployed. For GDMMs, this 
+definition would translate to the live genetically mod-
+ified mosquito products which, when released into the 
+environment, are intended to pass the modification 
+into the local population of compatible mosquitoes 
+at a ratio greater than that expected based on Mende-
+lian genetics (super-Mendelian inheritance). It is use-
+ful to look to the regulation and registration of other 
+genetically modified (GM) and/or live mosquito prod-
+ucts for precedents that might apply to GDMMs. For 
+GM crops, the transgenic organism traditionally has 
+
+--- Page 3 ---
+been treated as the regulated product, although in cer-
+tain cases gene-edited products have been exempted
+(Turnbull et al 2021). It has been proposed that the 
+GDMM product be defined as the transgenic mosqui-
+toes (adults or any other life stage) carrying the engi-
+neered gene drive system (James et al. 2018). This is 
+in agreement with inclusion of gene drive-modified 
+organisms as living modified organisms (LMOs) 
+under the Cartagena Protocol. With GDMMs, the 
+transgenic construct is intended to spread to some 
+extent, depending on characteristics of the gene drive 
+system, to wild sexually compatible mosquito popula-
+tions and species by interbreeding. For other live GM 
+mosquitoes containing a heritable, albeit non-driving, 
+construct, the product is considered to be those trans-
+genic mosquitoes (adults or other life stage) that are 
+produced under controlled conditions for purposeful 
+release, Consistency would dictate extension of 
+this same definition to GDMMs (Box 1).
+As for other LMOs, such as GM crops, the regu-
+lated article is expected to be the transformation 
+event, involving stable integration of the transgenic 
+construct leading to functional expression in the 
+organism (OECD 2010), but regulatory approval may 
+be requested and granted for the article and its derived 
+products (which could include progeny in the same 
+species or those resulting from sexual crossing into 
+other genetic backgrounds). Thus, the same approved 
+article may be used in more than one GDMM product 
+if introgressed into that product.
+The active ingredient for drugs has been defined 
+by the US Food and Drug Administration (FDA) 
+as any component responsible for the drug’s direct 
+effect or a form that can bring about the intended 
+effect or specified activity, whereas for pesticidal 
+products the US Environmental Protection Agency 
+(EPA) defines active ingredients as the chemicals 
+(conventional, antimicrobial or biopesticidal) that 
+act to control a pest. For live mosquito products, 
+EPA has considered the active ingredient as the 
+novel introduced and expressed component. For 
+example, in a non-GM live mosquito product con-
+taining intentionally introduced Wolbachia bacteria 
+for population suppression, the EPA determined the 
+active ingredient to be the introduced Wolbachia in 
+the live Aedes albopictus mosquito. For a different 
+Wolbachia-based technology, in which the bacteria 
+are intended to be inherited by wild progeny of the 
+modified mosquitoes in a self-sustaining popula-
+tion replacement mechanism, the Australian Pes-
+ticides and Veterinary Medicines Authority deter-
+mined to regulate the Wolbachia as a substance 
+that modifies the physiology of the mosquito (De 
+Barro et al. 2011).
+
+--- Page 4 ---
+With relevance to GM crops, the US EPA has 
+defined a plant-incorporated protectant as the 
+"pesticidal substances produced and used in living 
+plants and the genetic material necessary for the 
+plant to produce the substance”. This definition 
+of a pesticidal product has been further extended 
+to genetically modified mosquitoes. Thus, in a GM 
+mosquito product for population suppression, the 
+active ingredient was determined by the EPA to be 
+a protein with biopesticidal properties expressed 
+in the released live mosquito product by the trans-
+genic construct (See footnote 4). Specifically for 
+Oxitec’s OX5034 Aedes aegypti, the tetracycline-
+repressible transactivator protein variant (tTAV-
+OX5034), which prevents female offspring from 
+surviving, was recognized as the active ingredi-
+ent, while the DsRed2-OX5034 marker protein was 
+identified as an inert ingredient. In its risk assess-
+ment, EPA also considered the vector pOX5034, 
+which is the genetic material necessary for pro-
+duction of these proteins in  vivo. According to 
+these precedents, the active ingredient for GDMMs 
+would be the expression product of the transgenic 
+construct responsible for the intended effect in the 
+released mosquitoes. For example, this may include 
+expressed drive components (e.g. Cas9) and/or any 
+cargo genes that contribute to the specified effect of 
+the GDMM as described in the product definition. 
+Introduced genetic material necessary for produc-
+tion of the expressed proteins responsible for the 
+intended effect also would be considered in the risk 
+assessment for regulatory approval.
+Regulatory pathways for GDMM products
+Most countries where GDMMs might be used for 
+control of mosquito-borne diseases are Parties to 
+the Cartagena Protocol on Biosafety to the Conven-
+tion on Biological Diversity (CPB) (Secretariat of 
+the Convention on Biological Diversity 2000), an 
+international agreement concerning safe handling, 
+transport and use of LMOs. LMOs are described in 
+the CPB (Article 3) as any living organism (any 
+biological entity capable of transferring or replicating 
+genetic material…) that possesses a novel combina-
+tion of genetic material obtained through the use of 
+modern biotechnology, a definition generally consid-
+ered equivalent to GM organisms (GMOs). As men-
+tioned above, it has been concluded that GDMMs 
+meet the LMO definition) (See footnote 2). In coun-
+tries that are Parties to the CPB, GDMMs proposed 
+as public health tools therefore are expected to enter 
+into the regulatory pathway under biosafety oversight 
+as described in the CPB. Article ­19 instructs coun-
+tries to designate a competent national authority to 
+make decisions about importation and use of LMOs. 
+The language of Article 19 allows for more than one 
+competent authority and responsibility for biosafety 
+approval may reside within a single national Ministry 
+or be shared by a group of Ministries. In many coun-
+tries, the National Biosafety Authority traditionally is 
+housed within the Ministry of Environment, Ministry 
+of Agriculture, or Ministry of Science. However, it 
+is recognized that more than one competent author-
+ity can be designated, depending on the nature of 
+the LMOs and their anticipated use (Mackenzie et al 
+2003), which suggests the possibility of a primary 
+role for the Ministry of Health, Ministry of Science 
+and Technology, or other relevant national authority 
+for GDMMs. Therefore, multiple Ministries may be 
+involved in biosafety decision-making and countries 
+may use the National Biosafety Authority to facilitate 
+interactions among them.
+Some countries that are not CPB signatories 
+have adopted a product-based regulatory process 
+that does not distinguish a separate biosafety path-
+way for GMOs. For example, Canada generally has 
+a product-based regulatory system (Turnbull et  al 
+2021). According to current guidance in the USA,
+GDMMs intended to reduce populations of vector 
+mosquitoes are to be regulated as pesticides by the 
+
+--- Page 5 ---
+EPA, whereas products intended to reduce the path-
+ogen load within mosquitoes or prevent mosquito-
+borne disease in humans will be regulated by the US 
+FDA. Any GMO that could pose a plant or animal 
+pest risk likely will be regulated by the US Depart-
+ment of Agriculture. These regulatory authorities are 
+not mutually exclusive and could overlap, thus result-
+ing in oversight by more than one agency.
+Precedents for new product approval at the national 
+level
+pathway for GM crops suggests that GDMM testing 
+and approval could also involve multiple regulatory 
+authorities that have jurisdiction over certain product 
+categories, regardless of their GM status. For example, 
+a dual pathway could include the National Biosafety 
+Authority (for biosafety approval) and the national reg-
+ulatory authority with a legal mandate most relevant to 
+oversight of the product’s final use claim.
+In addition to GM crops, a few countries now have 
+some experience regulating GM (but not gene drive-
+modified) insects, and efforts are underway in some 
+other countries to adapt their biosafety regulatory 
+processes to include oversight of GM insect products. 
+Perhaps the regulatory experience most related to 
+GDMMs to date has been with the self-limiting (herit-
+able but non-driving) GM technologies developed for 
+Ae. aegypti mosquitoes by Oxitec in Brazil. Brazil 
+is a Party to the CPB, and generally has an enabling 
+environment for new GM technologies. It presently 
+is the only country where GM mosquitoes have been 
+approved for commercial release. Oxitec received per-
+mission for field testing of GM mosquitoes from CTN-
+Bio (Comissão Técnica Nacional de Biossegurança, 
+órgão do Governo Federal, based in the Ministry of 
+Science, Technology, Innovations, and Communica-
+tions), the technical entity responsible for conducting 
+risk assessment of GMOs. CTNBio includes repre-
+sentatives from multiple ministries and its safety 
+decisions are binding on those ministries. Field 
+Assuming that successful demonstration of efficacy and 
+safety in field trials results in a decision to incorporate 
+GDMM products into national or regional control plans, 
+GDMM products will need to develop plans analogous 
+to those for commercialization of other types of prod-
+ucts. Although the testing phases preceding GDMM 
+implementation will have been conducted under rel-
+evant local and national regulatory oversight (discussed 
+in World Health Organization 2021a), it is likely that 
+this will have been accomplished under research or 
+experimental use permits. However, national regulatory 
+policies may involve a more expansive process for reg-
+istration or final approval for placing a new product on 
+the market for widespread and systematic use, as in the 
+context of national disease control programs.
+Current country regulatory authorities and regu-
+lations in place for GMOs are likely to be considered 
+for GDMMs. Regulatory processes for GMOs in most 
+countries were originally developed for GM crops 
+(Akinbo et  al. 2021; Quemada 2022). In most coun-
+tries, GM crops must obtain biosafety approval from 
+the national competent authority for GMOs, and then 
+are subject to a national variety registration process, 
+which applies to all new crop varieties. This registration 
+process tests performance of the new varieties to decide 
+whether they are suitable to be grown by farmers. The 
+process involves a set of national performance trials, 
+which are conducted in approved locations by national 
+authorities located in the Ministry of Agriculture. 
+However, a GM variety cannot enter such trials until 
+biosafety approval is given to grow the GM crop in the 
+presence of non-GM varieties. For GM crops, the com-
+petent National Biosafety Authority might be housed 
+in the Ministry of Agriculture or in another Ministry. 
+Either way, the GM crop must follow a dual pathway 
+involving approval by both biosafety and product per-
+formance-based regulators. This existing regulatory 
+
+--- Page 6 ---
+testing subsequently demonstrated that sustained 
+inundative releases substantially reduced the local Ae. 
+aegypti populations at trial sites (Spinner et al 2022). 
+CTNBio has granted biosafety approval for com-
+mercial release of the second generation strain of the 
+Oxitec Friendly™ mosquitoes as well as a similar 
+fall armyworm product (Reavey et  al. 2022). Reg-
+istration and enforcement of GM products in Bra-
+zil is generally the purview of the relevant national 
+agency(ies) dealing with health, environment, or agri-
+culture (Velini et al. 2017; Andrade et al. 2018), with 
+the Brazilian National Health Surveillance Agency 
+(ANVISA) being the governmental body responsible 
+under the Brazilian Biosafety Law of 2005 for the reg-
+istration and commercial supervision of GMOs with 
+direct implications for human health. However, the 
+Oxitec GM mosquito products currently are being reg-
+istered as pesticides with solely entomological claims 
+and without any health claim. ANVISA does not have 
+regulatory oversight over pesticides that are macro-
+organisms, such as mosquitoes. Therefore, in this spe-
+cific case, CTNBio was the only regulatory agency 
+with jurisdiction and its biosafety approval was suffi-
+cient for commercial release. CTNBio has published 
+rules for commercial release and monitoring of GMOs 
+in its Normative Resolution No. 32. Currently, 
+Oxitec’s second generation GM Ae. aegypti mosquito 
+product is being marketed for use by municipalities 
+and also for direct-to-consumer sale in Brazil.
+WHO recommendation (World Health Organization 
+2020a), it is likely that FDA also would play a regu-
+latory role even for those classified as pesticides, as 
+it does for other human and animal health products 
+(including clinical trials).
+These examples indicate that the pathway to 
+approval of new GDMM products for widespread 
+release may well differ among countries according 
+to the intended use of the product and the relevant 
+legal mandates and precedents. Developers will be 
+expected to specify the claims for the product and 
+intended use, which will be important in determin-
+ing the regulatory pathway, and supply the relevant 
+evidence supporting the claims. National laws in the 
+individual country then will determine specifics of 
+jurisdiction according to the claims, such as relevant 
+regulations and which Ministries and Agencies have 
+oversight. For example, if classified as a medical 
+product, final approval for commercialization might 
+logically fall within the Ministry of Health. The Min-
+istry of Health can be expected already to have been 
+heavily involved in oversight of field trials for disease 
+efficacy for a GDMM public health or human health 
+claim (World Health Organization 2021a), and likely 
+also to have participated in biosafety determination. 
+But if the GDMM product is classified as a pesti-
+cide, responsibility for final full approval might fall 
+within the Ministries of Health, Agriculture and/or 
+Environment depending upon national ­laws . Other 
+types of live mosquito products, including SIT and 
+Wolbachia-based population replacement, also have 
+experienced different regulatory pathways in different 
+countries.
+Applicant responsibilities for new product approval
+In the US, the EPA has issued experimental use 
+permits to allow testing of Oxitec’s Friendly™ mos-
+quitoes in Florida and more recently California.
+The EPA also has registered the (non-GM) Wol-
+bachia-based MosquitoMate population suppression 
+product as a pesticide (See footnote 8). If a devel-
+oper wishes to test the epidemiological efficacy of a 
+GDMM product, which is a stated requirement for 
+As the applicant, the GDMM developer, manufac-
+turer or implementer will bear a number of respon-
+sibilities. First, there will be costs associated with 
+the process of full product approval. Individual 
+countries may charge registration fees, and there may 
+be consultant, legal, or other costs. This would be 
+in addition to the costs of testing requirements for a 
+new product. As with any product, an expectation to 
+
+--- Page 7 ---
+repeat field testing of GDMMs within each country as 
+a pre-requisite to product registration could be time-
+consuming and costly. Therefore, early consideration 
+of evidence requirements and data portability, prior to 
+field testing, will be important.
+The GDMM developer or manufacturer also will 
+be responsible for quality management of the prod-
+uct. Rearing of GDMMs can be compared to manu-
+facturing of other types of public health products. It 
+is expected that, just as for other types of new prod-
+ucts, those seeking to bring GDMMs to market will 
+be required to provide sufficient information to allow 
+the regulator(s) to determine whether the product is 
+safe and effective for its proposed use and whether 
+the manufacturing methods are adequate to preserve 
+the product’s integrity across release lots/batches. 
+Methods and criteria must be established in advance 
+for determining whether a GDMM product is accept-
+able for release (analogous to release specifications 
+for other products ). Challenges can be anticipated 
+in translating familiar requirements for medical or 
+pesticide products (such as identity, potency, qual-
+ity and purity) to GDMMs. Standards for GDMMs 
+can be informed by practices common to other live 
+insect products, however, such as those used in Ster-
+ile Insect Technique (SIT) for which there exist 
+long experience and documented processes (World 
+Health Organization and International Atomic Energy 
+Agency 2020; Dyck et al. 2021) as well as the newer 
+GM and Wolbachia-based mosquito control methods 
+(Table 1). Information that might be required within 
+a regulatory dossier for regulatory evaluation and 
+decision-making on GM biocontrol products has been 
+suggested (Tonui et al. 2022).
+It is likely that new product approval will require 
+the applicant to propose a mechanism for monitor-
+ing and reporting of adverse events (and possibly 
+continued product efficacy) following releases. Such 
+post-implementation monitoring may be particularly 
+targeted to any risks identified as non-negligible in 
+the risk assessment. The World Health Organization 
+(WHO) has provided recommendations for post-
+implementation monitoring and surveillance (World 
+Health Organization 2021a), which could be custom-
+ized to the particular GDMM product and use. The 
+plan for adverse event reporting will need to specify 
+what types of events will be monitored, at what fre-
+quency and duration, as well as what types of actions 
+could be anticipated as a response to address the 
+adverse event.
+
+--- Page 8 ---
+(for example, GDMMs), as well as an Environmen-
+tal and Social Impact Assessment, which examines 
+the broader scope of potential health, environmental 
+and socioeconomic impacts of a specific project 
+(Rossouw et al. 2000; Connolly et al. 2022). Under 
+these assessments, opportunities exist to consider 
+potential impacts within a transboundary context.
+Transboundary movement
+GDMMs invoke some particularly complex questions 
+with respect to product approval. One is the ques-
+tion of whether a separate product approval would be 
+required within each country that eventually might be 
+affected by a product that intentionally or indepen-
+dently crosses its national boundaries over time.
+With regard to the ability of GDMMs to move 
+autonomously across political boundaries or of the 
+transgenic construct to move across borders via inter-
+breeding, it is of interest to compare requirements 
+for release of live insects for agricultural biocontrol 
+as these also are able to disseminate autonomously. 
+The usual procedure in that case is to submit a regu-
+latory dossier only in the country where the release 
+is proposed. Although it is recognized that biological 
+control agents can cross borders, this is not normally 
+a cause impacting the final decision of the country 
+where the release is proposed. Indeed, transbound-
+ary movement of the control agent may be considered 
+beneficial by a receiving country dealing with simi-
+lar unwanted pests. However, responsible national 
+authorities are encouraged to communicate details 
+of an intended release that may affect neighboring 
+countries.
+The fact that GDMMs are GMOs subject to 
+requirements of the CPB in countries that are Par-
+ties adds an extra dimension of complexity, how-
+ever. Article 7 of the Protocol imposes a requirement 
+for advanced informed agreement regarding “the 
+first intentional transboundary movement of living 
+A corollary to monitoring responsibility is liability. 
+It will be important to understand whether, and if so 
+how, the developer, registrant, manufacturer, and/or 
+implementer is liable for any adverse effects result-
+ing from the GDMM product. Currently, 52 countries, 
+including several in Africa, are Parties to the Nagoya-
+Kuala Lumpur Supplementary Protocol on Liability 
+and Redress to the CPB. This protocol pertains to 
+damage to the conservation and sustainable use of 
+biodiversity, and requires that “response measures 
+are taken in the event of damage resulting from living 
+modified organisms, or where there is sufficient likeli-
+hood that damage will result if timely response meas-
+ures are not taken”. According to the predicted poten-
+tial for a GDMM product to move across national 
+boundaries, liability claims may extend to neighbors 
+of the implementing country. Countries will incor-
+porate responsibilities for these goals into their own 
+laws individually and may interpret requirements of 
+these terms, including the definition of damage, dif-
+ferently. National liability laws will be an important 
+determinant of receptivity to emerging technologies. 
+For example, under fault liability those conduct-
+ing the GDMM release would only be liable if they 
+failed to conduct appropriate risk assessment to allow 
+the government to make an informed decision about 
+release, while the authorizing government would oth-
+erwise bear the responsibility. However, strict liability 
+could impose costs resulting from an adverse event on 
+those conducting the release regardless of their good 
+faith effort to comply with risk assessment obliga-
+tions (Rabitz 2019). Thus, in planning for implemen-
+tation, it will be important to determine how liability 
+laws apply and how claims, including any related to 
+transboundary movement, might be managed. Trial 
+and/or product liability insurance, as offered for other 
+types of products, is a consideration.
+It is important to note that, in addition to the envi-
+ronmental risk assessment of specific products that 
+is a standard requirement of regulatory oversight 
+according to the CPB and national laws, additional 
+legal frameworks may apply in African countries. 
+These include a Strategic Environmental Assess-
+ment, which supports political and policy level deci-
+sion-making regarding a general type of intervention 
+
+--- Page 9 ---
+modified organisms for intentional introduction into 
+the environment of the Party of import”. Notifica-
+tion under Article 17 concerning “an unintentional 
+transboundary movement of a living modified organ-
+ism  that is likely to have significant adverse effects 
+on the conservation and sustainable use of biologi-
+cal diversity, taking also into account risks to human 
+health” also might be considered relevant under some 
+circumstances.
+In countries that have laws regulating GMOs, a 
+GM product must be approved to be present in the 
+country legally. This suggests certain possibilities 
+according to precedent:
+National requirements will need to be clarified as 
+they may pertain to product distribution, for example 
+in the case of intentional transport across national 
+borders from a regional production facility to release 
+sites in a neighboring country. Any particular require-
+ments or restrictions on international transport of 
+GDMMs should be explored before decisions about 
+production facility location(s) are reached. Gene 
+drive modifications may impose particular permitting 
+requirements for shipping (Niassy et  al 2022), not 
+only due to notification requirements for transbound-
+ary movement of GMOs imposed by the CPB but 
+also to provide the level of containment necessary to 
+avoid inadvertent release in transit that might result in 
+unauthorized establishment of the mosquito (Ameri-
+can Committee of Medical Entomology 2022).
+Multilateral agreements
+Given the inherent potential for transboundary move-
+ment, considerations for implementation of GDMMs 
+extend beyond a traditional bilateral “exporter-
+importer” relationship (Rabitz 2021) to include the 
+possibility of multiple receiving countries. Planning 
+for the use of GDMMs therefore would be greatly 
+facilitated by mechanisms to strengthen decision-
+making at the regional level. Article 14 of the CPB 
+(See footnote 12) acknowledges that “Parties may 
+enter into bilateral, regional and multilateral agree-
+ments and arrangements regarding intentional trans-
+boundary movements of living modified organ-
+isms…” and “the provisions of this Protocol shall 
+not affect intentional transboundary movements that 
+take place pursuant to such agreements and arrange-
+ments…” This highlights how the embrace of 
+regional GDMM authorization and implementation 
+programs by national governments could streamline 
+regulatory requirements and unify transport, release, 
+and subsequent monitoring and reporting processes.
+Multilateral agreements are common and can 
+take many forms. For addressing transboundary 
+movement of GDMMs in Africa, the most straight-
+forward approach could be to build upon an existing 
+regional multilateral cooperation agreement, such as 
+•	 Both biosafety approval and product approval are 
+likely to be required in any country where the 
+GDMMs are placed on the market and deliberately 
+released.
+•	 Expectation that GDMMs will be transported or 
+autonomously move into another country where 
+they have not received biosafety approval would 
+be considered a transboundary event requiring 
+prior notification if adverse effects on the envi-
+ronment might be anticipated. Even if no adverse 
+effects are anticipated, the receiving country could 
+take steps to remove the unapproved organism 
+if presence of an unapproved organism would 
+be illegal there. If the GDMMs have obtained 
+biosafety but not   necessary  product approval in 
+the receiving country, that country still might take 
+action to remove the GDMMs if their laws pro-
+hibit dissemination of unapproved products.
+•	 If the transgenic construct moves via interbreeding 
+into the local mosquito population within another 
+country where the GDMMs have not obtained 
+biosafety and/or product approval, then again 
+the receiving country could take steps to remove 
+organisms containing the construct if their pres-
+ence would be considered illegal according to the 
+language of that country’s regulatory laws per-
+taining to LMOs, which include GDMMs. Any 
+national decision to remove the GDMMs could 
+invoke liability requirements for whomever is 
+deemed responsible under the affected country’s 
+laws.
+
+--- Page 10 ---
+activities, the program aims to bring African countries 
+together to decide on a uniform approach to regulat-
+ing GDMMs across the continent, which could stand-
+ardize the evidence needed for biosafety and product 
+approval and foster collaboration among countries in 
+decision-making. As currently envisioned, the pro-
+gram would not preclude the need for individual 
+national product approval, although standardization of 
+requirements could greatly simplify the process.
+The first phase of the program, from 2016 to 2018, 
+focused on raising awareness about GDMMs and 
+other GM mosquitoes among decision makers. A 
+series of stakeholder consultations were conducted 
+across the five economic regions in the continent 
+to discuss the potential benefits and risks of these 
+technologies to prevent malaria transmission (Teem 
+et  al 2019). Following these regional consultations, 
+AUDA-NEPAD, with the support of the West Africa 
+Health Organization under the Economic Commu-
+nity of West Africa States (ECOWAS) established 
+the West Africa Integrated Vector Management 
+(WAIVM) platform with the aim to operational-
+ize a regional platform that will enable a strong col-
+laboration among the health sector and other sectors 
+(environment, scientific research and higher educa-
+tion, agriculture, trade, etc.) to effectively control dis-
+ease vectors. WAIVM organized Technical Working 
+Groups (TWGs) responsible for developing guide-
+lines and other common technical documents that 
+would facilitate harmonized assessment and decision-
+making for GDMM research. The African Biosafety 
+Network of Expertise, a program of AUDA-NEPAD, 
+provides services to support improvement of biosafety 
+regulatory systems within individual countries.
+the charter establishing the Organization of African 
+Unity/African Union, the treaty establishing the 
+African Economic Community, or those creating 
+the various regional economic communities and 
+other multinational cooperative relationships. In 
+this regard, the African Union Development Agency-
+New Partnership for Africa’s Development (AUDA-
+NEPAD) is working to establish harmonized regula-
+tory guidelines for integrated vector management 
+across the African continent, and these guidelines 
+will apply to GDMMs.
+Adoption of integrated mosquito management 
+approaches has been hindered for multiple reasons, 
+including the need for increased political backing and 
+for better collaboration both within the health sector 
+and with other sectors (Beier et al 2008). This has led 
+to an increased call for intra- and intersectoral collabo-
+ration where environmental management and health 
+education are both linked to proactive strategies for 
+controlling new and emerging threats. In this con-
+text, need has been recognized for regulatory capac-
+ity strengthening, as well as appropriate stakeholder 
+engagement at all levels, in preparation for decision-
+making on testing and implementation of all innova-
+tive vector control tools including GDMMs (e.g., 
+Beier et  al 2008; World Health Organization 2017; 
+Glover et  al 2018). To that end, and in accordance 
+with the recommendations of the African Union High 
+Level Panel on Emerging Technologies, AUDA-
+NEPAD initiated its Integrated Vector Manage-
+ment program as a continent-wide flagship program 
+to ensure adequate capacity building for the African 
+Union’s 55 member states (See footnote ). The pro-
+gram strives to ensure that there is a balance between 
+safety of the environment and improvement of human 
+health so that regulations are not unnecessarily so 
+restrictive as to lose the potential health benefits of 
+the various vector control approaches. Among other 
+It is envisioned that evidence gained from the 
+WAIVM regional platform can serve as a model for a 
+scale-up to the continent level (Africa-IVM). Through 
+this platform, it is expected that AUDA-NEPAD, the 
+African Union Commission, and the African Union 
+Centres for Disease Control and Prevention (Africa 
+CDC) will collaborate with partners to strengthen the 
+capacity of regulators and relevant stakeholders in 
+Member States and Regional Economic Communi-
+ties to ensure that countries and regions are able to 
+
+--- Page 11 ---
+explore the potential of new vector control approaches 
+including GDMMs. Activities will include (i) estab-
+lishment and operationalization of an Africa Vec-
+tor Management Advisory Panel; (ii) establishment 
+and operationalization of TWGs, (iii) establishment 
+and operationalization of an Africa-IVM discussion 
+forum, (iv) development and adoption of technical 
+documents, and (v) guidance on international nego-
+tiations pertaining to vector control.
+Malaria intervention frameworks
+need for development of new tools for control of vec-
+tor-borne diseases such as malaria, the WHO issued 
+a position statement in 2020 supporting the investi-
+gation of gene drive and other genetically modified 
+mosquito approaches and, as mentioned above, has 
+published guidance for all aspects of their testing 
+(World Health Organization 2021a).
+The WHO is often looked to by developing coun-
+tries as a source of technical standards and has estab-
+lished systematic processes for drugs, diagnostics, 
+vaccines and conventional vector control products. 
+WHO evaluates vector control products through two 
+complementary pathways—the Prequalification path-
+way and the New Intervention pathway. The pre-
+qualification process is used with products in a class 
+for which a WHO policy recommendation exists. 
+This pathway assesses quality, safety and efficacy of 
+the product, as well as determining the capacity of a 
+manufacturer to produce products of consistent qual-
+ity in accordance with international standards. The 
+WHO list of prequalified products is used by inter-
+national procurement agencies, such as the Global 
+Fund to fight AIDS, TB and malaria, to guide their 
+purchases, and thus has been very influential for prod-
+uct uptake in developing countries. The WHO Vec-
+tor Control Product Assessment Team (PQT/VCP)
+assesses vector control products and public health 
+pesticide active ingredients to determine that they can 
+be used safely and effectively, and consistently are 
+manufactured to a high-quality standard. This is done 
+by assessing product dossiers, inspecting manufac-
+turing sites and supporting quality-control testing of 
+products. Thus far, these activities have largely been 
+directed toward chemical pesticides and pesticide-
+based products. WHO and FAO, both UN agencies, 
+develop specifications for pesticides jointly. The 
+specifications encompass the physical appearance of 
+the material, its content of active ingredient(s) and 
+It is generally assumed that implementation of 
+GDMMs to combat malaria will be conducted by or 
+under the oversight of a national public health pro-
+gram aimed at disease control and elimination, in the 
+context of other mosquito and malaria intervention 
+efforts (World Health Organization 2021a). How-
+ever, opportunities for some form of regional over-
+sight could be helpful for designing and managing a 
+comprehensive GDMM implementation program, as 
+well as addressing issues that may  create challenges 
+for regulatory management at a strictly national level, 
+such as transboundary movement of a single GDMM 
+product or potential for introduction of more than one 
+GDMM product within the same or nearby regions 
+(James et  al. 2018). Such multinational programs 
+have proven beneficial for agricultural biocontrol pro-
+grams, as well as SIT against agricultural (Enkerlin 
+et al 2017) and public health pests. There is prec-
+edent for regional programs focused on malaria inter-
+vention (Lover et al 2017), including in Africa .
+As a potential public health intervention for con-
+trol and elimination of malaria, recommendations 
+on GDMMs come under the purview of the World 
+Health Organization’s Global Malaria Programme,
+which supports Member States to achieve their tar-
+gets under the Global Technical Strategy for Malaria 
+(World Health Organization 2021b). Citing an urgent 
+
+--- Page 12 ---
+review of Wolbachia-mediated population replace-
+ment products.
+any relevant impurities, physical and chemical prop-
+erties, and stability in storage. Whether or how the 
+WHO prequalification process will apply to live mos-
+quito products remains to be clarified.
+The New Intervention pathway, which comple-
+ments the prequalification pathway, is intended to 
+support deliberations on a WHO recommendation for 
+innovative vector control products (i.e. a product type 
+without prior WHO recommendation) (World Health 
+Organization 2020a). Thus, the New Intervention 
+pathway currently is most appropriate for GDMMs 
+as a new product class. Presently, new vector control 
+interventions are subject to evaluation by the Vector 
+Control Advisory Group (VCAG), which focuses 
+on assessment of the public health value of the new 
+product. As currently stated, once data from at least 
+two trials demonstrating epidemiological impact 
+have been assessed by VCAG, WHO may commis-
+sion a systematic review and convene a Guidelines 
+Development Group that will consider broader issues 
+including not only the quality of the epidemiological 
+evidence, but also the balance of benefits and harms, 
+resource implications, the priority of the problem, 
+equity and human rights, acceptability and feasibility 
+of the new intervention. Under this pathway, qual-
+ity management issues are still addressed through the 
+prequalification process. Recently proposed consid-
+erations for obtaining a permit to release GM bio-
+control products may help guide applicants toward 
+relevant issues (Tonui et al 2022).
+It should be noted that WHO prequalification is 
+not required when countries are not seeking funding 
+from sources such as the Global Fund to support 
+use of the product in vector control efforts. However, 
+if countries seek the reassurance of WHO quality 
+review of a GDMM product before making a decision 
+to implement, it will be necessary to identify a mech-
+anism appropriate to the characteristics of GDMMs. 
+Clarification of WHO mechanisms for live mosquito 
+products is currently in process, initially focused on 
+Previous efforts to delineate a development pathway 
+for GDMMs have dealt largely with requirements for 
+research and testing and have not delved deeply into 
+planning for implementation in the context of national 
+or regional public health programs (James et al 2018). 
+Yet, because GDMMs will be GMOs expected to 
+persist and spread to some extent in the environment 
+and intended for use as public health tools, substan-
+tial early thought must go into planning for the transi-
+tion of GDMMs from testing to implementation. This 
+analysis examines several aspects of the last step of 
+the national regulatory approval process, registra-
+tion or new product approval, which standardly sets 
+requirements that must be met for commercial use. 
+While it still remains to be seen how GDMMs even-
+tually might be marketed and delivered, it is impor-
+tant to understand how existing regulations and poli-
+cies developed for other product types may apply and 
+to begin planning for how any challenges arising from 
+GDMM characteristics might be addressed.
+Countries that have developed regulatory pathways 
+for other GMOs will likely be challenged with how to 
+fit newer technologies into existing regulations. How-
+ever, the relevance of both biosafety and health man-
+dates, as well as inexperience with the features of a 
+live insect product, may cause confusion and compli-
+cate even established regulatory processes. The more 
+dissimilar a new GM product is from prior regulatory 
+experience (generally GM crops) in each country, 
+the more time it is likely to take to develop appropri-
+ate capacity and mechanisms for its review. Lack of 
+clarity about the roles of different national regulatory 
+agencies and uncertainty about data requirements for 
+the regulatory submission could substantially delay 
+regulatory evaluation and decision-making. There is 
+a need to identify the roles and requirements of the 
+agencies that are relevant to registration of GDMMs, 
+
+--- Page 13 ---
+will carry out its own approval and that standard 
+regulatory processes and evidence requirements are 
+likely to differ from country to country. A need for 
+submission of dossiers to all countries where GDMM 
+transgenes might ultimately spread and requirement 
+for full product approval in each of these countries 
+prior to initial release in a first country would not 
+be in line with the history of GM crops. However, 
+it might be possible to stage national applications 
+according to anticipated timing of transboundary 
+movement as judged by distance from the release 
+site, for example based on modeling predictions of 
+GDMM spread. Regional harmonization of data and 
+risk assessment requirements and mechanisms for 
+data portability and data sharing among countries 
+could substantially simplify the processes for author-
+izing implementation at the national or multinational 
+level. Initiatives such as the Africa-IVM Programme 
+led by AUDA-NEPAD will be central to this effort.
+Given the history of malaria mosquitoes devel-
+oping resistance to conventional control tools, it is 
+worthwhile to consider that the more rapid the area-
+wide roll-out of GDMMs the less likely it may be 
+that resistance mechanisms become prevalent before 
+the first GDMM products are able to fully exert their 
+protective effects. If so, this would argue that a more 
+harmonized and systematic multi-country approach 
+to implementation also would provide the greatest 
+opportunity to achieve the widely supported goals of 
+eliminating and eradicating malaria (Feachem et  al. 
+2019) thereby enhancing the public health benefit of 
+GDMMs.
+Even though releases of the first GDMM prod-
+ucts are not expected for several years, planning for 
+regional cooperation should start now. Lessons from 
+the experience of the Innovation to Impact (I2I) pro-
+gram, which is working toward a collaborative reg-
+istration procedure for conventional pesticide-based 
+vector control tools to facilitate market access, sug-
+gest that such harmonization of regulatory processes 
+will not be straightforward. Likewise, the West Africa 
+regional biosafety program conducted jointly by the 
+West Africa Economic and Monetary Union and 
+ECOWAS has been working for more than ten years 
+to develop a harmonized biosafety framework. This 
+especially in countries likely to be early adopters of 
+the technology. Appropriate regulatory frameworks 
+may need to be adapted or even created in some 
+cases, and clear mechanisms for inter-agency coop-
+eration may need to be established. Countries that 
+generally are enabling to new GM technologies may 
+be more proactive about streamlining their processes, 
+timelines, and requirements. While it is possible that 
+countries that have no pre-existing GMO regulations 
+could be at some advantage as they can develop fit-
+for-purpose regulations and institutions, the lack of 
+GMO regulations also may reflect a low level of over-
+all regulatory capacity, in which case building neces-
+sary capacity can be expected to take considerable 
+time, resources, and political will. Those developing 
+new GDMM products would be well advised to put 
+contingency plans in place to respond to unantici-
+pated delays and related expenses. Early in creation 
+of their business models, developers should under-
+take an extensive scoping of all the requirements at 
+the national and local level relevant to GDMMs in 
+locations where they wish to deliver their products, 
+including laws, policies, guidelines, and any useful 
+case history or precedents. This will inform the pro-
+cedures to be followed, the types of evidence they 
+must collect during prior testing phases, as well as the 
+agencies/ministries with whom they need to initiate 
+ongoing contacts. Proactive communication between 
+developers and regulatory agencies can help to build 
+understanding and allow time for clarification of 
+national review and decision-making processes.
+The possibility of transboundary movement of 
+transgenic mosquitoes or their genes additionally sug-
+gests a need for substantial planning at the regional 
+level. Requirements for GMOs under the CPB will 
+be considered relevant in most countries, but exactly 
+how these requirements apply might take into account 
+the expectations for the specific gene drive-modified 
+organism under consideration, which may differ 
+according to the type of drive system (self-sustaining, 
+self-limiting or localized). Most types of GDMMs are 
+intended to spread to some extent and therefore might 
+eventually cross national borders, although those 
+carrying localizing drives are expected to be more 
+confined and those with self-limiting drives may 
+not persist. It is expected that GDMMs will undergo 
+extensive risk and impact assessments in countries 
+of initial release for evaluation of potential adverse 
+effects. However, experience suggests each country 
+
+--- Page 14 ---
+process was only concluded recently with the formal 
+adoption by the Conference of the Heads of State of 
+the ECOWAS Members states, and is yet to be opera-
+tionalized. Fortunately, however, the experience from 
+the Sahelian Committee for Pesticides, which is the 
+regional body responsible for implementing the Com-
+mon Regulations to the Permanent Inter-State Com-
+mittee for Drought Control in the Sahel (CILSS) 
+member states for pesticide homologation, sets a good 
+example of successful regulatory harmonization. This 
+Committee has been operational since 1994, and eval-
+uates dossiers submitted by pesticide companies for 
+approval for sale of chemical pesticides in the seven 
+member states of the CILSS.
+decisions will be made and who will be involved in 
+decision-making (e.g. National Academies of Sci-
+ences, Engineering, and Medicine. 2016; Kofler et al 
+2018; Kelsey et al 2020; World Health Organization 
+2020b), as well as specific operational guidance for 
+production, release and post-release monitoring. 
+Early and systematic analysis of all the activities nec-
+essary to implement a particular GDMM product, 
+including anticipated regulatory and policy consider-
+ations as well as operational requirements, can inform 
+the development pathway and help to optimize the 
+efficiency, effectiveness, and safety of these promis-
+ing new tools for control and elimination of malaria 
+and other mosquito-borne diseases.
+If health claims are made and GDMMs are regu-
+lated as medical products, the African Medicines 
+Agency, which serves as an AU-wide platform for 
+coordinating and strengthening harmonization efforts 
+for medicines regulation, could be beneficial for mul-
+tinational coordination of regulatory requirements,
+although this effort also faces challenges (Ncube et al 
+2021). Other pan-African authorities, such as the 
+Africa CDC, also could facilitate a continent-wide 
+harmonized decision-making process on GDMMs 
+as a public health product. Although it may not be 
+required when countries are not seeking funding from 
+sources such as the Global Fund to support the use 
+of a GDMM product in their vector control efforts, a 
+WHO recommendation may provide additional use-
+ful input for national and regional decision-making, 
+manufacturing, and implementation planning.
+While prior regulatory experience with other 
+GMOs as well as live conventional biocontrol agents 
+that spread in the environment affords valuable prec-
+edents for GDMMs (Romeis et  al 2020), the pres-
+ence of both of these characteristics within a single 
+product undoubtedly results in a new combination 
+of challenges. This analysis touches on some of the 
+overarching regulatory issues that must be addressed 
+if GDMMs are to achieve their projected potential 
+for improving public health, and highlights the ben-
+efit of a regional approach. Many details of such 
+an approach remain to be clarified, including how 
+
+--- Page 15 ---
+
+--- Page 16 ---

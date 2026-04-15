@@ -11,6 +11,12 @@ from .config import config
 
 logger = logging.getLogger(__name__)
 
+try:
+    import pymupdf4llm
+    _PYMUPDF4LLM_AVAILABLE = True
+except ImportError:
+    _PYMUPDF4LLM_AVAILABLE = False
+
 
 # ---------------------------------------------------------------------------
 # Span / font-name helpers
@@ -96,7 +102,11 @@ def _determine_body_font_size(doc: fitz.Document, sample_pages: int = 20) -> flo
     for page_num in range(min(sample_pages, len(doc))):
         page = doc[page_num]
         try:
-            for block in page.get_text("dict")["blocks"]:
+            # sort=True reconstructs correct reading order for multi-column
+            # academic layouts (especially pre-2000s scanned papers) by sorting
+            # text blocks by their position within detected columns rather than
+            # reading straight across the page horizontally.
+            for block in page.get_text("dict", sort=True)["blocks"]:
                 if block.get("type") != 0:  # 0 = text block
                     continue
                 for line in block.get("lines", []):
@@ -216,7 +226,7 @@ def _is_ocr_pdf(doc: fitz.Document) -> bool:
     char_counts: Counter = Counter()
     for page_num in range(min(10, len(doc))):
         try:
-            for block in doc[page_num].get_text("dict")["blocks"]:
+            for block in doc[page_num].get_text("dict", sort=True)["blocks"]:
                 if block.get("type") != 0:
                     continue
                 for line in block.get("lines", []):
@@ -417,10 +427,10 @@ def _extract_filtered_text(
         accumulated_len += len(header)
 
         try:
-            page_dict = page.get_text("dict")
+            page_dict = page.get_text("dict", sort=True)
         except Exception as exc:
             logger.debug("get_text('dict') failed on page %d: %s", page_num, exc)
-            plain = page.get_text("text")
+            plain = page.get_text("text", sort=True)
             full_text.append(plain)
             accumulated_len += len(plain)
             if accumulated_len > max_len:
@@ -519,11 +529,11 @@ def extract_text(source: Path | bytes, max_length: int | None = None) -> dict:
         accumulated_len += len(header)
 
         try:
-            page_dict = page.get_text("dict")
+            page_dict = page.get_text("dict", sort=True)
         except Exception as exc:
             # Fall back to plain text if the structured API fails for this page
             logger.debug("get_text('dict') failed on page %d: %s", page_num, exc)
-            plain = page.get_text("text")
+            plain = page.get_text("text", sort=True)
             full_text.append(plain)
             accumulated_len += len(plain)
             if accumulated_len > max_len:
@@ -684,7 +694,7 @@ def extract_text_with_sections(
     size_counter: Counter = Counter()
     for page_num in range(min(body_sample_pages, len(doc))):
         try:
-            for block in doc[page_num].get_text("dict")["blocks"]:
+            for block in doc[page_num].get_text("dict", sort=True)["blocks"]:
                 if block.get("type") != 0:
                     continue
                 for line in block.get("lines", []):
@@ -744,10 +754,10 @@ def extract_text_with_sections(
         accumulated_len += len(header)
 
         try:
-            page_dict = page.get_text("dict")
+            page_dict = page.get_text("dict", sort=True)
         except Exception as exc:
             logger.debug("get_text('dict') failed on page %d: %s", page_num, exc)
-            plain = page.get_text("text")
+            plain = page.get_text("text", sort=True)
             full_text.append(plain)
             accumulated_len += len(plain)
             if accumulated_len > max_len:
@@ -957,6 +967,302 @@ def extract_text_with_sections(
     }
 
 
+# ---------------------------------------------------------------------------
+# pymupdf4llm Markdown extraction (optional backend)
+# ---------------------------------------------------------------------------
+
+class AcademicHeaderDetector:
+    """Custom ``hdr_info`` callable for pymupdf4llm that reuses our heading logic.
+
+    pymupdf4llm's built-in ``IdentifyHeaders`` only maps font sizes to heading
+    levels.  Academic papers frequently use **bold-at-body-size** or
+    *italic-at-body-size* for section headings — patterns ``IdentifyHeaders``
+    misses entirely.
+
+    This class wraps :func:`_is_heading_span` and the italic-detection logic
+    from :func:`_line_is_predominantly_italic` so that pymupdf4llm benefits
+    from our battle-tested detection while still providing table extraction
+    and Markdown formatting.
+
+    pymupdf4llm calls ``get_header_id(span, page=None)`` for every text span.
+    The callable returns ``""`` for body text or ``"# "`` / ``"## "`` /
+    ``"### "`` for heading levels.
+
+    Usage::
+
+        detector = AcademicHeaderDetector(doc)
+        md = pymupdf4llm.to_markdown(doc, hdr_info=detector, ...)
+    """
+
+    def __init__(self, doc: fitz.Document, max_levels: int = 3):
+        self.body_size = _determine_body_font_size(doc)
+        self.max_levels = max_levels
+        self._h1_threshold = self.body_size + 4.0   # rare in academic papers
+        self._h2_threshold = self.body_size + 1.5   # main sections
+        # Pre-compute which PDF lines are fully bold/large (no body-text spans).
+        # Lines that mix bold and regular text are paragraph prose — their bold
+        # spans should never be tagged as headings.
+        self._heading_y_coords: dict[int, set[int]] = {}
+        self._precompute_heading_lines(doc)
+
+    def _precompute_heading_lines(self, doc: fitz.Document) -> None:
+        """Pre-scan every page and record the Y-coordinates of lines where
+        *all* non-empty spans are bold or above-body-size.
+
+        A line where some spans are bold and some are regular is paragraph
+        prose with inline emphasis — the bold span is not a heading.
+        This is the key signal the user identified: a heading line is fully
+        styled; a prose line that starts bold and ends regular is not.
+        """
+        for page_num in range(len(doc)):
+            page = doc[page_num]
+            page_ys: set[int] = set()
+            try:
+                blocks = page.get_text("dict", sort=True).get("blocks", [])
+            except Exception:
+                self._heading_y_coords[page_num] = page_ys
+                continue
+
+            for block in blocks:
+                for line in block.get("lines", []):
+                    spans = [s for s in line.get("spans", [])
+                             if s.get("text", "").strip()]
+                    if not spans:
+                        continue
+
+                    def _is_prominent(s: dict) -> bool:
+                        flags = s.get("flags", 0)
+                        size = round(s.get("size", 0), 1)
+                        t = s.get("text", "").strip()
+                        # Multi-word all-caps spans (not just acronyms) are heading candidates
+                        is_allcaps_multi = (bool(t) and " " in t
+                                           and t.replace(" ", "").replace("-", "").isupper())
+                        return bool(flags & 16) or size >= self._h2_threshold or is_allcaps_multi
+
+                    if all(_is_prominent(s) for s in spans):
+                        # All spans on this line are bold/large — heading candidate
+                        y0 = round(line["bbox"][1])
+                        page_ys.add(y0)
+
+            self._heading_y_coords[page_num] = page_ys
+
+    def get_header_id(self, span: dict, page=None) -> str:
+        """Return a Markdown heading prefix for *span*, or ``''`` for body text.
+
+        Called by pymupdf4llm for every text span during extraction.
+        """
+        text = span.get("text", "").strip()
+        if not text:
+            return ""
+
+        # Headings are short — guard against bold/large intro paragraphs.
+        if len(text) > 150 or len(text.split()) > 15:
+            return ""
+
+        # Headings begin with an uppercase letter, a digit, or a symbol
+        # (e.g. "§ 3"). Inline bold/italic emphasis embedded in a sentence
+        # starts lowercase — filtering on this alone eliminates the vast
+        # majority of false positives when using per-span detection.
+        if text[0].islower():
+            return ""
+
+        # Exclude pure numeric strings: page numbers are often rendered bold/large.
+        if text.replace(".", "").isdigit():
+            return ""
+
+        size = round(span.get("size", 0), 1)
+        flags = span.get("flags", 0)
+        is_bold = bool(flags & 16)
+        is_italic = bool(flags & 2)
+        at_body_size = abs(size - self.body_size) < 0.5
+        # Some journals use a slightly smaller bold font for section headings
+        # (e.g. 10.5pt headings in an 11.5pt body).  Widen the tolerance ONLY
+        # for bold spans; non-bold smaller text is footnotes/captions.
+        bold_at_or_near_body = is_bold and abs(size - self.body_size) < 1.5
+
+        # Size-based (matches _is_heading_span size branch)
+        if size >= self._h1_threshold and self.max_levels >= 1:
+            return "# "
+        if size >= self._h2_threshold and self.max_levels >= 2:
+            return "## "
+
+        # For spans at/near body size, only tag those on fully-bold/large lines.
+        # A line that mixes bold and regular text is prose with inline emphasis —
+        # the bold span should NOT be promoted to a heading.
+        # Apply to both strict at_body_size (italic/allcaps) and the wider
+        # bold tolerance (bold_at_or_near_body).
+        near_body = at_body_size or bold_at_or_near_body
+        if near_body and page is not None:
+            bbox = span.get("bbox", (0, 0, 0, 0))
+            y0 = round(bbox[1])
+            page_num = page.number
+            if y0 not in self._heading_y_coords.get(page_num, set()):
+                return ""
+
+        # Multi-word ALL CAPS at body size — law/social-science/humanities journals.
+        # Single-word acronyms (GDPR, EHDS) are excluded via the " " in text check.
+        is_allcaps_multi = (at_body_size
+                            and " " in text
+                            and text.replace(" ", "").replace("-", "").isupper()
+                            and not text.replace(".", "").isdigit()
+                            and len(text.split()) <= 12)
+        if is_allcaps_multi:
+            if self.max_levels >= 3:
+                return "### "
+            if self.max_levels >= 2:
+                return "## "
+
+        # Bold at or near body size — the pattern IdentifyHeaders misses.
+        # Using the wider bold tolerance (1.5pt) to catch journals that format
+        # section headings with a slightly smaller bold font than body text.
+        # Guards weed out common non-heading bold patterns:
+        #   "[1] Smith..."      — reference list markers
+        #   "(1) List item"     — numbered list items
+        #   "Figure 3: ..."     — figure/table captions
+        #   "Definition 3.1"    — formal definition/lemma/theorem labels
+        #   "Model overview."   — in-paragraph label ending with "."
+        _NON_HEADING_STARTS = frozenset({
+            "figure", "table", "definition", "lemma", "theorem",
+            "proof", "remark", "example", "corollary",
+            "keywords", "abstract",
+        })
+        first_word = text.split()[0].rstrip(".,;:").lower()
+        if (bold_at_or_near_body and len(text.split()) <= 8
+                and not text.endswith(".")
+                and not text.startswith("(")
+                and not text.startswith("[")
+                and first_word not in _NON_HEADING_STARTS):
+            if self.max_levels >= 3:
+                return "### "
+            if self.max_levels >= 2:
+                return "## "
+
+        # Italic at body size — humanities/social-science journals.
+        # Legal case citations ("Leander v Sweden", "Gaskin v the UK") are
+        # excluded via the " v " / " vs " pattern.
+        if (is_italic and at_body_size and not is_bold
+                and not text.endswith(".")
+                and len(text.split()) <= 4
+                and not re.search(r'\bv\.?\s+[A-Z]|\bvs\.?\s+[A-Z]', text)):
+            if self.max_levels >= 3:
+                return "### "
+
+        return ""
+
+def _parse_markdown_sections(md_text: str) -> list[dict]:
+    """Parse Markdown headings into the section dict format expected by CachedArticle.
+
+    Returns a list of ``{title, level, start, end, word_count}`` dicts, which
+    is the same schema produced by the font-analysis pipeline so all downstream
+    navigation (mode=section, search_in_article, etc.) works unchanged.
+    """
+    heading_re = re.compile(r'^(#{1,6})\s+(.+)$', re.MULTILINE)
+    matches = list(heading_re.finditer(md_text))
+
+    sections = []
+    for i, m in enumerate(matches):
+        level = len(m.group(1))
+        title = m.group(2).strip()
+        start = m.start()
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(md_text)
+        word_count = len(md_text[start:end].split())
+        sections.append({
+            "title": title,
+            "level": min(level, 3),
+            "start": start,
+            "end": end,
+            "word_count": word_count,
+        })
+
+    return sections
+
+
+def extract_text_pymupdf4llm(
+    source: "Path | bytes",
+    max_length: int | None = None,
+) -> dict:
+    """Extract text from a PDF as Markdown using pymupdf4llm.
+
+    Preserves table structures, bold/italic formatting, and heading hierarchy.
+    Uses ``fontsize_limit`` to filter footnotes/endnotes — the same logic as
+    :func:`extract_text_with_sections` but applied inside pymupdf4llm.
+
+    ``pymupdf4llm.use_layout(False)`` is called to disable the GNN layout
+    module.  This is a module-level state change, but is safe here because we
+    use a config flag to choose the extraction backend globally — there is no
+    per-request switching.
+
+    Returns the same dict format as :func:`extract_text_with_sections` so
+    caching, mode filtering, and search work unchanged.
+
+    Falls back to :func:`extract_text_with_sections` if pymupdf4llm is
+    unavailable or if extraction raises an exception.
+    """
+    if not _PYMUPDF4LLM_AVAILABLE:
+        logger.debug("pymupdf4llm not installed — falling back to extract_text_with_sections")
+        return extract_text_with_sections(source, max_length)
+
+    max_len = max_length or config.max_context_length
+    doc = _open_doc(source)
+
+    is_ocr = _is_ocr_pdf(doc)
+    is_latex = _is_latex_pdf(doc)
+
+    metadata = {
+        "title": doc.metadata.get("title", ""),
+        "author": doc.metadata.get("author", ""),
+        "subject": doc.metadata.get("subject", ""),
+        "pages": len(doc),
+        "extraction_method": "pymupdf4llm",
+        "is_ocr": is_ocr,
+        "is_latex": is_latex,
+    }
+
+    body_size = _determine_body_font_size(doc)
+
+    try:
+        # Disable the GNN layout module so fontsize_limit, hdr_info, and
+        # table_strategy are available (they are only supported on the
+        # non-layout path).
+        pymupdf4llm.use_layout(False)
+
+        hdr_info = AcademicHeaderDetector(doc, max_levels=3)
+        md_text = pymupdf4llm.to_markdown(
+            doc,
+            hdr_info=hdr_info,
+            fontsize_limit=body_size - 1,   # drop footnotes/endnotes/page numbers
+            table_strategy="lines_strict",   # table detection (ruled lines only)
+            ignore_images=True,              # no image placeholders in LLM context
+        )
+    except Exception as exc:
+        logger.warning(
+            "pymupdf4llm extraction failed: %s — falling back to extract_text_with_sections", exc
+        )
+        doc.close()
+        return extract_text_with_sections(source, max_length)
+
+    doc.close()
+
+    if is_ocr:
+        md_text = _clean_ocr_text(md_text)
+
+    truncated = False
+    if len(md_text) > max_len:
+        md_text = md_text[:max_len]
+        truncated = True
+
+    sections = _parse_markdown_sections(md_text)
+
+    return {
+        "text": md_text,
+        "pages": metadata["pages"],
+        "truncated": truncated,
+        "metadata": metadata,
+        "sections": sections,
+        "section_detection": "pymupdf4llm_markdown",
+    }
+
+
 def extract_text_by_pages(
     source: Path | bytes, start_page: int = 1, end_page: int | None = None
 ) -> str:
@@ -973,7 +1279,7 @@ def extract_text_by_pages(
     parts = []
     for page_num in range(start, end):
         page = doc[page_num]
-        text = page.get_text("text")
+        text = page.get_text("text", sort=True)
         if text.strip():
             parts.append(f"\n--- Page {page_num + 1} ---\n")
             parts.append(text)

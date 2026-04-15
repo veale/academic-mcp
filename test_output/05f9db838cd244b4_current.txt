@@ -1,0 +1,790 @@
+
+--- Page 1 ---
+Baer, Susanne (2026) What judges need to know: the anti-factual challenge and
+judicial review. Modern Law Review, 89(1), 3 - 27.
+https://doi.org/10.1111/1468-2230.70013
+https://researchonline.lse.ac.uk/id/eprint/130384/
+Version: Published Version
+Licence: Creative Commons: Attribution 4.0
+LSE Research Online is the repository for research produced by the London School
+of Economics and Political Science. For more information, please refer to our Policies
+page or contact lseresearchonline@lse.ac.uk
+
+--- Page 2 ---
+THE
+MODERN LAW REVIEW
+Volume 89
+January 2026
+No. 1
+What Judges Need to Know: The Anti-Factual
+Challenge and Judicial Review
+Susanne Baer
+Imagine you are a judge, at a supreme court, a constitutional court, or a human
+rights court in particular. There are new files on your desk. You open them,
+and find empirical studies on both sides, to attack a statute, and to defend it.
+They look pretty much the same.How do you decide? This is the question that
+drives this lecture. It is a call for cognitive resilience and for a refined doctrine of
+constitutional epistemology. It is about nothing less than the truth, the whole
+truth, which seems to slip away because truth is in crisis. More precisely, to
+counter the trend summarising rather diverse phenomena as ‘crisis’, the truth
+is in crisis because knowledge is systematically undone, as either illegitimate or
+outright false, or wrong. But what does that mean for the law, for courts and
+
+--- Page 3 ---
+for judicial review in particular? My argument is to not only take the law, or
+rights, but also to take facts seriously, in order to deal with the anti-factual
+challenge.
+Certainly, it is not a new question to address knowledge, and truth, in law.
+Namely, evidence is a classic theme, primarily in criminal law, but even that
+needs an update in light of today’s technologies of manipulation, and the need
+for a convincing response is rather urgent. Certainly, the quest for a proper
+understanding of knowledge is also not a petty concern, and not just a legal
+one. But the issue of persuasion tends to overshadow a quest for epistemol-
+ogy, and thus, heuristics. Instead, to understand facts, knowledge, and truth
+in law, and specifically the handling of extra-juridical knowledge in consti-
+tutional adjudication, we need interdisciplinary attention, at least for those in
+socio-legal studies.This is also a proper stance for Chorley lectures,with H.L.A.
+Hart talking about nothing less than the ‘Demystification of the Law’ in 1972,
+and Roberto Unger eventually, in 1995, rejecting ‘rationalising legal analysis’
+with its ‘institutional fetishism’ as rather limited and frail, to seek an alternative
+in legal thought without adjudication. I will not go there. But reading the
+Modern Law Review, it becomes pretty clear that Chorley lectures have also
+addressed the changing conditions of knowledge,including data, truth,and the
+law. In 1999, Kader Asmal described the South African practice of the Truth
+and Reconciliation Commission an alternative way of dealing with facts, in-
+cluding colonial trauma, which remains a challenge.And closer to the focus on
+truth in crisis, Anthony Giddens in 1998 discussed German sociologist Beck’s
+4
+
+--- Page 4 ---
+notion of the ‘risk society’ a world of insecurity,not least,because of a lack of
+knowledge on many fronts. But times have changed, and risk has turned into
+doubt, fuelled by lies and manipulation. How do we handle this now?
+Chorley Lectures have also dealt with judicial review, understood as the task
+and power of courts to review and strike down legislation, administrative acts
+and court decisions. Skepticism is in order, resulting in constructive criticism
+at best,not to be confused with the attacks levelled by those seeking unrestricted
+power for themselves.I defend judicial review as indispensable for a democracy
+that deserves the label. Not surprisingly, this falls in line with the first female
+president of the German Constitutional Court, Jutta Limbach, explaining the
+‘Concept of the Supremacy of the Constitution’. In fact, national as well
+as regional and global human rights courts have become important actors in
+making sure that democracy is not a cover-up for autocrats. Certainly, there
+are varieties to constitutionalism, but the commitment to an enforceable set of
+rights and principles is key. Therefore, in 2011, Kate O’Regan, a former judge
+of the South African Constitutional Court, reminded us to not forget about
+the text, because it is really about the law, not politics, and already wondered
+how much room there is for what Waldron calls ‘reasonable disagreement’.
+No need to be afraid, because even proportionality rulings in the House of
+Lords did not lead to exaggerate uses of power, as Thomas Poole demonstrated
+by putting some well-established criticism of constitutionalism to the empirical
+test. But what happens to judicial review, and thus, to fundamental rights and
+democracy, when confronted with the anti-factual challenge?
+What is the role of courts when facts,expertise and knowledge,and thus,the
+truth, are in a precarious position, in an endangered state, and eventually erod-
+ing? Courts must apply the law, yes, and that is difficult enough, but what are,
+today,the facts of a case? How should supreme,constitutional and human rights
+courts handle facts,knowledge,the truth,when these are called into question,
+often radically so? This is an urgent question because, epistemologically, things
+have changed.
+I saw it in my files.Serving as a Justice of the German Federal Constitutional
+Court from 2011 to 2023, there were many complicated legal questions to
+5
+
+--- Page 5 ---
+answer,including the need to systematically integrate national,transnational and
+international law, and to make use of comparative analysis. However, it was
+the facts that bothered the Court in the climate case, the Covid cases, the
+decision to not discriminate against people that are medically intersexual, and
+more. And again, this is not a German problem. In the UK, think of the ‘facts’
+that made Britain go to war against Iraq, or the ‘facts’ spread about migration
+as well as human rights by the Brexit campaign, or what has been dubbed a
+‘gender-war’ around transgender rights. Facts matter, and we know by now
+that they are manipulated, or ignored, while lies are mislabelled. In politics, this
+has been recognised as a particular abuse of power. Now what about courts?
+They are under many pressures, but the post-factual challenge may be more
+dangerous than the rest. When courts are called upon to decide, what should
+judges know,accept as true or reject as false,presented by government and other
+parties?
+In 2025,a young Iranian,Noureen Akhtar,posted the question online:‘What
+is Justice in a Post-Truth World?’ Justice,she says,or Justitia,cannot any longer
+be the figure with a pair of scales and certainly not blindfolded, but has to now
+see ‘through the digital smog of deceptions masked as facts and noise mas-
+querading as knowledge’. How can this be done? Akhtar says that there is a
+crisis of knowledge, a crisis of truth, which I call ‘the anti-factual challenge’.
+What does this mean for the law? As much as the rule of law is the gram-
+mar of democracy, we must confront this question: How should courts deal
+6
+
+--- Page 6 ---
+with truth, thus uncover and reject beliefs, assumptions, and lies, in a polarised,
+triggering, wild world?
+There is little time to find an answer. Note that the truth did not just slip
+into crisis on its own. Rather, it is kicked around, beaten up, mobbed and,
+sorry for the term, ‘shitstormed’ out of our minds, or should we say phones,
+aggressively. The same with democracy: it does not simply die, as US political
+scientists famously described in 2018, but it is murdered. This is done by
+people described as autocrats, which I call the new totalitarians because of the
+updated arsenal of weapons to destroy democracy,and thus legitimacy grounded
+in fair elections, human rights, and the rule of law. Therefore, the time to care
+for truth is now.What is the role of courts in a ‘culture of justification’? What
+should judges know, as well as lawmakers, lawyers, academics, all of us, to deal
+with the anti-factual challenge?
+I describe the challenge first, to understand what is happening, how and
+where it matters, and why this crisis behind the crisis is of such grave concern.
+It affects all areas of legal practice, but my focus is on supreme, constitutional
+and human rights courts, and judicial review. What kind of facts matter there,
+and why? What is the role of such courts under these new conditions,and how
+can they handle the challenge? There are many answers to these questions, and
+hopefully, there will be more, to better understand the epistemological role of
+courts in judicial review. I will end with a call for updated legal education.
+THE ANTI-FACTUAL CHALLENGE
+We do not live in post-factual times, but we are faced with a severe anti-factual
+challenge. It is a highly polluted environment. Truth, facts, expertise, reality
+tends to get lost. And this is not new.
+In 1943, George Orwell commented on fascist propaganda. He wrote: ‘This
+kind of thing is frightening to me,because it often gives me the feeling that the
+very concept of objective truth is fading out of the world’. Then, philoso-
+7
+
+--- Page 7 ---
+pher Hannah Arendt, a close observer of German fascism, explained that lies
+‘are often used as substitutes for more violent means’, and thus ‘are apt to be
+considered relatively harmless tools in the arsenal of political action’. She al-
+ready described an ‘extreme contempt for facts’, and a trend she called ‘Defak-
+tualisierung’, or de-factualisation, as essential to the rise of totalitarianism.
+Today, contempt is back, and some saw it coming. In England and Ger-
+many, ‘post-truth’ was the word of the year in 2016; the ‘decay of truth’ was
+described in 2018; a ‘truth crisis’ in 2021. Former US President Barack
+Obama called it an ‘epistemological crisis’ in 2020. So what is going on,
+exactly?
+The crisis of truth,and facts,is a crisis behind the crises.In various ways,it in-
+forms,shapes and perpetuates the financial crisis,the health crisis of a pandemic
+like Covid,the climate crisis and,last but not least,war,be it in cyberspace,with
+drones or in trenches, all of which result in mass migration, which is a crisis of
+human rights. Look at it this way: The truth about international finance? The
+truth about the virus,and injections,the shots? Climate expertise – who knows?
+War – or is it an ‘operation’, ‘aggression’, or ‘self-defence’ – so hard to tell, and
+with AI producing imagery at will, the ‘sources cannot be verified’. So what
+are the facts?
+It is a crisis, and it is also a paradox. There is so much data out there, so
+many facts. We know more than ever, but we do not know what information
+to trust. Then, it is not knowledge but belief that becomes decisive. Facts are
+there, but they may be manipulated, fake and false. Therefore, this is not just
+another struggle over meaning. Rather, our shared epistemic foundation is
+eroding, if not gone.
+This is extremely uncomfortable. Economically, post-industrial societies
+have been described as ‘knowledge societies’, and much effort goes into
+education and study, training, research, and information management. But
+when knowledge loses its standing, what then? Politically, democracy suf-
+8
+
+--- Page 8 ---
+fers. The less ability to agree on facts and then discuss what to do about
+them, the less legitimacy is attributed to decisions. Philosophically, founda-
+tions are lost, because a discursive community and communicative action,
+according to Jürgen Habermas, or systems of communication, according
+to Niklas Luhmann and Günter Teubner, or the idea of democracy as a
+‘marketplace’,mostly of ideas, are all based,in one way or another,on a com-
+mitment to truth,information,knowledge,facts.When this is gone,democracy
+becomes a fake performance. Are we thus bound, as sociologist Helmut
+Willke suggested in 2002, in early studies on the knowledge crisis, towards
+dystopia?
+Democracy did not turn into ‘expertocracy’. Also, the ‘espistemocracy’, in
+which factual coercion – ‘Sachzwänge’ – are said to define politics is not dom-
+inant anymore. Instead, Korean-German philosopher Han sees ‘infocracy’
+at work, and AI expert Nina Schick has already described the ‘infocalypse’.
+The dominant political strategy is,excuse the language,to ‘flood the zone with
+shit’, to quote an infamous radical who organises globally. This leads to info-
+pollution,or ‘Informationsverschmutzung’,a strategy also known as ‘muddying the
+waters’. However, American philosopher Harry Frankfurt already described
+this in 1986, On Bullshit. There are more and more empty phrases, essentially
+9
+
+--- Page 9 ---
+nonsense, coming into the world, and not linguistic games, à la Wittgenstein.
+They produce doubt, and eventually an ignorant society. How many people
+have told you lately they avoid the news? Then,what matters is not what is true,
+or fact. What matters is what works, and, to whoever asks a question, what is
+believed, gets likes and clicks, provokes a reaction, no matter what. Ignorance is the
+sign of power, of new totalitarianism on the rise.
+Flooding the public is not a new strategy,but technologies intensify the flood.
+To spread disinformation is much easier today than in the 1940s, when Orwell
+and Arendt worried, and it is less visible. Today, there is no ‘Volksempfänger’, a
+low-cost radio produced in 1933 to disseminate Nazi Propaganda in Germany,
+no paper most people read, and certainly no citizens’ assembly, no marketplace.
+One should not forget all those that organise neighbourhoods,rallies,and other
+forms of associative democracy. But the dominant form of communication are
+blurbs, be it text or picture, on the still so-called ‘social’ but deeply unsocial
+bubbles of media technology. In programming, knowledge matters for sure,
+and facts do, as reliable science to invent, design and build technology and
+algorithms. This is why those who spread lies aggressively defend their codes,
+their patents, their technology.
+The goal is clear: You shall be totally absorbed in micro-targeted news,
+which also caters to your entrepreneurial self that absorbed late capitalism
+in what Michel Foucault calls ‘gouvernementalité’, with individuals governing
+themselves. And it works. Recent elections show (not only in the US) that
+‘muddying the water’ helps catch more fish, as voters, and many votes are cast
+on the basis of emotional appeal. Also, protesting totalitarians when they are
+taking over is but a passing swarm of very small fish online, thus no pressure,
+and no change. Is this too pessimistic? At least, it has many sensible people
+worried, like Akbhar, the young Iranian. And she is not alone. For example,
+most delegates at the controversial but influential World Economic Forum at
+Davos,an annual meeting of around 3,000 paying or selected investors,business
+and political leaders, celebrities and journalists, agree. For the second year in a
+row, they consider ‘disinformation’ the biggest short-term global threat, before
+war and weather disasters, thus identifying an issue that did not even feature
+on the worry list before 2024.
+Also, all over the world, the new totalitarians are up and running. However
+safe you may feel right now, don’t be fooled. There is a story often used: If
+you put a frog in water slowly made to boil, it will not jump but die. Similarly,
+post WW II-refugee, political scientist and first female US Secretary of State
+Madeleine Albright describes the rise of fascism as plucking the chicken one
+feather by one, so it does not shriek too loudly, but is dead in the end. This is
+the strategy, and the ideology is ethnonationalist racist, heterosexist patriarchal,
+10
+
+--- Page 10 ---
+ruthless and greedy, seeking societies to be run, again, by a leader, a ‘Führer’
+now called a CEO, using effective technological control, and being profitable,
+last not least. If things go wrong, there is still Mars. What may seem like one
+of the weaker James Bond movie scripts is turned into a brutal reality. We are
+not beyond knowledge,not ‘post-factual’. There is no natural sliding into this,
+and facts do still matter, ie harm is done to people. But there is the anti-factual
+challenge,as ‘counterknowledge’ and ‘alternative truth’,and the new mark of
+power is to simply not care.
+To avoid a misunderstanding: there was no golden era of truth. We have
+no reason to romanticise the past. Truth was always contested, and there is
+no distanced neutral objectivity. The history of science is also a history of
+bias, which is what happens when you exclude women, for one. Luckily,
+critical epistemologies in gender studies, critical race and postcolonial studies
+and more allow us to uncover such biases, and understand the world much
+better. Also, postmodernism started with Jean-François Lyotard’s 1979 re-
+port on the conditions of knowledge, and did not simply denounce the
+‘grand narratives’, but demonstrated that they were not necessarily true in
+that they left out so much. But science stands for facts because it proceeds
+systematically, not anecdotally. It rests on reflexive objectivity, not prejudice.
+Here, criticism is not assault, and critical theory is not nihilism. Rather, critical
+studies shed more light on the world, in that they enlighten us in the best
+sense of the term. Similarly, Karl Popper and others insisted that we are
+always but conditionally right, and have to take contingency into account.
+The truth is relative, and knowledge is a living thing, which is why higher
+education and research are, at best, engaged in collaborative scepticism, which
+11
+
+--- Page 11 ---
+new totalitarians denounce and destroy. They attack gender studies first, and
+critical race theory, in a strategy to enlist you, in case you are a bit sceptical
+about these. A bit later, history is changed, by closing Holocaust studies,
+rearranging exhibitions and retelling a nation’s history, and even medicine is
+limited to what a health minister believes in, thus no research on vaccina-
+tion, and so forth. This is how the anti-factual totalitarians discard truth and
+facts.
+Also note that some very powerful people, organisations, companies, parties
+and governments, including presidents, have a keen interest in this loss of facts,
+of objectivity,of shared epistemic standards,of a consented upon truth.To them,
+those who object are not only wrong,but they are also not wanted,the ‘enemy’,
+as the current US Vice President called universities in 2021. These autocrats
+are ‘Merchants of Doubt’, in the, ironically named, marketplace of ideas. Al-
+though the metaphor is often used to argue for free speech, it is flawed because
+markets are not fair without regulation. The more this ‘market’ is unregulated,
+the more aggressive and ruthless deal-makers produce their own truth, as well
+as many ‘truths’ for many, to then simply not care, neither for facts nor for
+other people.Then power gets away with lies,and spreading misinformation and
+disinformation is profitable business.It works.This is the anti-factual challenge.
+And isn’t it much more comfortable to simply believe, and have somebody else
+take care of things? Isn’t it enough to feel it to be true, affirm identity, be safe in
+my community – my bubble, no trouble. No discussion, please …
+12
+
+--- Page 12 ---
+For sure, there is a paradox. There was never more knowledge, what Peter
+Burke called the ‘knowledge explosion’ in 2012. Certainly, access to knowl-
+edge is not even, but more widespread, easier and faster than ever. For a while,
+the internet was a big promise, to finally get to know it all, but search engines
+do not give you everything but sell ranks. Also, the sheer mass and plurality of
+sources makes knowledge overwhelming, and we are lost in space. In addition,
+there is more manipulation than ever, in cheating and lying and falsification,
+as fake science and fake data, very easily done, but increasingly difficult to
+expose, and online forever, thus hard to correct. There are more expert com-
+mittees, but less trust in science, and in institutions generally. There is a
+Rally-Round-the-Flag-Effect, as in the early days of the pandemic, but it
+does not last,and trust often drops to lower levels than before. Then,as well as
+facing global warming,and new versions of war,expertise becomes as needed as
+it is precarious.We have seen facts aggressively denounced and delegitimated,
+as well as manipulated and faked. So we live with more information but enjoy
+no informational socialism; there are too many and no reliable facts, so much
+expertise and less and less certainty. That puts the anti-factual challenge as the
+crisis behind the crises, because there is no way, then, any longer for politics to
+reach consensus, nothing to agree on but belief, assumptions and lies, thus no
+democracy. Now what happens to the law?
+REACTIONS IN LAW
+How does law deal with or function in the anti-factual challenge? And what is
+the role of law and its institutions in dealing with beliefs, assumptions, and lies,
+all charged with emotions?
+There are many answers to this question. Law as such has a ‘knowledge di-
+mension’, and it affects all realms of legal practice. Some knowledge enters
+regulation and some is excluded, legal knowledge is a factor in mobilising law,
+and law itself carries information and produces knowledge, for example via
+13
+
+--- Page 13 ---
+criminal law, or in the ‘code of capital’, or by ontologising sex as differ-
+ence. Finally,all application of law rests on knowledge,as ‘the facts’.Therefore,
+the more precarious the knowledge, the less functional and fair the law.
+Regulation
+Take regulation, and specifically, legislation. It may produce knowledge, but
+it is also based on knowledge, filtered by regulatory actors like politics, and
+not immune against distortion, manipulation and lies. As such, ‘information is
+the lifeblood of regulatory policy’, ranging from regulating risk technologies,
+through obligations to know what is coming and take precautionary measures
+against harm, to regulating trade or the financial market with informational
+rules. Also, civil law has been understood as a knowledge distribution scheme.
+For example, tort law not only addresses injuries and harm, but also attributes
+a responsibility to know, because the one who knows about a risk, damage, or
+fault,or should have known,is made responsible,and may eventually have to pay.
+Anyone at an informational disadvantage may not be obliged by a contract, as
+when banks exploit dependency or when patriarchal inequality informs mar-
+riage. However, in times of a post-factual challenge, it becomes ever more
+difficult to see when law is epistemologically abused, turning ideology into re-
+ality. And there is certainly more.
+14
+
+--- Page 14 ---
+Administration: knowledge governance
+The knowledge crisis also affects administration and the executive. Historically,
+the modern state developed hand in hand with it knowing its people, but
+there are so many numbers and studies now, and it is hard to tell which ones
+are correct. But clearly, the knowledge dimension matters. Again, the Covid
+pandemic is a telling example, with numbers on low and high risks of vaccines,
+low and high infections rates, low and high death tolls, some true, some false –
+who knows? The German Federal Constitutional Court has recognised that the
+state,being responsible for life and health of the people,is obliged to collect and
+organise knowledge, and if needed also incentivise expertise in government
+and sponsored by government,from specialised branches to expert committees,
+and agencies to research funding. But today, all relevant actors also have to deal
+with the anti-factual challenge.
+The judiciary
+Finally, the judiciary is affected by, and has to handle the anti-factual challenge.
+How are judges to deal with a world of beliefs,assumptions,and lies,all charged
+with emotions?
+Regarding emotions,courts are not known to host them,and law school does
+not teach how. Instead, it is a dimension of human experience often excluded,
+sometimes to the detriment of people, from the legal scene. Also, courts are
+made to undo lies,as when the perpetrator covers the crime or the tort,or when
+a witness tells anything but the truth,and we know a bit about adjudicative facts,
+but not about the general facts that are at stake politically. Certainly as well,
+courts are meant to replace assumptions with facts, as evidence and proof, to
+dispel the ‘reasonable doubt’that protects the presumption of innocence,in dubio
+pro reo. This is why criminal procedure laws require those who testify under
+15
+
+--- Page 15 ---
+oath to stick to the best of their knowledge, ‘to the pure truth’ in Germany,
+while British, Canadian, Indian, or South African law wants ‘the whole
+truth’ and nothing but that. This also matters in civil law, regarding expertise in
+claims of medical malpractice or car accidents,mould in the walls,contaminated
+soil, or a defect in a new appliance. And it matters in administrative law, which
+often refers to the ‘state of the art’ of knowledge in the relevant field. Here,
+‘justice requires just laws, of course, and just administration of those laws; but it
+also requires factual truth’.
+Courts must find out what happened. They need to get the facts right,
+at least as procedural truth, based on rules for discovery, disclosure and the use
+of expertise. Note that the German law of judges, or Deutsches Richtergesetz,
+requires a judge to swear that they will serve ‘but truth and justice’ (‘nur der
+Wahrheit und Gerechtigkeit zu dienen’). Accordingly, the Constitutional Court
+held that a judge who does not seek the truth violates the fundamental right
+to a lawful judge. Somewhat differently, English and Welsh judges pledge
+allegiance to King Charles and promise to ‘do right to all manner of people
+after the laws and usages of this realm’, and I do particularly like that they
+intend to do so ‘without fear or favour, affection or ill will’. This is also a
+commitment to stick to the facts. After all, rationality, objectivity, neutrality is
+what courts are all about. Again, to avoid misunderstandings, there is no reason
+to romanticise. Law is a human enterprise, and humans may fail. It is a site of
+power,its institutional design may be unfair,and its practice biased.But it is still
+Justitia. What must she do?
+16
+
+--- Page 16 ---
+JUDICIAL REVIEW
+Courts need to get the facts right. Specifically, when they are tasked with, and
+also engage in judicial review,which is sadly not to be taken for granted,courts
+must assess whether factual claims to justify the law in question are right,correct,
+in some way true. So what happens to judicial review, and thus to fundamental
+rights and constitutionalism, when faced with the anti-factual challenge?
+Again,imagine you are a judge,at a supreme court,a constitutional or human
+rights court. There are new files on your desk, and you find studies supporting
+both sides,to attack a statute and to defend it.They look pretty much the same,
+but present opposing data as ‘the facts’.How do you decide who is right? In the
+past, what looked scholarly was scholarly, reliable and could be used. Today,
+that is no longer so.Previously,courts consulted experts recognised in a field.But
+who is an expert today? Some are real, some fake, who knows, academic fields
+fragmented,and quality unclear.How should judges know,since after all,we are
+only lawyers? Previously, research by clerks and the judges themselves ‘found’
+the facts. Today, there is too much information, overwhelming, confusing, and
+unreliable.The paradox is not elsewhere.As an effect of the enormous quantity
+and quality and speed of changing information online, it also hits the courts.
+How then can any judge find a consented-upon truth of the matter? This is not
+only an opportunity for self-reflection for a justice in doubt. It is a broader
+concern, and reason to worry.
+The facts that matter in judicial review are sometimes called legislative
+facts, but this is too narrow a term.For now,I call them general facts, be it
+the economic situation, the climate, the pandemic, migration, inequalities etc.
+Such facts do matter on two levels: as normative updates and as justifications.
+Normative updates
+On the level of norms, general facts inform the standards to properly address
+reality,turned into doctrine,or ‘Dogmatik’,as tests,theories or levels of scrutiny.
+This is business as usual, because whoever interprets a constitution or human
+rights treaty has to make sense of very few and often older words, in order to
+17
+
+--- Page 17 ---
+deal with an everchanging complicated world. While laws may be amended,
+constitutions and international law are meant to stay, which is why courts are
+tasked to interpret the law and update our understanding of what these few
+words mean.
+Note that without the interpretative update, words lose their meaning,
+which means that people lose rights, thus human beings lose protection. This
+is what radical conservatives want. They insist on an ‘original meaning’, which
+is a plausible and tempting idea. But such ‘original meaning’ is impossible
+to find. Instead, it is a tentative, most likely biased, ideological excerpt from
+a bigger but fragmented, not fully documented story. Also, lawyers are not
+historians. But most importantly, the law loses its meaning when thrown
+back into a distant past. No smartphones yet, no technology, no social and
+cultural pluralism, much not yet understood. Thus, no meaning, and no justice.
+Therefore, most courts and judges in the world reject the originalist approach.
+Instead, constitutions and human rights treaties are treated as ‘living trees’ or
+‘instruments’. In fact, this is highly plausible. To make sense of the law today,
+the few old words need to be interpreted to be applied. If not, the job of a
+judge, the job of a court cannot be done. Therefore, the task is to, humbly,
+update the norm. This is when general facts matter, at best.
+However, there is another option out there, a legalistic one, often fetishised,
+and tempting.It is to not go empirical but idealistic.After all,lawyers are also not
+sociologists, economists, climate scientists, migration studies experts, etc. Thus,
+it seems easier to interpret the few words of constitutions and human rights
+treaties based on an idea, a theory, a concept, a guiding principle or image, or
+‘Leitbild’. A prime example is the legal subject, defined according to an image
+of a human being, or ‘Menschenbild’, and not life’s reality. Liberty is, then, the
+right of the ‘reasonable man’ to autonomy; and equality is, then, a right against
+arbitrary treatment in a world imagined of ‘all men created equal’. But rather
+obviously, this is a pretty narrow point of view, and biased. The reasonable man
+becomes the inadequate norm to judge a world inhabited by, for starters, men
+and women, and for those informed by current medical research, by people on
+a gendered spectrum. Also, persons are in fact not more nor less reasonable, but
+a fascinating mix of empathy and ego, emotions and rational thought, a physis,
+or body, and a psyche, and more. Thus, such guiding images invite assumptions
+of normality, belief, and bias, and exclude those that do not fit. Thus, to go
+idealistic is a tempting idea but not a good one.
+The better option is to go empirical,thus take general facts seriously to make
+the realities of people’s lives inform our understanding of law. In this version of
+realism, liberty is embedded in a social environment, as relational autonomy.
+Then privacy is not reduced to a space called home but also protecting ‘infor-
+18
+
+--- Page 18 ---
+mational self-determination’, and ‘the confidentiality and integrity of infor-
+mation technology systems’. Also, rights to ‘speech’, ‘the press’ or ‘broad-
+casting’ then cover the digital dimension, and a fundamental right to ‘family’
+and ‘marriage’ covers more than a heteronormative patriarchal model, just as,
+based on the current state of medical research, law then has a grip on varieties
+of ‘sex’ and ‘gender’, on body and health, beyond the physical dimension, or
+on disability, including chronic disease. These updates are needed for law to
+make sense to people. However, it has become more difficult in the face of the
+anti-factual challenge.
+Justification
+Normative change is not the only calling.General facts also matter on the level
+of applying constitutional or human rights law. General facts are decisive as
+to whether state action is legitimate and compatible with fundamental rights,
+or not, the bread and butter of constitutionalism. Again, imagine you are the
+judge:this is your job then.Whenever supreme,constitutional and human rights
+courts engage in judicial review, to consider whether the government or the
+legislator was allowed to do what they did, or if they went too far, such courts
+have to assess general facts.It is what legality is based on.But this also means that
+judicial review is a mechanism to check on the epistemological foundations of
+power.
+Often, this is a matter of separated powers and competence. Imagine a na-
+tional government claims the power to handle an emergency situation, say to
+send national troops to another country, or to a city in the nation, doing things
+usually left to other authorities,be they international or local institutions.There
+must be a reason to justify this move, thus, facts. Also, imagine a government
+asking for special permission to limit your rights, like claiming a state of ex-
+ception, the infamous ‘Ausnahmezustand’, or declaring war. There must be a
+reason to do so, no fake news, no manipulated information, but facts. You
+remember Iraq?
+Similarly, facts are a matter of fundamental rights. When courts are called
+upon to decide whether rights are violated,they need to know why something
+was done, what it does to people, whether there are less intrusive alternatives,
+and whether everything that matters was properly balanced. Interferences with
+fundamental rights must be proportional, in short. Thus, facts matter. Tasked
+with judicial review, it is the job of supreme, constitutional and human rights
+19
+
+--- Page 19 ---
+courts to check whether a majority in power does things with a reason, thus
+a proper assessment of facts. But in all these cases, judges face the anti-factual
+challenge.
+An assessment of facts often means that courts test for irrationality,as in Lord
+Diplock’s basic account of judicial review, which intensifies when courts as-
+sess proportionality, because it is all about facts: the fit between the measure
+and the goal, the necessity of the intrusion and its alternatives, the overall ap-
+propriateness or reasonableness of what has been done, taking into account the
+effects on those affected. Certainly, there are exceptionally difficult situations,
+like the German unification when a court in the West had to quickly under-
+stand the realities in East Germany. But it is always difficult. Therefore, there
+is a need for what one may call a ‘doctrine of constitutional epistemology’,to set
+the standards of review in relation to the nature of facts.Think of a government
+going to war.Think of the climate crisis,Covid or other pandemics like bird flu,
+think of Brexit or think of the debate on gender. All of these are not questions
+of morals or everyday norms or ideology, but of facts. Think of migration, too.
+These are not just controversial issues, but deep in muddy waters. Populist
+narratives overshadow legal analysis. There is not just disagreement, but also
+disinformation,misinformation,lies or at least counter-narratives,and counter-
+data, all not coincidental, but funded and organised, the public polarised, even
+families deeply divided, scientific communities falling apart, just like social
+movements, civil society. Last not least, courts are then portrayed as taking sides
+in ‘truth’ disputes, depending on what they say, called ‘elitist’, ‘not neutral’, part
+of the ‘system’, deserving no trust, no respect, or praised as being ‘on the right
+side’. Sometimes, judges are denounced as ‘enemies of the people’, or for
+simply getting it wrong, or as ideological, not legal, activists, while those on
+20
+
+--- Page 20 ---
+the other side are celebrated as ‘heroes’. And today, these are not just political
+comments but also epistemological challenges.
+Today,criticism and more and more attacks on courts are framed in epistemic
+rather than outright ideological or social terms. What happens when the judi-
+ciary is labelled to be, simply, ‘not from this world’? Why would anyone trust
+such a court,accept and follow a ruling,observe the standards? The more courts
+rely on a notion of independent epistemic neutrality, the less they matter when
+truth becomes irrelevant. Today, dismissive comments on courts and disregard
+of court rulings are also elements of anti-factual politics. When knowledge,
+expertise and truth go down the drain, courts and the rule of law are fast to
+follow.
+What are we to do about this? What can we expect, what should be done,
+how can we help,as lawyers and as academics,to solve this problem? There will
+be many answers, and hopefully a lot of research. I offer only two. The need to
+revisit the role of courts tasked with judicial review, and to make sure that legal
+education prepares future lawyers and judges and societies to deal with these
+new callings.
+Role of courts
+Courts are interpreters of law. But what about the facts? What is the epistemo-
+logical role of courts regarding knowledge, expertise, the truth?
+Some see courts as ‘arbiters of truth’. At least in adversarial systems, some
+call them referees.But constitutional justice is no soccer game.Others count on
+courts as last bastions for reasoned justification of public matters in the public
+sphere. ChatGPT told me that courts are ‘stewards of truth-based governance’.
+As such, they demand transparency, rationality and accountability from state
+actors, ie when government needs to inform and not lie to parliament, then,
+constitutional and supreme courts become guardians of epistemic integrity, in
+their request for reasons and in assessing them.In order not to turn into political
+actors themselves, courts need to exercise institutional wisdom, thus not to
+second-guess reality but kick the responsibility to know back into the field of
+politics.
+For courts to be a passive guardian is thus not enough.Confronting the anti-
+factual challenge,courts must reject disinformation and uncover lies.Therefore,
+I suggest thinking of courts not just as arbiters, but also, as Edith Beerdsen sug-
+21
+
+--- Page 21 ---
+gested, as facilitators of a discursive truth, including the task of exposing
+lies, and communicating what may be accepted as fact, and why. Again, judges
+do not know it all. But to decide a case also means to curate expertise, and the
+calling now is to expose what to accept as facts and why, and what must be re-
+jected.Facilitators,curators and communicators,in a scheme of epistemological
+separation of power, become core functions of the judiciary today.
+Consider examples.The British prorogation case may serve as one.Certainly,
+the ruling of the UK Supreme Court in R (on the application of Miller) v The Prime
+Minister, Cherry and others v Advocate General for Scotland (known as Miller II)
+has many dimensions. However, it may also be read as countering deception
+and misleading pretence.The government claimed the prorogation was routine,
+but other information and timing raised doubts, and the legal decision also
+addressed an ideological fight.Did the ruling undo that,at least to some degree?
+Later, attacks on judges are typical anti-factual moves discrediting institutions,
+as is the reduction of the ruling to binary populist frames. Should courts say
+more to counter that? Should academics criticise if they wish, but also explain,
+in order to clarify the epistemological stakes?
+Another example may be the German climate ruling. The files landed on
+my desk in 2021.It is now considered a landmark decision because it introduced
+a temporal dimension of liberty, the ‘intertemporal guarantee of freedom’. The
+plaintiffs were rice farmers in Nepal and Bangladesh, and children in Germany,
+among them the heirs to a North Sea farmstead shrinking with the sea level
+rising.The question was simple: Did lawmakers do enough to prevent harm? As
+usual, the answer depends upon the accurate assessment of general facts. What
+about the climate? What are the adverse effects of carbon emissions, where,
+when,and for whom? What can be done about it? In such a case,all dimensions
+of climate studies matter, and all of them are under attack in anti-factual times.
+For some, it is natural science and hard data; for others, it is a conspiracy or
+22
+
+--- Page 22 ---
+simply all wrong. What, then, is the role of the court? In 2021, the German
+Constitutional Court felt the need to spend quite a few pages on expertise,
+thus facts, to explain why international sources are reliable, based on extensive
+peer-review. Here, courts do engage in what may be seen as curating truth. It
+has never been more important.
+The Covid pandemic may serve as another example, with additional di-
+mensions. Like many other courts, the German Federal Constitutional Court
+received hundreds of complaints. All were reviewed, most have been decided
+in chambers of three judges, some major cases went to the full Senate of
+eight, like the cases on contact restrictions, school closures, mandatory
+vaccination for healthcare workers, and disabled persons facing emergency
+triage in hospitals. Clearly, there was a viral infection; many people were
+falling ill and many died in Bergamo, New York, and German care homes.
+But even in the face of death, the anti-factual challenge was louder than ever.
+In the files, there were data, studies, articles, books, from professional and
+academic associations, on both sides. What and who should we believe? In
+such controversies, everything seems contested and is emotionally charged,
+discussions polarised and polarising, including horror stories of a ‘deep state’,
+collaborating with science. To complicate things, legal reactions to a pandemic
+must also not only be based on facts, but require risk assessment, and thus
+prognosis. Also, time matters, in that courts may have to decide quickly, either
+required by rules of procedure, as in Colombia, or in emergency decisions.
+Based on what? It is then a good idea for a court to invite experts and make
+sure they are as diverse as possible, and the German court decided to also
+invite so-called experts ‘against vaccination’, in fact a populist group. This
+opens the space to expose such expertise as fake, and burdens a court with
+the task to clearly communicate that message. In addition, there is doctrine
+to rely on, which is why the Covid emergency measure rulings emphasise
+the government’s margin of appreciation on all levels of proportionality, and
+insist on the state’s responsibility to install reliable producers and collectors of
+scientific knowledge. It is for others to say whether the courts do enough
+to facilitate and communicate the facts. But it shows that there is work to do.
+Another example is migration.We all know that people move across borders,
+which also means migration to Europe, and to Britain. But why people move,
+23
+
+--- Page 23 ---
+how and where to is far from clear. To the contrary, migration is extremely
+controversial and,again,emotionally charged,polarising and polarised,rife with
+disinformation and misinformation, manipulated stories and lies. This is also
+no coincidence, because the new totalitarians use migration to trigger hate
+and destabilise democracies. What then is the role of courts? Again, idealism is
+tempting,and there is a tradition in migration law to rely on assumptions,ideals
+and ideas, namely ‘the refugee’ (what is the image in your head?), or ‘national
+identity’and ‘the people’,or in German,the ‘Volk’. The effect is exclusion,as
+injustice. Instead, courts should clarify what really matters, and rely on general
+facts.
+Finally, in a ruling on sanctions in social security law, the German Court ap-
+plied a sliding scheme of epistemological obligations, depending on the weight
+of the intrusion on fundamental rights, and even highlighted the obligation to
+rely on plausible findings in the headnotes. Overall,facts may be more or less
+prognostic in character,based on different sources of information,with more or
+less effort made by the state to keep them up to date. Note that academic ex-
+pertise regarding all these topics, be it climate, Covid, gender, migration, or the
+welfare state,are targeted by the new totalitarians,denounced and dismissed for
+a reason, to run things without limits or control. Therefore, courts are needed,
+as facilitators,curators and communicators of facts,to counter these threats,not
+least, to democracy and justice.
+Now some may object: If we assign this role to facilitate, curate, expose and
+communicate facts to courts to counter the anti-factual challenge – doesn’t it
+again intensify judicial review, for what is often called ‘activist’ jurisprudence
+charged with depoliticising effects, an additional reason to reject (new) con-
+stitutionalism? Is judicial review then, finally, a ‘threat to democracy’? And
+should courts defer in epistemological matters as well?
+I think it is not, and courts should not and cannot reasonably defer in such
+matters. Here too, the call for deference is often a key element in attempts to
+‘reform’ but in fact undo the rule of law. The concern seems plausible, but it
+throws the baby out with the bathwater.
+Certainly,courts must not and cannot replace politics.They are reactive insti-
+tutions, equipped only with words, and democracy means, and requires, room
+for politics, which courts are called upon not to replace but to protect. The
+‘expertise obstacle’ in fact delineates judicial scrutiny, and ‘even if courts have
+the legitimacy to review crisis measures, the expertise obstacle refrains them
+24
+
+--- Page 24 ---
+from using that room’. But room for politics is not an unlimited space for
+the anti-factual totalitarian crusade, if it is still a democracy. As long as democ-
+racy deserves the label, courts must therefore, and do in fact, leave room for
+politics in that they defer.But deference is not a general habit or an attitude but
+an elaborate and very nuanced doctrine. It takes the separation and interde-
+pendency of powers seriously, their respective institutional design, their relative
+institutional competencies, in relation to what is at stake. This results in various
+degrees of leeway for parliament and,formally or de facto,government,and for
+the administration. But it is no carte blanche.
+Think of security matters,the secret service,diplomacy and international re-
+lations,military strategy and war.Certainly,there is leeway,and there are margins
+of appreciation.But no carte blanche.Government or politicians have no man-
+date to lie, mislead, or manipulate. However, facing the anti-factual challenge,
+there is a need to reconsider the scope and intensity of review. For a long time,
+human rights courts as well as constitutional courts gave governments the ben-
+efit of the doubt. But with new totalitarians on the rise dressing as democrats,
+with democrats copying their populism, with fake facts all over the place, poli-
+cies cannot be taken at face value, but courts need to check. There is no longer
+reason to accept what governments tell courts. Again, and in many countries,
+governments called it ‘reforming the courts’ when they destroyed or captured
+these institutions; Russia says ‘military operation’ to cover a brutal war, and
+there is more.Thus,we have no reason to simply believe what governments say.
+Courts must check what are presented as facts. In doing so, the role of courts is
+not only to ‘find’ the facts, but also to expose what is fake.
+As usual,sweeping critique is not helpful,details matter to inform degrees of
+deference. Because of the counter-majoritarian difficulty, in that courts are not
+to second guess the complicated balancing of politics, acts of parliament shall
+not be easily crushed. In addition, the executive may be the institution well
+prepared to collect and assess expertise. But the role of courts is to check on
+them,as is widely accepted in administrative law, using plausibility,procedural
+or substantive review of general facts in order to do so.Again,this needs to
+25
+
+--- Page 25 ---
+be communicated carefully. Court decisions are still about the law, but today
+they are also epistemological interventions to counter the populist campaigns
+and new totalitarians.
+Legal education
+Are judges fit to do that? What do judges know about facts and truth,and about
+fake facts and manipulation? What should they know? Here, legal education
+matters. If ever you needed an argument: The knowledge crisis is why law
+schools are,at best,not just training camps for lawyers,but engage in legal studies
+beyond, but not without, doctrine, and are interdisciplinary as well. Facing the
+anti-factual challenge, legal education has to make sure that future lawyers and
+judges, are up to these new callings. We need to know more about judicial
+heuristics, and we need to train people to properly deal with general facts.
+When truth is precarious, when facts are confusing, when data may be fake
+and knowledge is manipulated, all intensified by artificial intelligence (AI) –
+to apply the law and to judge means to navigate through this sea. In court,
+knowledge must be,as Nicola Lacey called it,coordinated. We must not only
+take rights,but we must take facts seriously,to quote Twining. Future lawyers
+should learn how to facilitate, navigate, expose and communicate what can be
+accepted as facts, and what must be rejected as flawed, false, misleading.
+As far as I know, knowledge, or truth, is not yet a regular course in legal
+education.There are classes on evidence,but they are not concerned with gen-
+eral facts that matter to democracy. Here, socio-legal studies help, including
+the critical approaches developed in gender studies, queer studies, critical race
+studies and more, as well as criminology beyond forensic studies. If trained
+more broadly, judges would understand that biological essentialism is on the
+rise again, and why this happens, and that it hurts people. They would be able
+to identify established expertise, and refuse scandalising anecdotes on safety in
+‘real women’s spaces’,and the reduction of a multifaceted experience to a binary
+choice of either trans or women’s rights, a false ideological juxtaposition. Simi-
+larly,judges would be able to navigate what we know about migration,uncover
+26
+
+--- Page 26 ---
+assumptions as bias, expose lies, and communicate what we need to know to
+design policies not violating human rights. The same is needed to judge claims
+around climate change, or security measures, or social rights. Lawyers need to
+be epistemologically fit. It is only then that supreme, constitutional and human
+rights courts can properly do their job, to fight the anti-factual challenge.
+WHAT TO DO
+The anti-factual challenge threatens democracy,and the rule of law.It is a com-
+ponent of new totalitarian strategies that hurt people.As much as legitimacy in
+law and democracy depend on communicative reason, as a consensus on truth,
+it is a prime target,next to academic and research institutions,or quality media.
+The latter in fact need the former to fight back. Which is what we all need to
+do.
+The young Iranian, Noureen Akhtar, in pondering the question of what is
+Justice in a Post-Truth World, described Justitia as no longer being the blind-
+folded figure standing fiercely over a pair of scales.Rather,Justice is now trying
+to see through the digital smog of deceptions masked as facts and noise mas-
+querading as knowledge.She says:‘Legal systems,too,are vulnerable.It was once
+the courts anchored in practice and precedent, but now it is courts having to
+deal with deep fakes, viral disinformation, and populist pressure’. But she also
+added that ‘Justice is not dead; it is growing as a way, changing as life does’.
+Therefore, ‘the world of post-truth calls for a more explicit and reflexive kind
+of justice.’ It must ‘once again become a mode of listening, of bearing witness,
+of reconstructing trust brick by fragile brick.’ Trust matters, not blind,but
+curated, and cared for. Therefore, Noureen Akhtar said, we must ‘insist on the
+possibility of understanding, and to affirm the dignity of truth in the face of its
+erasure.’ ‘For even when truth is obscured, its pursuit remains the most radical
+gesture of hope.’
+27

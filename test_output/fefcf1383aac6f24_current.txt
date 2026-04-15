@@ -1,0 +1,1675 @@
+
+--- Page 1 ---
+Navigating biosafety regulatory
+frameworks for genetic
+engineering in Africa: a focus on
+genome editing and gene drive
+technologies
+Tilahun Rabuma *, Felix Moronta-Barrios and Wendy Craig *
+Genome editing and gene drive technologies are increasingly gaining attraction
+in Africa, with researchers exploring their potential applications in agriculture,
+health and the environment. Acknowledging that robust regulatory frameworks
+are crucial in facilitating the development and utilization of these technologies,
+informed decision-making is, however, being impeded by the fragmented
+information availability and readiness of regulatory authorities on the continent.
+Objectives: This study investigates the regulatory frameworks governing genome
+editing and gene drive technologies in African countries, identiﬁes common
+regulatory challenges and proposes actionable solutions.
+Methods:
+Primary
+data
+were
+collected
+through
+questionnaires
+and
+complemented
+by
+analysing
+existing
+biosafety
+regulations
+from
+online
+databases and scientiﬁc literature.
+Results: Our ﬁndings suggest that while a few African countries have recently
+updated their regulatory frameworks, many are still under discussion. Challenges
+to development and implementation include limited resources, expertise,
+awareness, and public resistance.
+Conclusion: The ﬁndings underscore the urgent need for further development in
+regulatory capacities. By shedding light on these challenges, our study could
+provide African regulators with valuable insights to guide the formulation of
+effective regulatory frameworks. Such frameworks are essential for harnessing
+the potential of genome editing and gene drive technologies while safeguarding
+human health and the environment in Africa.
+biosafety
+regulations,
+emerging
+biotechnologies,
+regulatory
+frameworks,
+Africa,
+genome editing, gene drive
+1 Introduction
+Genome editing is the ability to make precise changes to DNA sequences within
+organisms using engineered nuclease enzymes to cut and replace existing DNA segments
+(Fridovich-Keil, 2024). Among the numerous genome-editing methods now available,
+CRISPR/Cas-based genome editing stands out as the most convenient, efﬁcient, precise and
+
+--- Page 2 ---
+the
+UK
+follow
+simpliﬁed
+GMO
+regulations.
+The
+EU,
+New Zealand and South Africa, however, regulate genome-edited
+products as GMOs, and in many countries, proper regulations or
+discussions are still lacking (Friedrichs et al., 2019; Schmidt et al.,
+2020; Vora et al., 2023).
+Although
+regulatory
+frameworks
+for
+GMOs
+have
+been
+established in many African countries following their adoption of
+the Cartagena Protocol on Biosafety (Akinbo et al., 2021; Quemada,
+2022), several countries are still working to effectively manage
+modern
+biotechnology
+and
+implement
+national
+biosafety
+frameworks for GMOs (Komen et al., 2020). Furthermore, most
+African countries do not have adequate regulatory frameworks
+speciﬁcally tailored to regulate genome editing and gene drive
+technologies regulatory oversight (Masehela and Barros, 2023). A
+well-established GMO regulatory framework can be a logical
+departure point when contemplating genome-editing governance
+(Abkallo et al., 2024). In this regard, efforts have been made to
+incorporate genome editing products into the existing GMO
+biosafety regulatory frameworks on a case-by-case basis; however,
+concerns remain about the overly restrictive nature of regulations
+concerning the introduction and development of genome editing
+and gene drive products in Africa (Ongu et al., 2023). Additionally,
+existing laboratory biosafety and biosecurity review processes may
+not effectively address the unique challenges posed by gene drive
+research and its components (Millett et al., 2022). Uncertainties such
+as limited access to laboratories, equipment and reagents, a shortage
+of trained professionals for molecular biology work, and a low rate of
+returnees among the trained professionals working internationally
+have signiﬁcantly negatively impacted genome editing research and
+development in Africa (Abkallo et al., 2024), which, in turn, has also
+affected the development of regulatory frameworks for genome
+editing and gene drive technologies.
+Concerns also arise regarding the potential dispersion and
+persistence of gene drive transgenes beyond the release area,
+posing
+challenges
+to
+their
+regulation
+under
+existing
+GMO
+regulatory frameworks (Gene Drives on the Horizon, 2016;
+Programme, 2021). Furthermore, the lack of mitigation and
+traceability strategies (Noble et al., 2018), together with limited
+experience in risk assessment, exacerbates regulatory uncertainties
+(AGBC, 2022). Responsible ﬁeld-based gene drive research also
+raises
+signiﬁcant
+concerns
+(Thizy
+et
+al.,
+2020),
+further
+complicating regulatory efforts. As a result, the regulatory status
+of genome editing and gene drive technologies in Africa remains
+uncertain, raising questions about the adequacy of existing
+frameworks
+and
+the
+need
+for
+new
+or
+updated
+regulatory
+frameworks (Asquer and Morrison, 2022). However, a few
+African countries have initiated efforts to incorporate genome
+editing products into their biosafety regulatory frameworks, such
+as Nigeria and Kenya (Boluwade and Smith, 2021; Tripathi et al.,
+2022), while other African countries like Burkina Faso, Mali and
+Uganda plan to start ﬁeld trials of gene drive mosquitoes within the
+next 5–10 years (Hartley et al., 2021).
+Given these challenges, an African Union policy consultation
+advocates for a more enabling and science-based regulatory
+approach in order to leverage genome editing and gene drive
+technologies (Komen et al., 2020). Dolezel et al. (2020) suggested
+a need for a comprehensive examination of current GMO regulatory
+frameworks to determine their suitability for addressing the
+widely used genome editing tool (Knott and Doudna, 2018; Li et al.,
+2022; Matsumoto and Nomura, 2023). Furthermore, CRISPR/Cas-
+based gene drive systems enable the manipulation of self-
+propagating genetic elements, which are passed on to offspring at
+frequencies surpassing Mendelian inheritance (Bier, 2022). Thus,
+gene drives bias inheritance patterns by increasing their prevalence
+in successive generations (Alphey et al., 2020).
+In Africa, genome editing and gene drive technologies hold
+promise for addressing pressing challenges in agriculture, health
+and the environment. For instance, the increasing food demand,
+exacerbated by factors such as climate change, diseases, and limited
+access to fertilizers and agrochemicals, necessitates innovative
+solutions. Genome editing technology is another approach that
+offers avenues to enhance agricultural productivity by, for instance,
+developing drought tolerance (Osakabe et al., 2016; Sami et al., 2021;
+Shelake et al., 2022), disease resistance (Karmakar et al., 2022), salt
+tolerance (Saradadevi et al., 2021; Shelake et al., 2022), and nutritional
+improvement (Ku and Ha, 2020; Nagamine and Ezura, 2022).
+Likewise, the escalating prevalence of insect-borne diseases like
+malaria in tropical and subtropical regions of Africa underscores the
+urgency of novel public health interventions. Despite various control
+strategies, African countries continue to grapple with the highest
+malaria burden globally (Ombogo, 2023). In pursuit of the ambitious
+goal of malaria elimination by 2030, the World Health Organization
+(WHO) has prioritized gene drive mosquitoes as a transformative
+technology (Wamba, 2023), which represents a promising new tool
+for the elimination of malaria and other mosquito-borne diseases
+(North et al., 2020; Metchanun et al., 2022).
+Researchers are increasingly drawn to gene drive technologies
+due to their potential as highly effective, cost-efﬁcient, and enduring
+solutions (Bier, 2022; James et al., 2018; James et al., 2023). However,
+the adoption of genome editing and gene drive technologies highly
+depends on government regulation in each country (Jenkins et al.,
+2021). Such regulation plays a crucial role in determining whether
+approval is necessary and thus given for the development and
+commercialization
+of
+these
+products
+(Entine
+et
+al.,
+2021).
+Moreover, regulatory frameworks serve to safeguard human
+health and the environment while fostering public trust and legal
+certainty for research institutions and industries (Zawedde et al.,
+2018; DiversityS. O. T. C. O. B., 2000).
+The global regulatory landscape for genome-edited products is
+evolving rapidly (Tripathi et al., 2022). While some countries have
+swiftly adapted legislation or regulatory frameworks to support
+genome editing, others remain in the policy formulation stages
+(Jenkins et al., 2021), and some still classify these products as
+Genetically
+Modiﬁed
+Organisms
+(GMOs)
+(Hundleby
+and
+Harwood, 2022). Whether genome-edited products are exempt
+from GMO regulations often depends on the speciﬁc genome-
+editing techniques
+used.
+For instance, certain
+gene editing
+methods, such as site-directed nucleases (SDNs), including SDN-
+1, which induces gene disruptions through insertions or deletions,
+and SDN-2, which uses homologous templates for gene correction
+or modiﬁcation, are fully exempted in some countries (Wolt et al.,
+2015). In contrast, SDN-3, which involves inserting larger DNA
+elements or foreign genes, is typically treated as a GMO (Vora et al.,
+2023). Countries like Argentina, Australia, Brazil, Chile, India,
+Kenya, Nigeria, Paraguay, Russia, and the USA have exempted
+genome-edited plants from GMO regulations, while China and
+
+--- Page 3 ---
+different developmental stages. For example, some African
+countries may have authorized only research and development
+(R&D) and conﬁned ﬁeld trials (CFTS) activities, as exhibited in
+DRC, Tunisia and Uganda, while others may have authorized GM
+crops, including the importation and cultivation for feed and
+food applications (Table 1). Notably, Eswatini, Kenya and Nigeria
+have authorized genetic engineering applications at nearly all
+developmental stages. In contrast, countries such as Ethiopia,
+Ghana, Mozambique, Uganda and Zambia have limited their
+authorization to laboratory research and conﬁned ﬁeld trials.
+While in countries such as Benin, Côte d’Ivoire, DRC, Gambia,
+Mali,
+Nambia,
+Senegal,
+Togo,
+Tunisia
+and
+Zimbabwe,
+authorizations for genetic engineering applications at various
+stages of development are still lagging compared to other
+African countries.
+potential risks and challenges posed by gene drive applications. A
+comprehensive analysis is required to shed light on the existing
+regulatory frameworks that govern these technologies in African
+countries. The aim of our study was, therefore, to analyze the status
+of regulatory frameworks for genome editing and gene drive
+technologies
+and
+identify
+gaps
+in
+their
+development
+and
+implementation in African nations. To this end, the regulatory
+approaches of various African countries were compared and
+contrasted, common trends and differences were identiﬁed, the
+adaptability of the current regulatory frameworks to emerging
+technologies was assessed and recommendations for improving
+biosafety regulations in African countries were formulated.
+This serves as a comprehensive update on the current status and
+challenges facing biosafety regulatory frameworks in African
+countries concerning genome-edited and gene drive technologies,
+contributing to the advancement of these technologies on the
+continent.
+This
+information
+can
+equip
+African
+regulators,
+policymakers and researchers with valuable insights into the
+establishment
+of
+robust
+regulatory
+frameworks
+for
+genome
+editing and gene drive products.
+3.2 Status of regulatory framework for
+genome editing and gene drive technologies
+in Africa
+2 Methodology
+This exploratory study adopted a qualitative approach to
+investigate the regulatory environment for genome editing and
+gene drive technologies in Africa. A survey was designed with ﬁve
+distinct sections, combining both closed-ended and open-ended
+questions, thereby allowing for in-depth insights into the aspects
+of biosafety regulations. The survey was deployed between 22 July
+and 07 August 2023. The initial section gathered demographic
+information and general insights. Subsequently, the survey
+enquired into core aspects, including the status of biosafety
+regulatory frameworks for genome editing and gene drive
+technologies, international collaborations and harmonization
+efforts, identiﬁed gaps and challenges in existing regulations
+and
+explored
+public
+perceptions
+along
+with
+ethical
+considerations.
+The
+survey
+targeted
+Cartagena
+Protocol
+national focal points and national competent authorities across
+54 African countries, aiming to discern the presence and
+effectiveness of regulatory frameworks. Additionally, data on
+national biosafety regulatory status was cross-veriﬁed through
+the database of Biosafety Clearing-House (BCH) and the one
+curated by the African Biosafety Network of Expertise (ABNE).
+To enhance the comprehensiveness of our ﬁndings, a literature
+search was conducted to supplement and triangulate the
+information gathered from the questionnaire and databases,
+ensuring a robust and multifaceted analysis of the regulatory
+landscape in Africa.
+3 Results
+3.1 The authorization for genetic
+engineering applications in agriculture
+According to survey respondents, Benin, Eswatini, Kenya,
+Nigeria
+and
+Uganda
+have
+established
+suitable
+regulatory
+frameworks
+to
+regulate
+genome
+editing
+and
+gene
+drive
+technologies
+and
+their
+products.
+In
+Benin,
+Eswatini
+and
+Uganda, existing
+biosafety
+regulations can be applied
+to
+regulate genome-edited and gene drive products. Kenya and
+Nigeria have implemented speciﬁc regulations tailored to
+oversee these technologies. In this sense, Nigeria has amended
+existing biosafety regulations to encompass genome editing
+products within governmental safety review and approval
+procedures. Kenya has also developed a new genome editing-
+speciﬁc regulatory framework that oversees technology use
+within the safety review and requisite governmental approval.
+For gene drive technology, the Kenyan respondents replied that
+existing biosafety regulations would be applied. Survey results
+further highlight that Eswatini, Nigeria and Uganda adopt a
+process-based
+approach
+to
+regulating
+these
+technologies,
+while Benin and Kenya employ a product-based approach to
+regulating genome editing technology (Table 2). In Zambia, on
+the other hand, the approach to regulation remains under
+development.
+Regarding genome editing techniques, responses from Benin,
+Kenya, Nigeria and Uganda indicate that those techniques
+incorporating
+site-directed
+nucleases-3
+(SDN-3)
+fall
+under
+regulatory
+oversight,
+while
+those
+utilising
+site-directed
+nucleases-1 (SDN-1), site-directed nucleases 2 (SDN-2) and
+Oligonucleotide-directed
+mutagenesis
+(ODM)
+are
+exempted
+from existing regulation oversight on a case-by-case basis
+(Table 2; Figure 1). Additionally, respondents from Eswatini
+indicated that SDN-1, SDN-2 and SDN-3(with cis-insert) are
+exempted from GMO regulations on a case-by-case approach,
+while SDN-3 (with trans-insert) are regulated under existing GMO
+regulations. Similarly, in Zambia, in which the regulatory
+framework is under development, SDN-2 and SDN-3 categories
+are expected to fall under existing regulations, while SDN-1 and
+ODM will be deregulated from GMO regulation on a case-by-
+case basis.
+The survey ﬁndings reveal varying degrees of authorization
+for genetic engineering applications across African countries at
+
+--- Page 4 ---
+Countries
+R&D
+CFT
+Open-ﬁeld trial
+Pre-market authorization
+Importation
+Cultivation
+Feed
+Food
+Feed
+Food
+3.3 Challenges
+or scepticism exist as gaps in the implementation of the national legal
+framework for genome editing and gene drive technologies, the issues
+are so dynamic and difﬁcult to address, suggesting the need for a
+holistic, comprehensive approach to implementing the framework.
+3.3.1 Identiﬁed gaps in the implementation of
+regulatory frameworks
+Respondents
+highlighted
+signiﬁcant
+challenges
+in
+the
+implementation of national biosafety regulations for genome
+editing and gene drives across most African countries. Top among
+these challenges are limited resources and expertise, coupled with a
+lack of awareness or understanding of the technologies (Figure 2A).
+Additionally, the implementation of these regulations faces hurdles in
+certain countries due to public resistance or scepticism. Notably,
+respondents from The Gambia and the Democratic Republic of
+Congo (DRC) indicated gaps in their regulatory framework, with
+the DRC notably lacking a biosafety law for these technologies. The
+response from Benin underscores that although lack of awareness or
+understanding, limited resources and expertise, and public resistance
+3.3.2 The major challenges in harmonizing
+biosafety regulatory framework in
+African countries
+The survey ﬁndings indicate signiﬁcant obstacles to aligning the
+biosafety regulatory framework for genome editing and gene drive
+technology at a regional or international level in African countries.
+Foremost among these harmonization challenges is the lack of
+coordination
+and
+information
+sharing
+between
+regulatory
+authorities. Additionally, differing concerns about technology
+transfer and intellectual property rights, as well as variations in
+regulatory frameworks and deﬁnitions among African countries,
+
+--- Page 5 ---
+Regulatory
+approach
+triggering
+regulations
+•
+•
+Types of genome editing technique
+Regulatory
+framework
+developed and
+applied
+Year of approval and
+publication of biosafety
+regulatory framework
+SDN-1
+SDN-2
+SDN-3
+ODM
+•
+•
+African
+countries
+Does the country have
+an approved and
+published regulatory
+framework?
+
+--- Page 6 ---
+pose considerable hurdles. Aligning diverse cultural, social and
+ethical
+perspectives
+also
+presents
+challenges.
+However,
+respondents identiﬁed this as the least signiﬁcant barrier to
+harmonizing the biosafety regulatory frameworks (Figure 2B).
+Thus, unharmonized regulatory frameworks could potentially
+hinder the application of genome editing and gene derive
+technologies and future international trade.
+crucial actions necessary for the development and enhancement of
+biosafety regulatory frameworks for genome editing and gene drive
+technologies and products (Figure 2C). Foremost among these actions
+is the investment in training programmes and workshops aimed at
+regulators and stakeholders. Furthermore, the analysis identiﬁed pivotal
+actions such as the establishment of partnerships with academic
+institutions for research and capacity building, along with increasing
+knowledge-sharing with international organizations and experts.
+Additionally, strengthening collaboration among African countries
+and the development of speciﬁc, standardized risk assessment
+methodologies for genome editing and gene drive was indicated as
+an additional crucial action.
+3.3.3 Strengthening regulatory frameworks for
+genome editing and gene drive technologies
+This
+investigation,
+drawing
+input
+from
+African
+biosafety
+authorities, experts, scientists and civil society, underscores several
+
+--- Page 7 ---
+regarding
+genome
+editing
+and
+gene
+drive
+technologies
+(Figure 3B). Additionally, ensuring accessible information about
+these technologies and proactive stakeholder engagement and
+transparency in the decision-making process are seen as essential
+for improving public perception.
+3.4 Prospective toward developing/drafting
+the biosafety regulatory framework in
+African countries
+3.3.4 Public perception, resistance and
+ethical issues
+Responses from nine countries, including Benin, the DRC,
+Ethiopia, Kenya, Mozambique, Nigeria, Tunisia, Uganda, and
+Zambia, underline signiﬁcant public resistance and controversies
+surrounding genome editing and gene drive technologies and
+products. The reasons cited for this opposition relate to the early
+stage of development of these technologies and public concerns
+regarding potential harm to human health and the environment
+(Table 3). Moreover, respondents from ﬁve countries indicated
+concerns about the potential for unintended consequences or
+misuse of these technologies. Social media activism emerged as a
+key driver of resistance and controversies against these technologies.
+Notably, respondents from Eswatini reported no controversy or
+public opposition to genome editing or gene drive, while in Nigeria,
+although controversies exist, there is no apparent public resistance
+raised through social media activism to prevent activities with the
+technologies.
+The current ﬁndings highlight the growing interest among
+several African countries in developing and implementing
+regulatory frameworks to regulate the use of genome editing
+and gene drive technologies (Table 4). This includes the
+formulation of regulatory frameworks aimed at ensuring the
+safe and ethical use of these technologies within respective
+national contexts. In countries like the DRC, Eswatini, Ethiopia,
+Mozambique and Uganda, discussions and drafting efforts are
+underway to establish modern biosafety regulatory regimes. These
+countries recognize the need for a regulatory system tailored to
+address the speciﬁc challenges and opportunities presented by
+these technologies.
+3.5 Literature search
+3.3.5 Improving public perception and attitude
+Survey responses indicate that public perception can be
+improved by involving the public more in the decision-making
+process regarding the release of genome-edited and gene drive
+products
+(Figure
+3A).
+Furthermore,
+providing
+unbiased
+information and easily understandable information about these
+technologies to non-specialists is seen as crucial for improving
+public
+perception.
+Only
+a
+few
+countries
+mentioned
+the
+importance of identifying and deﬁning ethical issues, increasing
+public conﬁdence in the regulatory systems, and requiring informed
+consent from recipient communities to support the improvement of
+public perceptions and attitudes towards genome editing and gene
+drive technologies.
+3.5.1 Status approval of genetic engineering
+applications
+The
+scientiﬁc
+literature
+provides
+insights
+into
+the
+heterogeneous landscape of
+approval processes for genetic
+engineering applications across African countries. While some
+nations have established regulatory frameworks for authorizing
+GMOs, including for research and development, CFTs, open ﬁeld
+trials activities, and importing for the direct use of GM products,
+others
+are
+still
+in
+the
+developmental
+stages
+of
+such
+frameworks (Table 5).
+3.3.6 Ensuring public engagement and
+transparency
+This
+investigation
+highlights
+the
+importance
+of
+public
+consultation
+and
+hearings
+in
+the
+decision-making
+process
+
+--- Page 8 ---
+Countries
+Justiﬁcation for controversies
+No
+controversies
+about
+technologies
+Is public
+resistance
+raised against
+Genome
+editing and
+Gene drive?
+Technologies have
+the potential to
+cause unwanted
+consequences
+and/or abuse
+Ways of
+Triggering
+Public
+Resistance
+Technologies are
+early in their
+development, and
+thus not enough is
+known about
+them
+Public
+believes
+that
+products
+are bad for
+health
+4 Discussion
+In
+light
+of
+the
+diverse
+regulatory
+landscapes,
+approval processes and approaches toward genome editing
+and
+gene
+drive,
+the
+discussion
+section
+explores
+the
+implications and broader signiﬁcance of these ﬁndings. By
+synthesizing
+the
+results
+of
+the
+literature
+search
+and
+survey analyses, this section aims to elucidate key insights,
+identify
+challenges,
+and
+propose
+avenues
+for
+future
+research
+and
+policy
+development
+concerning
+genetic
+engineering applications and biotechnology regulation across
+African countries.
+3.5.2 The literature ﬁnding on the regulatory
+landscape of genome editing and gene drive in Africa
+Literature
+ﬁndings
+concerning
+the
+regulatory
+frameworks
+surrounding genome editing and gene drives in African countries are
+critical for understanding the various laws, policies and guidelines
+governing these technologies on the continent. Recent studies have
+shed light on how different African countries approach genome editing
+and gene drive regulation. African countries have developed various
+types of regulatory approvals for genome-edited product usage,
+i.e., laboratory research and development, conﬁned/small scale ﬁeld
+trials, open scale ﬁeld releases, and multiplication ﬁeld trials for
+agronomic performance evaluation and commercialization in African
+countries (Table 6).
+
+--- Page 9 ---
+Readiness to share
+practices and
+experiences?
+Countries
+Plans to modify the
+regulatory framework
+under their purview?
+How modiﬁcation will be
+made
+Willingness to learn
+practices and
+experiences from
+others?
+4.1 Authorization of genetic engineering
+applications in Africa
+some countries have enacted comprehensive regulations for the use
+of GMOs, others have more outdated regulatory frameworks.
+Several African countries have biosafety regulatory frameworks
+that can approve genetic engineering applications in CFTs, open
+ﬁeld trials, commercialization and importation for use as food or
+The regulatory framework landscape for genetic engineering
+applications in Africa varies signiﬁcantly between countries. While
+
+--- Page 10 ---
+Laboratory
+research
+CFTs
+Open- ﬁ eld
+cultivations
+Pre-market
+authorization
+Importing for
+direct use
+•
+•
+•
+•
+•
+•
+•
+•
+•
+•
+•
+•
+•
+•
+•
+•
+•
+•
+•
+•
+•
+•
+Country
+Stages of development
+References
+
+--- Page 11 ---
+•
+Laboratory
+research
+CFTs
+Open- ﬁ eld
+cultivations
+Pre-market
+authorization
+Importing for
+direct use
+•
+•
+•
+•
+•
+•
+•
+•
+•
+•
+•
+•
+•
+•
+•
+•
+•
+•
+•
+•
+•
+•
+•
+Country
+Stages of development
+References
+
+--- Page 12 ---
+Laboratory
+research
+CFTs
+Open- ﬁ eld
+cultivations
+Pre-market
+authorization
+Importing for
+direct use
+•
+•
+•
+•
+•
+•
+•
+•
+•
+•
+Country
+Stages of development
+References
+
+--- Page 13 ---
+Gene Editing
+Country
+Open-
+scale ﬁeld
+release
+Contained trial
+Conﬁned
+trials/Small-
+scale ﬁeld
+release
+Multiplication ﬁeld
+trials/Large-scale
+controlled ﬁeld
+releases
+Laboratory
+Development and
+Biosafety regulatory
+framework development
+status
+•
+•
+•
+•
+•
+•
+•
+•
+•
+•
+•
+•
+•
+•
+•
+•
+•
+•
+•
+•
+•
+•
+
+--- Page 14 ---
+Gene Editing
+Country
+Open-
+scale ﬁeld
+release
+Contained trial
+Conﬁned
+trials/Small-
+scale ﬁeld
+release
+Multiplication ﬁeld
+trials/Large-scale
+controlled ﬁeld
+releases
+Laboratory
+Development and
+Biosafety regulatory
+framework development
+status
+•
+Country
+Gene Drive
+Open-scale ﬁeld release
+Laboratory research
+Contained trial
+Conﬁned
+trials/Small-
+scale studies
+•
+•
+•
+•
+•
+•
+•
+•
+•
+•
+•
+•
+•
+•
+
+--- Page 15 ---
+cowpea, banana and Irish potato are taking place in Mozambique,
+Kenya, Uganda, Ghana, Burkina Faso and Rwanda (Wadvalla,
+2022). In contrast, Zambia, Tunisia and the DRC have not yet
+authorized CFTs, according to ABNE. This lack of authorization
+could be due to the lack of appropriate legislation to regulate the
+importation of GMOs and to monitor their introduction (Otono
+et al., 2020) (Table 5). The DRC is currently considering revising or
+strengthening its biosafety framework (Otono et al., 2020).
+Ghana stands out as a West African country that have approved
+genetic engineering applications for laboratory research, CFTs,
+open-ﬁeld
+trials
+and
+commercial
+cultivation.
+In
+2012,
+the
+National
+Biosafety
+Committee
+in
+Ghana
+approved
+multi-
+locational trials for insect-resistant GM cotton after accepting
+data from CFTs conducted previously in Burkina Faso (Komen
+et al., 2020). Genetically modiﬁed nitrogen- and water-efﬁcient rice
+and pod borer-resistant cowpeas have not been commercialized yet,
+although they have undergone various stages of evaluation and ﬁeld
+trials (Baffour-Awuah, 2022).
+In general, most African countries have not yet fully overcome
+the challenges associated with GMOs. These hurdles may pose
+difﬁculties
+in
+adapting
+to
+new
+regulatory
+frameworks
+and
+governance of emerging technologies such as genome editing and
+gene drive (Masehela and Barros, 2023).
+4.2 Status of genome editing and gene drive
+regulatory frameworks in Africa
+feed, while many African countries have no experience in
+authorizing CFTs or even have a biosafety regulatory framework
+at all (ABNE, 2023).
+The survey ﬁndings (Table 1) and literature review (Table 5)
+reveal both consistent patterns and new insights. In several
+countries, such as Eswatini, the Democratic Republic of Congo
+(DRC), Kenya, Mozambique, and Nigeria, the approval processes for
+genetic engineering applications appear to be interrelated and
+mutually supportive. However, the survey also introduces new
+information not previously documented in the literature. For
+instance, Ethiopia and Ghana have authorized the full spectrum
+of genetic engineering applications, including the importation of
+GM plants for direct use. Additionally, Zambia has approved genetic
+engineering for R&D, CFTs, and the importation of GM crops for
+food and feed—details that have not been reported in earlier studies.
+In cases where survey data were unavailable, such as Burkina Faso,
+Malawi, and Mauritius, the literature review helped ﬁll gaps and
+validate the survey results.
+Eleven countries (Burkina Faso, Egypt, Eswatini, Ethiopia,
+Ghana,
+Kenya,
+Malawi,
+Nigeria,
+South
+Africa,
+Sudan,
+and
+Zambia) have approved GM crop applications, although Zambia
+has yet to establish biosafety laws regulating GMOs (ABNE, 2022;
+ISAAA, 2024 as reviewed in Mmbando, 2024). The other ten
+countries
+have
+conducted
+ﬁeld
+trials
+and
+approved
+the
+commercial cultivation of GM crops (Mmbando, 2024). Despite
+several ﬁeld trials and commercial release authorizations, African
+countries continue to bear the reputation of being slow adaptors of
+GM technologies, mainly attributed to overly restrictive biosafety
+regulatory frameworks (Ongu et al., 2023) and political challenges
+(Komen et al., 2020) often exacerbated by anti-GMO activism which
+slowed or halted the adoption of biosafety legislation (Entine, 2022).
+These challenges hinder the testing and adoption of new crop
+varieties, including those developed by genome editing or other
+advanced technologies, which aim to enhance income and reduce
+the environmental impact of agriculture (Komen et al., 2020).
+Notably, African researchers are working tirelessly to develop
+biotechnology products so that Africa is no longer a battleground
+for adopting GMOs (Muthie, 2022).
+According to data retrieved from ABNE in August 2023,
+countries such as Ghana, Tanzania, Mozambique, and Uganda
+have experience approving CFTs. Additionally, Burkina Faso,
+Nigeria, Sudan, Ethiopia, Kenya, Malawi, and Eswatini have
+approved commercial cultivation of GM crops. In particular,
+Eswatini, Ghana, Kenya and Nigeria are the front liners in the
+development and maturation of national biosafety laws and, hence,
+they have authorized the genetic engineering applications for several
+activities (Table 1). In contrast, Benin has not approved any
+commercial
+release
+or
+importation
+of
+GMOs.
+Despite
+the
+existence of relevant institutions in Benin, a legal vacuum
+appears to persist, reﬂected in the absence of an organizational
+framework for regulating the production, commercialization and
+importation of GMOs (IOBC-WPRS, 2023).
+CTFs have been approved for various crops in several African
+countries: maize, cotton, sorghum, cassava and sweet potato in
+Kenya; cassava, cotton, cowpea, rice and soybean in Nigeria;
+banana, cassava, maize, potato and rice in Uganda, and; cotton,
+cowpea, banana and plantains in Malawi (Komen et al., 2020)
+(Table 5). Additionally, CFTs for GM crops — such as cassava,
+Genome editing technology is increasingly attracting the interest
+of African researchers due to its potential to address agricultural,
+health and environmental issues. To fully beneﬁt from genome
+editing, there are calls that products developed through this
+technology
+must
+be
+subjected
+to
+reasonable,
+science-based
+regulation (Entine et al., 2021). Globally, while some countries
+have quickly adapted or amended their legislation to support the
+use of genome editing, others are in the initial stages of policy
+development (Jenkins et al., 2021). However, some countries still
+categorize all organisms derived through genome editing as GMOs
+(Hundleby and Harwood, 2022).
+In Africa, the regulatory landscape is varied. Some countries
+have enacted regulatory frameworks despite not yet utilizing crop
+genetic engineering technology, while others have already conducted
+ﬁeld trials and are beginning to authorize GM crops for cultivation
+(Komen et al., 2020; ABNE, 2022). This study found that few African
+countries have developed speciﬁc regulatory approaches tailored to
+genome-editing. For instance, the survey analysis (Table 2)
+highlights that countries like Benin, Eswatini, Kenya, Nigeria, and
+Uganda have established governance frameworks for genome
+editing, an observation also supported in the literature (Meeme,
+2021; Genetic Literacy Project, 2021; Wadvalla, 2022; Buchholzer
+and Frommer, 2023). Additionally, Burkina Faso and Ghana have
+begun considering developing policies for genome editing (Tripathi
+et al., 2022) (Table 6).
+Nigeria was the ﬁrst African country to publish its regulatory
+frameworks on genome editing in December 2020, followed by
+Kenya, which published its frameworks in February 2022, an
+important milestone regulatory development for genome editing
+in Africa (ISAAA, 2022). Rather than amending its biosafety act,
+
+--- Page 16 ---
+Kenya’s National Biosafety Authority (NBA) opted to develop a
+guideline on genome editing (Komen et al., 2020).
+Malawi also approved its regulatory frameworks for genome
+editing in August 2022 (ISAAA, 2022), and Burkina Faso has
+validated the national regulatory frameworks, which are awaiting
+ﬁnal approval and publication (AUDA-NEPAD, 2023). Burkina
+Faso is, therefore, expected to become the fourth African country
+to approve and publish national biosafety regulatory frameworks for
+genome editing. Eswatini, too, has made signiﬁcant progress in
+establishing regulations for genome editing (Meeme, 2021).
+Although Benin, Eswatini and Uganda have not yet formally
+published their regulatory frameworks for genome editing and gene
+drive, their existing biosafety regulations could be applied to oversee
+these technologies. This approach is similar to the EU regulatory
+framework, where existing biosafety regulations are applied without
+amendments, requiring prior government safety approval, which is the
+most stringent regulation for genome editing products (Tachikawa and
+Matsuo, 2023). Furthermore, the survey ﬁndings show that the
+regulatory frameworks in Benin, Eswatini, and Uganda include
+provisions
+for
+genome
+editing
+and
+gene
+drive
+technologies,
+deregulating SDN-1 and SDN-2 techniques while regulating SDN-3
+on a case-by-case basis (Table 2). However, a detailed investigation into
+the regulatory status of genome editing and gene drive technologies in
+these African countries remains largely unexplored in the scientiﬁc
+literature. On the other hand, in Burkina Faso, Ethiopia, Ghana, South
+Africa, Sudan, and Zimbabwe, lab facilities have been developed and
+initiated developing genome editing policies (Tripathi et al., 2022)
+(Table 6). Moreover, survey results from Burkina Faso, Cameroon,
+Kenya, Liberia, Mali, Nigeria, South Africa, and Uganda claimed that
+there are ongoing research activities on Gene Drive Modiﬁed Mosquito
+(GDMM) in the laboratory phase and emphasized the importance of a
+regulatory framework (Finda et al., 2023). Several African countries,
+including the DRC, Ethiopia, Gambia, Ghana, Mozambique, Tanzania,
+Tunisia, and Zambia, lack biosafety regulatory frameworks governing
+genome editing and gene drive technologies. However, Ethiopia,
+Ghana, Sudan, South Africa and Zimbabwe have begun considering
+the development of such frameworks (Jenkins et al., 2021; Tripathi et al.,
+2022; Africa, 2022). The absence of clear regulatory frameworks in these
+countries poses a challenge to the development, adoption and
+implementation of genome editing and gene drive technologies. In
+response, several African countries have shown interest in revising or
+adapting their existing regulatory frameworks to accommodate these
+emerging biotechnologies (Meeme, 2021).
+The survey found that biosafety experts and regulators in the
+DRC, Gambia, Ghana, Mozambique, Zambia and Tanzania are
+interested in amending their biosafety regulatory frameworks to
+regulate genome editing and gene drive products effectively. By
+doing so, these countries aim to fully leverage the potential of
+genome editing and gene drive technologies.
+4.3 Challenges in implementing and
+harmonizing biosafety regulatory
+frameworks in Africa
+responsible and ethical use of these technologies. Our survey
+analysis identiﬁed several key challenges, including a lack of
+public trust, opposition, and moral concerns regarding genome
+editing and gene drive technologies. Public trust is critical to the
+successful adoption and realization of the beneﬁts of these
+technologies on the African continent (Masehela and Barros, 2023).
+The survey revealed that limited resources, a lack of trained and
+skilled expertise, insufﬁcient public awareness, and public resistance
+or scepticism had hindered the implementation of national biosafety
+regulations for genome editing and gene drive technologies.
+Masehela and Barros (2023) also noted that the lack of trained
+technical
+expertise,
+inadequate
+intellectual
+property
+rights
+infrastructure and various concerns on genome editing products
+and unsupportive government leadership remain prevalent on the
+African continent. Similarly, Maruta et al. (2023) highlighted that
+insufﬁcient infrastructure, training, capacity building and ﬁnancing
+affect efforts to strengthen biosafety in African nations. Enhancing
+expertise for the development of regulatory frameworks for genome
+editing or gene drive technology could increase the legitimacy of the
+overall assessment process (Adenle et al., 2013).
+Our survey analysis further indicates that negative public
+perception is a signiﬁcant barrier, primarily due to the perceived
+lack of relevant data about the technologies as they are still in their
+early stages of development, together with fears about their potential
+unintended consequences or misuse. Abkallo et al. (2024) reported
+that mistrust surrounding genome editing technology arises from
+ethical concerns, fears of unintended consequences and a lack of
+transparency in communication, which hinder its widespread
+acceptance
+and
+implementation
+in
+African
+nations.
+Public
+perception can signiﬁcantly impact gene editing technology
+implementation; thus, both public and stakeholder acceptance is
+crucial
+for
+favorable
+regulations
+and
+deployment
+(Strobbe
+et al., 2023).
+Unharmonized regulations, especially with respect to deﬁnitions
+and risk assessment approaches, can hinder the applications of these
+technologies and future trade between countries. Therefore,
+harmonizing the regulatory climate is essential for equitable
+access and international trade in technology products (Hundleby
+and Harwood, 2022). However, several challenges impede the
+harmonization of the biosafety regulatory framework in African
+countries. Our survey found that the lack of coordination and
+information-sharing among regulatory agencies, issues related to
+technology transfer, concerns about intellectual property rights, the
+absence of region-speciﬁc regulatory frameworks for genome
+editing, the existence of different regulatory frameworks and
+deﬁnitions, and difﬁculties in aligning different cultural, social,
+and
+ethical
+perspectives
+were
+cited
+as
+major
+obstacles
+to
+harmonizing biosafety regulatory frameworks at the regional
+level. This ﬁnding is supported by a report (Africa, 2016)
+highlighting that signiﬁcantly different legislation, deﬁnitions, and
+regulatory
+approaches
+among
+countries
+hinder
+regional
+or
+international
+harmonization.
+The
+report
+emphasized
+the
+importance of cooperation and harmonization among regulators
+to
+prevent
+arbitrary
+decisions,
+regional
+and
+international
+asymmetries
+in
+scientiﬁc
+and
+technical
+development,
+and
+trade barriers.
+To address these challenges, it is crucial for African countries to
+collaborate, discuss, debate and attempt to harmonize their science-
+African countries face signiﬁcant challenges in developing and
+implementing regulations for genome editing and gene drive
+technologies. Addressing these gaps is crucial for ensuring the
+
+--- Page 17 ---
+The regulatory challenges encountered with GM crops provide
+valuable lessons that can inform the development of regulatory
+frameworks for genome editing and gene drive technologies (Rock
+et al., 2023). These experiences offer an opportunity to create more
+robust and informed regulatory frameworks.
+4.5 Strengthening the regulatory landscape
+in Africa
+based regulatory frameworks. According to the chief executive of
+Kenya’s National Biosafety Authority (NBA), many countries in the
+Global North have adopted a common approach to regulating these
+new technologies, so there is an opportunity for the Global South to
+learn from them in developing approaches for these new
+technologies, by promoting greater international collaboration in
+knowledge sharing and ﬁguring out how to best utilize new
+technologies that are being developed or used in their own
+countries (Ladenheim, 2023). This will prepare them for the
+eventual approval and use of products developed using genome
+editing approaches (Masehela and Barros, 2023). Regulatory
+diplomacy can play a critical role by facilitating dialogue and
+collaboration, ensuring that diverse perspectives are captured in
+cohesive regulatory approaches (Warner and Pink, 2024). Such
+collaborative
+efforts
+can
+foster
+a
+more
+cohesive
+regulatory
+environment,
+facilitating
+the
+responsible
+development
+and
+deployment of genome editing technologies across the continent.
+4.4 Challenge-driven opportunities for
+developing biosafety regulatory framework
+in Africa
+Our survey analysis highlights the importance of investing in
+training
+programmes
+and
+workshops
+for
+regulators
+and
+stakeholders to strengthen the regulatory framework for genome
+editing and gene drive technologies. Establishing partnerships with
+academic institutions for research and capacity building, along with
+increasing knowledge-sharing with international organizations and
+experts, emerged as key strategies to enhance the regulatory
+framework in African nations.
+Enhancing
+research
+and
+development
+capacities
+through
+international collaboration has already shown promising results.
+For instance, Nigeria, Kenya and Uganda have signiﬁcantly
+advanced
+their
+plant
+genome
+editing
+technology
+capacities
+through partnerships with the International Institute of Tropical
+Agriculture (IITA) and the Swedish University of Agricultural
+Sciences (SLU) (Ongu et al., 2023). Such collaborations provide a
+blueprint
+for
+other
+African
+countries
+to
+strengthen
+their
+regulatory landscape.
+A critical element in this process is the proactive engagement of
+diverse stakeholders, including policymakers, scientists, the public
+and educators, in open and accessible dialogues concerning the
+scientiﬁc principles, potential beneﬁts and risks associated with
+genome editing (Abkallo et al., 2024) may ensure a more
+inclusive and transparent regulatory process. Public participation,
+transparency and accountability are crucial elements in policy
+development
+and
+agenda-setting,
+playing
+a
+signiﬁcant
+role
+throughout
+the
+regulatory
+pathway
+(Nielsen
+et
+al.,
+2021).
+Without the bottom-up regulatory structures involving public
+engagement and the pursuit of people-centered, measures to hold
+researchers accountable for unethical research practices could be
+weak (Barbosa et al., 2021). Incorporating this approach can help
+address public concerns, build trust and ensure that the regulatory
+frameworks are comprehensive and well-informed by a wide range
+of perspectives and expertise.
+5 Conclusion
+Africa faces an urgent need to close the yield gap in staple crops
+and increase food production to feed the growing population
+(Tripathi et al., 2022). The challenge of producing more food
+with the same or less land and water, improving nutrition and
+helping farmers adapt to climate change is particularly acute
+(Searchinger
+et
+al.,
+2024).
+Climate
+change
+is
+predicted
+to
+negatively impact the African food system, as agriculture in the
+region is largely dependent on rain-fed farming and subsistence
+agriculture (Manners et al., 2021). Additionally, climate change may
+drive the expansion of disease vectors and vector-borne pathogens
+like dengue, Zika, and Chikungunya viruses (De Souza and Weaver,
+2024), creating suitable temperature conditions for transmission
+beyond current limits (Samy et al., 2016; Minigan et al., 2018;
+Kraemer et al., 2019; Ryan et al., 2019). These challenges
+underscore the need to scale up research, build capacity, and
+develop genome editing and gene drive technologies within
+appropriate regulatory frameworks. Realizing the full potential of
+new breeding tools, such as genome editing, alongside conventional
+technologies is essential (Pixley et al., 2019).
+To leverage these advancements, African countries must develop
+new regulatory frameworks or adjust existing biosafety regulatory
+frameworks to accommodate genome editing and gene drive
+technologies, perhaps drawing on models of Nigeria (USDA,
+2021) and Kenya (ISAAA, 2022). In this context, adopting
+adaptive regulatory frameworks will enable African countries to
+respond more effectively to the rapid developments in genome
+editing and gene drive technologies while addressing public
+concerns and ethical considerations (Greer and Trump, 2019).
+In regions with low awareness and high public resistance to
+genome editing and gene drive technologies, effective regulation can
+assure society that these technologies will not be misused. Building
+public trust is critical to the success and acceptance of these
+technologies
+(Masehela
+and
+Barros,
+2023)
+while
+addressing
+concerns related to safety (Trump et al., 2023).
+The regulatory landscape for genome editing and gene drive
+technologies in Africa is diverse and evolving. Our study has
+highlighted
+signiﬁcant
+disparities
+in
+the
+development
+and
+implementation
+of
+biosafety
+frameworks
+across
+different
+countries. While nations such as Nigeria and Kenya have made
+notable strides in establishing regulatory frameworks speciﬁc to
+genome editing, others are still in the preliminary stages of policy
+formulation. The ﬁndings indicate that the lack of clear, harmonized
+regulations poses challenges to the adoption and application of these
+technologies.
+Additionally,
+issues
+such as limited
+resources,
+
+--- Page 18 ---
+inadequate technical expertise and public scepticism further
+complicate the regulatory environment.
+Despite these challenges, there is a strong interest among
+African countries to harness the potential of genome editing and
+gene drive technologies to address pressing agricultural, health and
+environmental issues. The successful implementation of these
+technologies will require comprehensive regulatory frameworks
+that are science-based, context-speciﬁc and adaptable to emerging
+innovations. It is also evident that building public trust through
+transparent communication and stakeholder engagement is crucial
+for the acceptance and success of these technologies.
+6 Actionable recommendations
+Based
+on
+the
+ﬁndings
+of
+this
+study,
+the
+following
+recommendations are proposed to strengthen the regulatory
+frameworks for genome editing and gene drive technologies
+in Africa:
+foreign
+or
+neighboring
+regulatory
+authorities,
+reducing
+duplicative work and increasing the efﬁciency of regulatory
+authorizations. This will help lower costs and create smoother,
+faster approval processes.
+6. Encourage Stakeholder Involvement: Engage a broad range of
+stakeholders, including scientists, policymakers, industry
+representatives and the public (including indigenous people
+and local communities). Ensuring their active participation in
+the regulatory process can lead to more comprehensive, widely
+accepted regulatory frameworks. Inclusive consultations help
+bring diverse perspectives to the table, improving the quality
+and transparency of regulations.
+7. Engage the Public and Educate: Implement innovative
+education campaigns to raise public awareness about the
+potential beneﬁts and risks of genome editing and gene
+drive
+technologies.
+Transparent
+and
+accessible
+communication can mitigate public skepticism, foster trust
+in the regulatory process, and support informed decision-
+making. Ensuring that the public understands the science
+and the risk management in place would lead to greater
+acceptance of these technologies.
+By implementing these recommendations, African countries can
+develop robust and adaptive regulatory frameworks that support the
+safe, ethical and beneﬁcial use of genome editing and gene drive
+technologies. This proactive approach will help enable the continent
+to
+address
+critical
+challenges
+in
+agriculture,
+health
+and
+environmental sustainability, ultimately contributing to improved
+livelihoods and economic development.
+Data availability statement
+The original contributions presented in the study are included in
+the article/supplementary material, further inquiries can be directed
+to the corresponding authors.
+Ethics statement
+This study involved the collection of data through surveys and
+did not require formal ethical review or approval in accordance with
+relevant legislation and institutional guidelines. Participation in the
+survey was voluntary, and participants provided their informed
+consent by completing the survey. No personally identiﬁable
+information was collected, and all responses were anonymized to
+ensure privacy and conﬁdentiality in line with relevant regulations
+and institutional requirements.
+Author contributions
+1. Build Capacity and Provide Training: Continue offering
+comprehensive training programmes and workshops for
+regulators and stakeholders. While traditional programmes
+remain important, also explore innovative approaches such
+as inter-agency consultations and internships in countries with
+established
+practices.
+These
+initiatives
+will
+equip
+local
+regulators
+and
+technical
+advisors
+with
+the
+practical
+experience and knowledge needed to contribute to informed
+decision-making and effective regulatory oversight.
+2. Foster International Collaboration: Promote partnerships with
+international organizations, academic institutions and experts
+to facilitate knowledge transfer and technical assistance. By
+fostering international cooperation, countries can beneﬁt from
+shared expertise in developing robust regulatory frameworks.
+Emphasize
+regulatory
+diplomacy
+to
+navigate
+global
+advancements, ensuring Africa’s regulatory systems remain
+aligned with global developments.
+3. Adopt Best Practices: Incorporate best practices from countries
+with established regulatory frameworks, such as Nigeria and
+Kenya. While leveraging these successful models, tailoring
+them to the unique contexts and needs of other African
+nations is crucial. This ensures that the regulatory process
+becomes more relevant and adaptable to each country’s speciﬁc
+challenges and opportunities.
+4. Develop Context-Speciﬁc Regulatory Frameworks: Formulate
+ﬂexible regulatory frameworks that can accommodate ongoing
+technological
+advancements.
+These
+frameworks
+should
+address
+local
+ethical,
+social,
+and
+environmental
+considerations. This approach can help empower African
+countries to develop regulations that reﬂect their national
+aspirations together with their speciﬁc context and challenges.
+5. Harmonize Approaches that Underpin Regulatory Decision-
+Making: Align key regulatory decision-making components,
+such as deﬁnitions and risk assessment methodologies, across
+African countries. This alignment can reduce inconsistencies
+and asymmetries between national regulatory systems while
+preserving ﬂexibility for local adaptations. Additionally,
+recognize technical data, analyses, and assessments from
+TR:
+Conceptualization,
+Data
+curation,
+Formal
+Analysis,
+Investigation,
+Methodology,
+Writing–original
+draft.
+FM-B:
+Conceptualization, Formal Analysis, Investigation, Methodology,
+Writing–review
+and
+editing,
+Data
+curation.
+WC:
+Conceptualization,
+Methodology,
+Resources,
+Supervision,
+Writing–review and editing.
+
+--- Page 19 ---
+Funding
+Conﬂict of interest
+The authors declare that the research was conducted in the
+absence of any commercial or ﬁnancial relationships that could be
+construed as a potential conﬂict of interest.
+The author(s) declare that ﬁnancial support was received for the
+research, authorship, and/or publication of this article. The International
+Centre for Genetic Engineering and Biotechnology has supported TR
+through sponsoring a fellowship program for the research work.
+Publisher’s note
+Acknowledgments
+All claims expressed in this article are solely those of the authors
+and
+do
+not
+necessarily
+represent
+those
+of
+their
+afﬁliated
+organizations, or those of the publisher, the editors and the
+reviewers. Any product that may be evaluated in this article, or
+claim that may be made by its manufacturer, is not guaranteed or
+endorsed by the publisher.
+We thank the biosafety competent national authorities of the
+African countries, as well as the experts and other stakeholders who
+generously participated in our survey. Tilahun Rabuma is very
+grateful to the Regulatory Science Group for providing all
+necessary facilities.
+References
+
+--- Page 20 ---
+
+--- Page 21 ---

@@ -89,7 +89,10 @@ TOOLS = [
             "Use author:LastName to search by author.\n\n"
             "NEXT STEP: Pass the DOIs from results to batch_sections to survey the "
             "structure of multiple papers at once, or fetch_fulltext(mode='sections') "
-            "for a single paper."
+            "for a single paper.\n\n"
+            "FOUND A KEY PAPER? Use get_citations(doi) to find papers that build on it, "
+            "or get_references(doi) to find its foundations. This is often more productive "
+            "than running more keyword searches."
         ),
         inputSchema={
             "type": "object",
@@ -151,7 +154,9 @@ TOOLS = [
             "Get detailed metadata for a single paper by DOI. Returns title, "
             "abstract, authors, citations, venue, Zotero status, and a preview "
             "snippet. Also tells you what retrieval options are available for "
-            "getting the full text."
+            "getting the full text.\n\n"
+            "To explore the citation network: get_citations(doi) for papers that cite "
+            "this one, get_references(doi) for papers it cites."
         ),
         inputSchema={
             "type": "object",
@@ -167,24 +172,193 @@ TOOLS = [
         },
     ),
     Tool(
+        name="get_citations",
+        description=(
+            "Find papers that CITE a given work (forward citations — its academic "
+            "'children'). Use this to trace how a paper's ideas have been developed, "
+            "applied, critiqued, or extended by later research.\n\n"
+            "⭐ EXPANSION TOOL: When you find a highly relevant paper via search_papers "
+            "or get_paper, call this to discover the research that built on it. "
+            "Combined with get_references, this lets you map the full citation "
+            "neighbourhood of a key paper.\n\n"
+            "Optional keyword filtering narrows large citation lists to a subtopic "
+            "(e.g. only citations that discuss 'neural networks').\n\n"
+            "Results include DOIs — pass them to batch_sections to survey structure, "
+            "or fetch_fulltext to read specific papers.\n\n"
+            "Sorted by citation count (most-cited first) to surface influential work."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "doi": {
+                    "type": "string",
+                    "description": "DOI of the paper whose citations you want to find.",
+                },
+                "keywords": {
+                    "type": "string",
+                    "description": (
+                        "Optional keyword filter to narrow citations to a subtopic. "
+                        "Example: 'machine learning' to find only ML-related citing papers. "
+                        "Omit to get all citations."
+                    ),
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Max results (default 25, max 50). High-citation papers may have thousands of citers — use keywords to focus.",
+                    "default": 25,
+                },
+                "start_year": {
+                    "type": "integer",
+                    "description": "Only include citations from this year onward (e.g. 2020).",
+                },
+                "end_year": {
+                    "type": "integer",
+                    "description": "Only include citations up to this year (e.g. 2024).",
+                },
+                "openalex_id": {
+                    "type": "string",
+                    "description": (
+                        "Optional OpenAlex Work ID (e.g. 'W2741809807'). If provided, "
+                        "skips the DOI-to-ID resolution step (faster). You can find this "
+                        "in OpenAlex search results or prior citation tool output. "
+                        "If omitted, the DOI is resolved automatically."
+                    ),
+                },
+            },
+            "required": ["doi"],
+        },
+    ),
+    Tool(
+        name="get_references",
+        description=(
+            "Find papers CITED BY a given work (backward references — its academic "
+            "'parents'). Use this to understand the intellectual foundations and prior "
+            "work that a paper builds upon.\n\n"
+            "⭐ EXPANSION TOOL: When you find a highly relevant paper, call this to "
+            "discover the foundational works in its reference list. This is especially "
+            "useful for literature reviews, understanding theoretical lineage, and "
+            "finding seminal papers.\n\n"
+            "Optional keyword filtering narrows the reference list to a subtopic.\n\n"
+            "Results include DOIs — pass them to batch_sections to survey structure, "
+            "or fetch_fulltext to read specific papers.\n\n"
+            "Sorted by citation count (most-cited first) to surface foundational work."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "doi": {
+                    "type": "string",
+                    "description": "DOI of the paper whose references you want to find.",
+                },
+                "keywords": {
+                    "type": "string",
+                    "description": (
+                        "Optional keyword filter to narrow references to a subtopic. "
+                        "Example: 'randomised controlled trial' to find only RCT references. "
+                        "Omit to get all references."
+                    ),
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Max results (default 25, max 50).",
+                    "default": 25,
+                },
+                "start_year": {
+                    "type": "integer",
+                    "description": "Only include references from this year onward.",
+                },
+                "end_year": {
+                    "type": "integer",
+                    "description": "Only include references up to this year.",
+                },
+                "openalex_id": {
+                    "type": "string",
+                    "description": (
+                        "Optional OpenAlex Work ID (e.g. 'W2741809807'). If provided, "
+                        "skips the DOI-to-ID resolution step (faster). If omitted, the "
+                        "DOI is resolved automatically."
+                    ),
+                },
+            },
+            "required": ["doi"],
+        },
+    ),
+    Tool(
+        name="get_citation_tree",
+        description=(
+            "Get BOTH forward citations AND backward references for a paper in one call. "
+            "Fires both requests concurrently for speed. Use this when you want the full "
+            "citation neighbourhood of a key paper.\n\n"
+            "Supports keyword filtering (applied to both directions) and year ranges "
+            "to keep results focused. Without keywords, highly-cited papers may return "
+            "very broad results — use keywords to narrow to your subtopic.\n\n"
+            "Returns two sections: papers that cite this work (children) and papers this "
+            "work cites (parents). All results include DOIs for further exploration."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "doi": {
+                    "type": "string",
+                    "description": "DOI of the paper to explore.",
+                },
+                "keywords": {
+                    "type": "string",
+                    "description": (
+                        "Optional keyword filter applied to BOTH directions. "
+                        "Narrows citations and references to a subtopic. "
+                        "Example: 'regulatory compliance' to find only compliance-related neighbours."
+                    ),
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Max results per direction (default 10, max 25).",
+                    "default": 10,
+                },
+                "start_year": {
+                    "type": "integer",
+                    "description": "Only include papers from this year onward.",
+                },
+                "end_year": {
+                    "type": "integer",
+                    "description": "Only include papers up to this year.",
+                },
+                "openalex_id": {
+                    "type": "string",
+                    "description": (
+                        "Optional OpenAlex Work ID. If provided, skips the DOI-to-ID "
+                        "resolution — and since this tool makes two concurrent requests, "
+                        "providing it avoids the resolution being done twice."
+                    ),
+                },
+            },
+            "required": ["doi"],
+        },
+    ),
+    Tool(
         name="fetch_fulltext",
         description=(
             "Get the full text of a paper for analysis. Checks Zotero first, "
             "then tries open-access sources, stealth browser, and institutional proxy. "
             "After the first fetch, text is cached locally — subsequent calls are instant.\n\n"
-            "RECOMMENDED WORKFLOW for targeted reading:\n"
-            "1. Call with mode='sections' — shows headings with TF-IDF keywords "
-            "revealing what each section discusses. Large gaps between headings are "
-            "automatically filled with keyword-labelled chunks.\n"
+            "DEFAULT WORKFLOW (mode='sections' — the default):\n"
+            "1. Call with no mode argument — returns headings with TF-IDF keywords "
+            "revealing what each section discusses.\n"
             "2. Call with mode='section' and the heading you need, OR use "
             "search_in_article to find specific terms.\n"
             "3. Use mode='range' with character offsets from sections or search results "
             "to read specific passages.\n\n"
-            "Use mode='full' only when you need the entire text (e.g. summarising "
-            "the whole paper). For specific questions, sections → search → range is "
-            "far more efficient and avoids filling context with irrelevant content.\n\n"
+            "Use mode='full' ONLY when you genuinely need the entire text (e.g. "
+            "summarising a short paper end-to-end). For specific questions, "
+            "sections → search → range is far more efficient.\n\n"
             "For multiple papers, use batch_sections instead — it fetches and surveys "
-            "them all in parallel."
+            "them all in parallel.\n\n"
+            "WHEN SECTIONS ARE POOR: If mode='sections' returns very few sections "
+            "(≤2) or the section keywords look uninformative, the cached source may be "
+            "a poorly-structured PDF. Try source='html' to fetch a fresh copy of the "
+            "publisher's article page via the stealth browser — HTML articles often have "
+            "better section structure. The HTML result replaces the cache only if it has "
+            ">1500 words and at least 3 parsed sections."
         ),
         inputSchema={
             "type": "object",
@@ -207,7 +381,7 @@ TOOLS = [
                     "enum": ["full", "sections", "preview", "section", "range"],
                     "description": (
                         "What to return. "
-                        "'sections' — CALL THIS FIRST — lists headings with TF-IDF keywords "
+                        "'sections' — CALL THIS FIRST (the default) — lists headings with TF-IDF keywords "
                         "showing what each section discusses; large gaps are automatically "
                         "filled with keyword-labelled navigation chunks. "
                         "'section' — returns a specific section by name (fuzzy-matched). "
@@ -216,7 +390,7 @@ TOOLS = [
                         "offsets in sections output or search_in_article results. "
                         "'full' — returns everything (often 50,000+ chars for journal articles)."
                     ),
-                    "default": "full",
+                    "default": "sections",
                 },
                 "section": {
                     "type": "string",
@@ -232,6 +406,17 @@ TOOLS = [
                 "range_end": {
                     "type": "integer",
                     "description": "End character offset, exclusive (used with mode='range').",
+                },
+                "source": {
+                    "type": "string",
+                    "enum": ["auto", "html"],
+                    "description": (
+                        "Source override. 'auto' (default) uses the cache or best available "
+                        "source. 'html' forces a fresh fetch of the publisher's article page "
+                        "via the stealth browser, bypassing the PDF cache — use this when "
+                        "the cached PDF has poor section structure (≤2 sections)."
+                    ),
+                    "default": "auto",
                 },
             },
             "required": ["doi"],
@@ -463,6 +648,12 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
             return await _handle_search(arguments)
         elif name == "get_paper":
             return await _handle_get_paper(arguments)
+        elif name == "get_citations":
+            return await _handle_get_citations(arguments)
+        elif name == "get_references":
+            return await _handle_get_references(arguments)
+        elif name == "get_citation_tree":
+            return await _handle_get_citation_tree(arguments)
         elif name in ("fetch_fulltext", "fetch_pdf"):
             return await _handle_fetch_pdf(arguments)
         elif name == "search_and_read":
@@ -846,21 +1037,246 @@ async def _handle_get_paper(args: dict) -> list[TextContent]:
     return [TextContent(type="text", text=text)]
 
 
+# ---------------------------------------------------------------------------
+# Citation graph tool helpers & handlers
+# ---------------------------------------------------------------------------
+
+def _format_citation_results(
+    results: list[dict],
+    doi: str,
+    direction: str,
+    total_count: int,
+    zot_index: set | None = None,
+) -> str:
+    """Format OpenAlex citation/reference results for LLM consumption."""
+    if not results:
+        return (
+            f"No {direction} found for DOI: {doi}\n"
+            f"(Total count from OpenAlex: {total_count})"
+        )
+
+    lines = [
+        f"{direction.title()} for DOI: {doi}",
+        f"Showing {len(results)} of {total_count:,} total",
+        "=" * 60,
+        "",
+    ]
+
+    for i, work in enumerate(results):
+        work_doi = (work.get("doi") or "").replace("https://doi.org/", "")
+
+        # Authors
+        authorships = work.get("authorships") or []
+        author_names = [
+            a.get("author", {}).get("display_name", "")
+            for a in authorships[:4]
+        ]
+        authors_str = ", ".join(n for n in author_names if n)
+        if len(authorships) > 4:
+            authors_str += f" +{len(authorships) - 4} more"
+
+        # Venue
+        primary_loc = work.get("primary_location") or {}
+        source = primary_loc.get("source") or {}
+        venue = source.get("display_name") or ""
+
+        # OpenAlex Work ID
+        openalex_id = (work.get("id") or "").split("/")[-1]
+
+        cited_by = work.get("cited_by_count", 0)
+
+        # Zotero membership
+        doi_norm = zotero._normalize_doi(work_doi) if (work_doi and zot_index is not None) else None
+        in_zot = doi_norm in zot_index if (doi_norm and zot_index is not None) else False
+
+        lines.append(f"[{i}] {work.get('title', 'Untitled')}")
+        if in_zot:
+            lines.append("    ★ IN ZOTERO")
+        if authors_str:
+            lines.append(f"    Authors: {authors_str}")
+        lines.append(f"    Year: {work.get('publication_year', '?')}")
+        if venue:
+            lines.append(f"    Venue: {venue}")
+        lines.append(f"    Citations: {cited_by:,}")
+        if work_doi:
+            lines.append(f"    DOI: {work_doi}")
+        if openalex_id:
+            lines.append(f"    OpenAlex: {openalex_id}")
+
+        # Reconstruct abstract from inverted index
+        abstract_inv = work.get("abstract_inverted_index")
+        if abstract_inv:
+            abstract = _reconstruct_abstract(abstract_inv)
+            if abstract:
+                if len(abstract) > 300:
+                    abstract = abstract[:300] + "..."
+                lines.append(f"    Abstract: {abstract}")
+
+        if work_doi:
+            lines.append(f"    → fetch_fulltext(doi=\"{work_doi}\") to read")
+
+        lines.append("")
+
+    # Footer with workflow hints
+    dois_available = [
+        (w.get("doi") or "").replace("https://doi.org/", "")
+        for w in results if w.get("doi")
+    ]
+    if dois_available:
+        sample = dois_available[:5]
+        lines.append("─" * 60)
+        lines.append("Next steps:")
+        lines.append(f"→ batch_sections(dois={json.dumps(sample)}) to survey these papers")
+        lines.append("→ get_citations / get_references on any result to continue exploring the graph")
+        if direction == "citations":
+            lines.append(f"→ get_references(doi=\"{doi}\") to also see what this paper cites")
+        else:
+            lines.append(f"→ get_citations(doi=\"{doi}\") to also see what cites this paper")
+
+    return "\n".join(lines)
+
+
+async def _handle_get_citations(args: dict) -> list[TextContent]:
+    """Find forward citations (papers that cite the given DOI)."""
+    doi = args["doi"]
+    keywords = args.get("keywords")
+    limit = min(args.get("limit", 25), 50)
+    start_year = args.get("start_year")
+    end_year = args.get("end_year")
+    openalex_id = args.get("openalex_id")
+
+    try:
+        data, zot_index = await asyncio.gather(
+            apis.openalex_citations(
+                doi, search=keywords, limit=limit,
+                start_year=start_year, end_year=end_year,
+                openalex_id=openalex_id,
+            ),
+            zotero.get_doi_index(),
+            return_exceptions=True,
+        )
+    except Exception as e:
+        return [TextContent(type="text", text=f"Error fetching citations for {doi}: {e}")]
+
+    if isinstance(data, Exception):
+        return [TextContent(type="text", text=f"Error fetching citations for {doi}: {data}")]
+    if isinstance(zot_index, Exception):
+        zot_index = set()
+
+    results = data.get("results", [])
+    total = data.get("meta", {}).get("count", len(results))
+    text = _format_citation_results(results, doi, "citations", total, zot_index)
+    return [TextContent(type="text", text=text)]
+
+
+async def _handle_get_references(args: dict) -> list[TextContent]:
+    """Find backward references (papers cited by the given DOI)."""
+    doi = args["doi"]
+    keywords = args.get("keywords")
+    limit = min(args.get("limit", 25), 50)
+    start_year = args.get("start_year")
+    end_year = args.get("end_year")
+    openalex_id = args.get("openalex_id")
+
+    try:
+        data, zot_index = await asyncio.gather(
+            apis.openalex_references(
+                doi, search=keywords, limit=limit,
+                start_year=start_year, end_year=end_year,
+                openalex_id=openalex_id,
+            ),
+            zotero.get_doi_index(),
+            return_exceptions=True,
+        )
+    except Exception as e:
+        return [TextContent(type="text", text=f"Error fetching references for {doi}: {e}")]
+
+    if isinstance(data, Exception):
+        return [TextContent(type="text", text=f"Error fetching references for {doi}: {data}")]
+    if isinstance(zot_index, Exception):
+        zot_index = set()
+
+    results = data.get("results", [])
+    total = data.get("meta", {}).get("count", len(results))
+    text = _format_citation_results(results, doi, "references", total, zot_index)
+    return [TextContent(type="text", text=text)]
+
+
+async def _handle_get_citation_tree(args: dict) -> list[TextContent]:
+    """Get both citations and references concurrently."""
+    doi = args["doi"]
+    keywords = args.get("keywords")
+    limit = min(args.get("limit", 10), 25)
+    start_year = args.get("start_year")
+    end_year = args.get("end_year")
+    openalex_id = args.get("openalex_id")
+
+    # Resolve the OpenAlex ID ONCE before forking into concurrent tasks so
+    # neither branch independently calls openalex_work(doi).
+    if not openalex_id:
+        try:
+            resolved_id = await apis._resolve_openalex_filter_id(doi)
+        except Exception:
+            resolved_id = None
+    else:
+        resolved_id = openalex_id
+
+    cit_data, ref_data, zot_index = await asyncio.gather(
+        apis.openalex_citations(
+            doi, search=keywords, limit=limit,
+            start_year=start_year, end_year=end_year,
+            openalex_id=resolved_id,
+        ),
+        apis.openalex_references(
+            doi, search=keywords, limit=limit,
+            start_year=start_year, end_year=end_year,
+            openalex_id=resolved_id,
+        ),
+        zotero.get_doi_index(),
+        return_exceptions=True,
+    )
+
+    if isinstance(zot_index, Exception):
+        zot_index = set()
+
+    parts = []
+
+    if isinstance(cit_data, Exception):
+        parts.append(f"⚠ Citations lookup failed: {cit_data}")
+    else:
+        results = cit_data.get("results", [])
+        total = cit_data.get("meta", {}).get("count", len(results))
+        parts.append(_format_citation_results(results, doi, "citations", total, zot_index))
+
+    parts.append("\n" + "═" * 60 + "\n")
+
+    if isinstance(ref_data, Exception):
+        parts.append(f"⚠ References lookup failed: {ref_data}")
+    else:
+        results = ref_data.get("results", [])
+        total = ref_data.get("meta", {}).get("count", len(results))
+        parts.append(_format_citation_results(results, doi, "references", total, zot_index))
+
+    return [TextContent(type="text", text="\n".join(parts))]
+
+
 async def _handle_fetch_pdf(args: dict) -> list[TextContent]:
     doi = args["doi"]
     use_proxy = args.get("use_proxy", False)
     pages_str = args.get("pages")
-    mode = args.get("mode", "full")
+    mode = args.get("mode", "sections")
     section_name = args.get("section")
     range_start = args.get("range_start")
     range_end = args.get("range_end")
+    force_html = args.get("source", "auto") == "html"
 
     # Initialize variables for failure message
     html = None
     extraction = None
 
     # ── Cache read: fastest path — skip all network/PDF work ────────
-    cached_article = text_cache.get_cached(doi)
+    # Bypassed when source='html' so the caller can force a fresh scrape.
+    cached_article = text_cache.get_cached(doi) if not force_html else None
     if cached_article:
         logger.debug("Article cache hit for %s", doi)
         # Re-run text heuristic when sections are empty OR when the cached
@@ -891,9 +1307,49 @@ async def _handle_fetch_pdf(args: dict) -> list[TextContent]:
                     word_count=cached_article.word_count,
                     metadata=cached_article.metadata,
                 )
+
+        # Lazy upgrade: re-extract with pymupdf4llm when the cached entry used
+        # the old font-analysis pipeline and the original PDF is still on disk.
+        _should_reextract = (
+            config.use_pymupdf4llm
+            and cached_article.section_detection in ("pdf_font_analysis", "pdf_toc")
+        )
+        if _should_reextract and mode in ("sections", "section", "preview", "range"):
+            import hashlib
+            doi_hash = hashlib.md5(doi.encode()).hexdigest()
+            pdf_path = config.pdf_cache_dir / f"{doi_hash}.pdf"
+            if pdf_path.exists():
+                try:
+                    new_result = pdf_extractor.extract_text_pymupdf4llm(pdf_path)
+                    cached_article = text_cache.put_cached(
+                        cached_article.doi,
+                        new_result["text"],
+                        cached_article.source,
+                        sections=new_result["sections"],
+                        section_detection=new_result.get("section_detection", "pymupdf4llm_markdown"),
+                        word_count=len(new_result["text"].split()),
+                        metadata=cached_article.metadata,
+                    )
+                    logger.info(
+                        "Re-extracted %s with pymupdf4llm: %d → %d sections",
+                        doi, len(cached_article.sections or []), len(new_result["sections"]),
+                    )
+                except Exception as exc:
+                    logger.warning("pymupdf4llm re-extraction failed for %s: %s", doi, exc)
+
         return _apply_mode_filter(
             cached_article, mode, section_name, range_start, range_end
         )
+
+    # Reject force_html early if the stealth browser is not available
+    if force_html and not config.use_stealth_browser:
+        return [TextContent(
+            type="text",
+            text=(
+                "source='html' requires the stealth browser (USE_STEALTH_BROWSER=true). "
+                "The stealth browser is not currently enabled in config."
+            ),
+        )]
 
     # Acquire per-DOI lock before fetching to prevent duplicate work
     lock = await _get_doi_lock(doi)
@@ -901,8 +1357,9 @@ async def _handle_fetch_pdf(args: dict) -> list[TextContent]:
     try:
         async with lock:
             # Double-check cache after acquiring lock — another concurrent call
-            # may have fetched and cached this DOI while we were waiting
-            cached_article = text_cache.get_cached(doi)
+            # may have fetched and cached this DOI while we were waiting.
+            # Skip this for force_html — the caller explicitly wants a fresh scrape.
+            cached_article = text_cache.get_cached(doi) if not force_html else None
             if cached_article:
                 logger.debug("Article cache hit after lock for %s", doi)
                 result = _apply_mode_filter(
@@ -1044,13 +1501,17 @@ async def _handle_fetch_pdf(args: dict) -> list[TextContent]:
                     stored_html_url: str | None = None
                     extra_pdf_candidates: list[dict[str, str]] = []  # URLs found in the HTML
 
-                    if config.use_stealth_browser and result is None:
+                    if (config.use_stealth_browser and result is None) or force_html:
                         doi_url = (
                             f"https://doi.org/{doi}" if not doi.startswith("http") else doi
                         )
                         scrapling_path, html, final_url = await pdf_fetcher.fetch_with_scrapling(
                             doi_url
                         )
+                        # When force_html is set, ignore any PDF the stealth browser
+                        # may have directly downloaded — we want HTML extraction only.
+                        if force_html:
+                            scrapling_path = None
 
                         if scrapling_path:
                             # Rare: Scrapling received a PDF directly (no HTML page in the way)
@@ -1059,7 +1520,7 @@ async def _handle_fetch_pdf(args: dict) -> list[TextContent]:
                                 pages_str, mode, section_name, range_start, range_end,
                             )
 
-                        if html and result is None:
+                        if html and (result is None or force_html):
                             effective_url = final_url or doi_url
 
                             # ── 3a: citation_pdf_url meta tag ──────────────────────
@@ -1095,7 +1556,8 @@ async def _handle_fetch_pdf(args: dict) -> list[TextContent]:
                                 )
 
                             # ── 3b: trafilatura HTML extraction ────────────────────
-                            if html and result is None:
+                            # Also runs in force_html mode even when result != None
+                            if html and (result is None or force_html):
                                 extraction = await content_extractor.extract_article_with_sections(
                                     html, effective_url
                                 )
@@ -1106,13 +1568,28 @@ async def _handle_fetch_pdf(args: dict) -> list[TextContent]:
                                     sections = extraction["sections"] or content_extractor.detect_sections_from_text(raw_text)
                                     section_det = extraction["section_detection"] if extraction["sections"] else "text_heuristic"
                                     html_source = f"html_extraction ({extraction['source']})"
-                                    cached_article = text_cache.put_cached(
-                                        doi, raw_text, html_source,
-                                        sections=sections,
-                                        section_detection=section_det,
-                                        word_count=extraction["word_count"],
-                                        metadata=cite_meta,
-                                    )
+                                    # In force_html mode, only update the cache when the HTML
+                                    # result is substantially better (>1500 words, ≥3 sections).
+                                    html_words = extraction["word_count"]
+                                    html_sections = len(sections)
+                                    html_is_good = html_words > 1500 and html_sections >= 3
+                                    if not force_html or html_is_good:
+                                        cached_article = text_cache.put_cached(
+                                            doi, raw_text, html_source,
+                                            sections=sections,
+                                            section_detection=section_det,
+                                            word_count=html_words,
+                                            metadata=cite_meta,
+                                        )
+                                    else:
+                                        # HTML exists but isn't good enough to replace cache
+                                        cached_article = text_cache.get_cached(doi) or text_cache.put_cached(
+                                            doi, raw_text, html_source,
+                                            sections=sections,
+                                            section_detection=section_det,
+                                            word_count=html_words,
+                                            metadata=cite_meta,
+                                        )
                                     if mode != "full":
                                         result = _apply_mode_filter(
                                             cached_article, mode, section_name, range_start, range_end
@@ -2368,7 +2845,10 @@ def _cache_pdf_and_return(
     if pages_str:
         return _format_extracted_pdf(pdf_source, doi, source, pages_str)
 
-    result = pdf_extractor.extract_text_with_sections(pdf_source)
+    if config.use_pymupdf4llm:
+        result = pdf_extractor.extract_text_pymupdf4llm(pdf_source)
+    else:
+        result = pdf_extractor.extract_text_with_sections(pdf_source)
     raw_text = result["text"]
 
     # Build metadata from PDF extraction result
