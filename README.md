@@ -9,7 +9,7 @@ An MCP server that searches academic papers, fetches PDFs, extracts text, and re
 │                        MCP Server                                │
 │                                                                  │
 │  Tools:                                                          │
-│  ├── search_papers       (Zotero + Semantic Scholar + OpenAlex)  │
+│  ├── search_papers       (Zotero + S2 + OpenAlex + Primo)        │
 │  ├── search_zotero       (search your Zotero library)            │
 │  ├── search_by_doi       (instant DOI lookup via SQLite)         │
 │  ├── get_paper           (metadata by DOI)                       │
@@ -91,6 +91,7 @@ cp .env.example .env
 |---|---|---|
 | `UNPAYWALL_EMAIL` | *(required)* | Email for Unpaywall API (no key needed) |
 | `SEMANTIC_SCHOLAR_API_KEY` | *(empty)* | Optional; gives higher rate limits |
+| `OPENALEX_API_KEY` | *(empty)* | Optional; premium rate limits via `Authorization: Bearer` |
 | `GOST_PROXY_URL` | *(empty)* | SOCKS5/HTTP proxy for institutional access |
 | `USE_STEALTH_BROWSER` | `true` | Enable Scrapling-based fetching |
 | `SCRAPLING_MCP_URL` | *(empty)* | Remote Scrapling MCP server SSE endpoint (see below) |
@@ -201,11 +202,40 @@ ZOTERO_WEBDAV_USER=alice
 ZOTERO_WEBDAV_PASS=secret
 ```
 
+## Ex Libris Primo (Institutional Catalogue)
+
+If your institution runs Ex Libris Primo, the server can query it as an additional search source. Primo results are deduplicated against Semantic Scholar and OpenAlex results by DOI. When a paper is only available via your institution's link resolver, the resolver URL is shown directly in the result instead of the generic "may need proxy" message.
+
+### Configuration
+
+| Variable | Default | Description |
+|---|---|---|
+| `PRIMO_DOMAIN` | *(empty)* | Primo hostname (e.g. `library.example.ac.uk`) |
+| `PRIMO_VID` | *(empty)* | View ID — institution-specific (e.g. `44INST:VU2`) |
+| `PRIMO_TAB` | `Everything` | Search tab |
+| `PRIMO_SEARCH_SCOPE` | `MyInst_and_CI` | Search scope (local + central index) |
+
+Find your `PRIMO_VID` by opening your library's Primo search page and inspecting the URL — it appears as the `vid=` parameter.
+
+### Access
+
+Primo requests are routed through `GOST_PROXY_URL` first (if configured) so that the catalogue returns institutional access metadata. A direct connection is used as fallback if the proxy is unavailable.
+
+Primo is included automatically when `source="all"` (the default). To search only Primo:
+
+```python
+search_papers(query="...", source="primo")
+```
+
+### Query field prefixes
+
+The `author:` prefix is translated to Primo's `creator,contains` format. `title:` and `subject:` are also mapped. Plain queries use `any,contains`.
+
 ## Search Quality
 
 ### How results are ranked
 
-`search_papers` queries Zotero, Semantic Scholar, and OpenAlex, deduplicates by DOI, then sorts by a composite score:
+`search_papers` queries Zotero, Semantic Scholar, OpenAlex, and Primo (if configured), deduplicates by DOI, then sorts by a composite score:
 
 1. **In Zotero** — papers you already own surface first (instant full-text retrieval).
 2. **Open access available** — papers the server can actually fetch.
