@@ -12,6 +12,68 @@ from .config import config
 logger = logging.getLogger(__name__)
 
 
+# ---------------------------------------------------------------------------
+# Span / font-name helpers
+# ---------------------------------------------------------------------------
+
+def _base_font_name(name: str) -> str:
+    """Strip the 6-char subset prefix if present: ``'XAUHVA+CMR17'`` → ``'CMR17'``."""
+    if "+" in name:
+        return name.split("+", 1)[1]
+    return name
+
+
+def _join_spans_with_spacing(spans: list[dict], body_size: float = 10.0) -> str:
+    """Join span texts, inserting spaces where bounding-box gaps indicate word breaks.
+
+    LaTeX PDFs position words via x-coordinates rather than literal space
+    characters.  Each span's ``bbox`` is ``(x0, y0, x1, y1)``.  When the
+    gap between one span's x1 and the next span's x0 exceeds a fraction
+    of the font size, a space is inserted.
+
+    Falls back to simple concatenation if spans lack bbox data.
+    """
+    if not spans:
+        return ""
+
+    parts: list[str] = []
+    prev_x1: float | None = None
+    prev_y0: float | None = None
+
+    for span in spans:
+        text = span.get("text", "")
+        if not text:
+            continue
+        bbox = span.get("bbox")
+
+        if bbox and prev_x1 is not None and prev_y0 is not None:
+            x0, y0, x1, y1 = bbox
+            font_size = span.get("size", body_size) or body_size
+
+            # Check if we're on a different line (y-coordinate jump)
+            if abs(y0 - prev_y0) > font_size * 0.5:
+                parts.append(" ")
+            else:
+                # Horizontal gap — a space is roughly 0.2–0.35em in most fonts.
+                # Use 0.15em as threshold to catch narrow spaces without
+                # false-triggering on kerned pairs.
+                gap = x0 - prev_x1
+                if gap > font_size * 0.15:
+                    parts.append(" ")
+                elif gap < -font_size * 0.5:
+                    # Large negative gap means the span wrapped to a new
+                    # column or the next line — treat as space
+                    parts.append(" ")
+
+        parts.append(text)
+
+        if bbox:
+            prev_x1 = bbox[2]   # x1
+            prev_y0 = bbox[1]   # y0
+
+    return "".join(parts)
+
+
 def _open_doc(source: Path | bytes) -> fitz.Document:
     """Open a PDF from a file path (zero-copy) or raw bytes."""
     if isinstance(source, Path):
@@ -98,6 +160,142 @@ def _line_is_predominantly_italic(spans: list[dict], body_size: float) -> bool:
     return total_chars > 0 and (italic_chars / total_chars) > 0.7
 
 
+def _is_latex_pdf(doc: fitz.Document) -> bool:
+    """Return True if the PDF was produced by a LaTeX toolchain.
+
+    Checks the ``creator`` and ``producer`` metadata fields, which TeX
+    engines and hyperref populate automatically.
+    """
+    meta = doc.metadata
+    creator = (meta.get("creator") or "").lower()
+    producer = (meta.get("producer") or "").lower()
+
+    latex_producers = ("pdftex", "xetex", "luatex", "luahbtex",
+                       "tex live", "miktex", "vtex")
+    for lp in latex_producers:
+        if lp in producer:
+            return True
+
+    latex_creators = ("latex", "pdftex", "xetex", "luatex",
+                      "dvips", "dvipdfm", "xdvipdfmx")
+    for lc in latex_creators:
+        if lc in creator:
+            return True
+
+    # "tex" alone requires a word boundary to avoid false positives
+    if re.search(r'\btex\b', creator):
+        return True
+
+    return False
+
+
+def _is_ocr_pdf(doc: fitz.Document) -> bool:
+    """Return True if the PDF appears to be from an OCR or scanning pipeline.
+
+    Checks two signals:
+
+    1. **Metadata** — the ``producer`` or ``creator`` field mentions a known
+       scanning/OCR tool.
+    2. **Font uniformity** — if 95%+ of all text characters are at a single
+       font size and there are ≤2 distinct sizes, the PDF was likely OCR'd.
+    """
+    meta = doc.metadata
+    creator = (meta.get("creator") or "").lower()
+    producer = (meta.get("producer") or "").lower()
+
+    ocr_signals = (
+        "abbyy", "finereader", "tesseract", "omnipage", "readiris",
+        "adobe scan", "scansoft", "nuance", "apex covantage",
+        "apex pdflib", "epdf", "scanfix", "capture", "paperstream",
+    )
+    for sig in ocr_signals:
+        if sig in creator or sig in producer:
+            return True
+
+    # Font uniformity check: sample first 10 pages
+    char_counts: Counter = Counter()
+    for page_num in range(min(10, len(doc))):
+        try:
+            for block in doc[page_num].get_text("dict")["blocks"]:
+                if block.get("type") != 0:
+                    continue
+                for line in block.get("lines", []):
+                    for span in line.get("spans", []):
+                        text = span.get("text", "").strip()
+                        if text:
+                            size = round(span.get("size", 0), 1)
+                            char_counts[size] += len(text)
+        except Exception:
+            pass
+
+    if char_counts:
+        total = sum(char_counts.values())
+        dominant = char_counts.most_common(1)[0][1]
+        distinct_sizes = len([s for s, c in char_counts.items()
+                              if c > total * 0.01])
+        if dominant / total > 0.95 and distinct_sizes <= 2:
+            return True
+
+    return False
+
+
+def _clean_ocr_text(text: str) -> str:
+    """Normalise common OCR artefacts.
+
+    Applied only when the PDF is identified as OCR'd.  Conservative —
+    only fixes patterns with near-zero false positive risk.
+    """
+    # Normalise ligature Unicode characters to ASCII pairs
+    text = text.replace("\ufb01", "fi")   # ﬁ → fi
+    text = text.replace("\ufb02", "fl")   # ﬂ → fl
+    text = text.replace("\ufb00", "ff")   # ﬀ → ff
+    text = text.replace("\ufb03", "ffi")  # ﬃ → ffi
+    text = text.replace("\ufb04", "ffl")  # ﬄ → ffl
+
+    # Normalise form-feed and vertical tab to newline
+    text = text.replace("\f", "\n").replace("\v", "\n")
+
+    # Collapse runs of 3+ newlines (OCR inserts many blank lines between regions)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+
+    return text
+
+
+def _classify_latex_heading_level(font_name: str, font_size: float,
+                                   body_size: float) -> int:
+    """For LaTeX PDFs, use font name + size to assign heading level.
+
+    Returns 2 (main section), 3 (subsection), or 0 if not a heading.
+    """
+    base = _base_font_name(font_name).lower()
+
+    # ACM acmart: sans bold (Biolinum) = section, serif bold (Libertine) = subsection
+    if "biolinum" in base and ("bold" in base or base.endswith("rb") or base.endswith("b")):
+        return 2
+    if "libertine" in base and ("bold" in base or base.endswith("rb") or base.endswith("b")):
+        return 3
+
+    # Computer Modern / Latin Modern bold: design size determines level
+    if any(x in base for x in ("cmbx", "cmssbx", "lmbx", "lmssbx")):
+        m = re.search(r'(\d+)', base)
+        if m:
+            design_size = int(m.group(1))
+            return 2 if design_size >= 12 else 3
+        return 2  # unknown size — assume section
+
+    # KOMA-Script sans-serif headings
+    if ("cmss" in base or "lmss" in base) and font_size > body_size:
+        return 2
+
+    # Times-based (NeurIPS, ACL, IEEE, NimbusRomNo9L, etc.): use size
+    if font_size >= body_size + 2.0:
+        return 2
+    if font_size >= body_size + 0.5:
+        return 3
+
+    return 0
+
+
 def _locate_headings_in_text(text: str, candidates: list[dict]) -> list[dict]:
     """Find candidate heading strings in *text* and compute character offsets.
 
@@ -116,6 +314,23 @@ def _locate_headings_in_text(text: str, candidates: list[dict]) -> list[dict]:
         if idx == -1:
             idx = text.lower().find(norm_title.lower(), search_from)
         if idx == -1:
+            # Whitespace-collapsed search for LaTeX PDFs where extracted text
+            # has no inter-word spaces but ToC titles are clean.
+            collapsed_title = re.sub(r"\s+", "", norm_title)
+            if collapsed_title:
+                collapsed_region = re.sub(r"\s+", "", text[search_from:])
+                cidx = collapsed_region.lower().find(collapsed_title.lower())
+                if cidx != -1:
+                    # Map collapsed offset back to original text offset by
+                    # consuming cidx non-whitespace characters from search_from.
+                    orig_pos = search_from
+                    consumed = 0
+                    while consumed < cidx and orig_pos < len(text):
+                        if not text[orig_pos].isspace():
+                            consumed += 1
+                        orig_pos += 1
+                    idx = orig_pos
+        if idx == -1:
             continue
         sections.append(
             {
@@ -133,6 +348,120 @@ def _locate_headings_in_text(text: str, candidates: list[dict]) -> list[dict]:
         sec["word_count"] = len(text[sec["start"] : sec["end"]].split())
 
     return sections
+
+
+def _sections_from_toc(doc: fitz.Document, clean_text: str) -> list[dict] | None:
+    """Try to build sections from the PDF bookmark/outline tree.
+
+    Returns a list of section dicts (same format as :func:`_locate_headings_in_text`)
+    or ``None`` if the ToC is absent, too sparse, or fails to match the text.
+
+    PDF bookmarks from hyperref map:
+      - level 1 → ``\\section``        → our level 2 (main)
+      - level 2 → ``\\subsection``     → our level 3 (sub)
+      - level 3 → ``\\subsubsection``  → our level 3 (sub, capped)
+    """
+    toc = doc.get_toc()  # [[level, title, page_number], ...]
+    if not toc:
+        return None
+
+    candidates = []
+    for level, title, page_num in toc:
+        if level > 3 or level < 1:
+            continue
+        title = title.strip()
+        if not title:
+            continue
+        lower = title.lower()
+        if lower in ("contents", "table of contents", "list of figures",
+                     "list of tables", "index"):
+            continue
+        candidates.append({
+            "title": title,
+            "page": page_num,
+            "level": min(level + 1, 3),  # map PDF levels to our 2/3 scheme
+        })
+
+    if len(candidates) < 3:
+        return None
+
+    sections = _locate_headings_in_text(clean_text, candidates)
+
+    # Require ≥60% of candidates to have matched; otherwise the ToC titles
+    # probably don't correspond well to the extracted text.
+    if len(sections) < len(candidates) * 0.6:
+        return None
+
+    return sections
+
+
+def _extract_filtered_text(
+    doc: fitz.Document,
+    body_size: float,
+    max_len: int,
+) -> tuple[str, bool]:
+    """Extract text with footnote filtering but without heading markers.
+
+    Returns ``(text, truncated)``.  Used as the first (plain) pass before
+    attempting ToC-based section detection.
+    """
+    full_text: list[str] = []
+    accumulated_len = 0
+    truncated = False
+
+    for page_num in range(len(doc)):
+        page = doc[page_num]
+
+        header = f"\n--- Page {page_num + 1} ---\n"
+        full_text.append(header)
+        accumulated_len += len(header)
+
+        try:
+            page_dict = page.get_text("dict")
+        except Exception as exc:
+            logger.debug("get_text('dict') failed on page %d: %s", page_num, exc)
+            plain = page.get_text("text")
+            full_text.append(plain)
+            accumulated_len += len(plain)
+            if accumulated_len > max_len:
+                truncated = True
+                break
+            continue
+
+        page_lines: list[str] = []
+        for block in page_dict.get("blocks", []):
+            if block.get("type") != 0:
+                continue
+            for line in block.get("lines", []):
+                spans = line.get("spans", [])
+                kept_spans = [
+                    s for s in spans
+                    if s.get("text", "").strip()
+                    and round(s.get("size", 0), 1) >= body_size - 1.0
+                ]
+                if not kept_spans:
+                    continue
+                line_text = _join_spans_with_spacing(kept_spans, body_size)
+                if line_text.strip():
+                    page_lines.append(line_text + "\n")
+
+        page_text = "".join(page_lines)
+        full_text.append(page_text)
+        accumulated_len += len(page_text)
+
+        if accumulated_len > max_len:
+            truncated = True
+            break
+
+    combined = "".join(full_text)
+    combined = re.sub(r"\n{3,}", "\n\n", combined)
+    combined = re.sub(r" {2,}", " ", combined)
+
+    if truncated and len(combined) > max_len:
+        combined = combined[:max_len]
+        combined += "\n\n[... TRUNCATED — full text exceeds context limit ...]"
+
+    return combined, truncated
 
 
 # ---------------------------------------------------------------------------
@@ -208,7 +537,7 @@ def extract_text(source: Path | bytes, max_length: int | None = None) -> dict:
                 continue
             for line in block.get("lines", []):
                 spans = line.get("spans", [])
-                line_text = "".join(span.get("text", "") for span in spans)
+                line_text = _join_spans_with_spacing(spans, body_size)
                 if not line_text.strip():
                     continue
 
@@ -312,21 +641,46 @@ def extract_text_with_sections(
             "section_detection": str,  # "pdf_font_analysis" or "text_heuristic"
         }
     """
+    # Local import avoids circular dependency (content_extractor ← server → pdf_extractor)
+    from . import content_extractor as _ce
+
     max_len = max_length or config.max_context_length
 
     doc = _open_doc(source)
+    is_latex = _is_latex_pdf(doc)
+    is_ocr = _is_ocr_pdf(doc)
 
     metadata = {
         "title": doc.metadata.get("title", ""),
         "author": doc.metadata.get("author", ""),
         "subject": doc.metadata.get("subject", ""),
         "pages": len(doc),
+        "is_ocr": is_ocr,
     }
 
     body_size = _determine_body_font_size(doc, sample_pages=body_sample_pages)
 
-    # If the PDF doesn't have at least 3 distinct font sizes we can't reliably
-    # filter — scanned PDFs or unusual layouts.  Fall back to the plain extractor.
+    # --- Strategy 0: OCR fast-path ---
+    # OCR'd PDFs have uniform font sizes (font analysis is useless) and need
+    # OCR-specific footnote filtering.  Extract text and apply text heuristic
+    # directly — no font analysis or marker pass needed.
+    if is_ocr:
+        logger.debug("OCR PDF detected — skipping font analysis for %s", getattr(source, 'name', ''))
+        plain_text, plain_truncated = _extract_filtered_text(doc, body_size, max_len)
+        plain_text = _clean_ocr_text(plain_text)
+        doc.close()
+        sections = _ce.detect_sections_from_text(plain_text, is_ocr=True)
+        return {
+            "text": plain_text,
+            "pages": metadata["pages"],
+            "truncated": plain_truncated,
+            "metadata": metadata,
+            "sections": sections,
+            "section_detection": "text_heuristic",
+        }
+
+    # Font size diversity check — scanned/unusual PDFs with < 3 sizes fall
+    # straight to text heuristic (font analysis cannot distinguish headings).
     size_counter: Counter = Counter()
     for page_num in range(min(body_sample_pages, len(doc))):
         try:
@@ -341,13 +695,41 @@ def extract_text_with_sections(
 
     if len(size_counter) < 3:
         logger.debug(
-            "PDF has only %d distinct font sizes — falling back to extract_text",
+            "PDF has only %d distinct font sizes — falling back to text heuristic",
             len(size_counter),
         )
-        result = extract_text(source, max_length)
-        result["section_detection"] = "text_heuristic"
-        return result
+        plain_text, plain_truncated = _extract_filtered_text(doc, body_size, max_len)
+        doc.close()
+        sections = _ce.detect_sections_from_text(plain_text)
+        return {
+            "text": plain_text,
+            "pages": metadata["pages"],
+            "truncated": plain_truncated,
+            "metadata": metadata,
+            "sections": sections,
+            "section_detection": "text_heuristic",
+        }
 
+    # --- Strategy 1: PDF bookmark / outline (ToC) ---
+    # Do a plain filtered-text pass first so we can try ToC matching without
+    # the overhead of marker injection.  This pass is skipped (re-used) if
+    # ToC succeeds; if it fails we proceed to the marker-injection pass below.
+    plain_text, plain_truncated = _extract_filtered_text(doc, body_size, max_len)
+    toc_sections = _sections_from_toc(doc, plain_text)
+    if toc_sections is not None:
+        toc_sections = _ce.consolidate_tiny_sections(toc_sections, plain_text)
+        logger.debug("Using PDF ToC for section detection (%d sections)", len(toc_sections))
+        doc.close()
+        return {
+            "text": plain_text,
+            "pages": metadata["pages"],
+            "truncated": plain_truncated,
+            "metadata": metadata,
+            "sections": toc_sections,
+            "section_detection": "pdf_toc",
+        }
+
+    # --- Strategy 2: Font-analysis marker pass ---
     full_text: list[str] = []
     heading_counter = [0]
     heading_candidates: list[dict] = []
@@ -405,12 +787,12 @@ def extract_text_with_sections(
                 if not kept_spans:
                     continue
 
-                line_text = "".join(s.get("text", "") for s in kept_spans)
+                line_text = _join_spans_with_spacing(kept_spans, body_size)
                 stripped = line_text.strip()
                 if not stripped:
                     continue
 
-                # Compute font metadata for level clustering (Issue 2)
+                # Compute font metadata for level clustering
                 _font_size = max(
                     (round(s.get("size", 0), 1) for s in kept_spans),
                     default=body_size,
@@ -418,6 +800,14 @@ def extract_text_with_sections(
                 _font_flags = max(
                     (s.get("flags", 0) for s in kept_spans),
                     default=0,
+                )
+                _max_span = max(
+                    kept_spans,
+                    key=lambda s: round(s.get("size", 0), 1),
+                    default=None,
+                )
+                _font_name = _base_font_name(
+                    _max_span.get("font", "") if _max_span else ""
                 )
 
                 # Heading candidate: any heading-sized span, short line
@@ -443,6 +833,7 @@ def extract_text_with_sections(
                         "_marker_id": mid,
                         "_font_size": _font_size,
                         "_font_flags": _font_flags,
+                        "_font_name": _font_name,
                     })
                     page_lines.append(marker)
                 else:
@@ -496,32 +887,63 @@ def extract_text_with_sections(
         sec["end"] = sections[i + 1]["start"] if i + 1 < len(sections) else len(clean_text)
         sec["word_count"] = len(clean_text[sec["start"] : sec["end"]].split())
 
-    # Re-assign heading levels based on font-size clustering (Issue 2).
-    # Group sections by (font_size, is_bold, is_italic).  If there are 2+
-    # distinct groups, the largest/boldest group becomes level 2 (main
-    # sections) and the rest become level 3 (subsections).
+    # Re-assign heading levels based on font metadata.
     if len(sections) >= 2 and len(heading_candidates) >= 2:
-        font_groups: dict[tuple, list[int]] = {}
-        for sec_idx, mid in enumerate(section_marker_ids):
-            meta = meta_by_id.get(mid)
-            if meta:
-                fs = meta.get("_font_size", body_size)
-                ff = meta.get("_font_flags", 0)
-                key = (fs, bool(ff & 16), bool(ff & 2))
-                font_groups.setdefault(key, []).append(sec_idx)
+        if is_latex:
+            # For LaTeX PDFs use font-name heuristics for reliable level assignment.
+            for sec_idx, mid in enumerate(section_marker_ids):
+                meta = meta_by_id.get(mid)
+                if meta:
+                    level = _classify_latex_heading_level(
+                        meta.get("_font_name", ""),
+                        meta.get("_font_size", body_size),
+                        body_size,
+                    )
+                    if level in (2, 3):
+                        sections[sec_idx]["level"] = level
+        else:
+            # Non-LaTeX: group by (font_size, is_bold, is_italic) and assign
+            # the largest/boldest group as level 2, the rest as level 3.
+            font_groups: dict[tuple, list[int]] = {}
+            for sec_idx, mid in enumerate(section_marker_ids):
+                meta = meta_by_id.get(mid)
+                if meta:
+                    fs = meta.get("_font_size", body_size)
+                    ff = meta.get("_font_flags", 0)
+                    key = (fs, bool(ff & 16), bool(ff & 2))
+                    font_groups.setdefault(key, []).append(sec_idx)
 
-        if len(font_groups) >= 2:
-            # Sort: larger size first; within same size bold > italic > plain
-            sorted_keys = sorted(
-                font_groups.keys(),
-                key=lambda k: (k[0], k[1], k[2]),
-                reverse=True,
-            )
-            for idx in font_groups[sorted_keys[0]]:
-                sections[idx]["level"] = 2
-            for group_key in sorted_keys[1:]:
-                for idx in font_groups[group_key]:
-                    sections[idx]["level"] = 3
+            if len(font_groups) >= 2:
+                sorted_keys = sorted(
+                    font_groups.keys(),
+                    key=lambda k: (k[0], k[1], k[2]),
+                    reverse=True,
+                )
+                for idx in font_groups[sorted_keys[0]]:
+                    sections[idx]["level"] = 2
+                for group_key in sorted_keys[1:]:
+                    for idx in font_groups[group_key]:
+                        sections[idx]["level"] = 3
+
+    # Post-hoc size filtering: merge tiny artefact sections.
+    sections = _ce.consolidate_tiny_sections(sections, clean_text)
+
+    # Quality gate: if font analysis produced mostly junk (footnotes, author
+    # lines, etc.), fall back to text heuristic on the plain-text pass.
+    if _ce._majority_tiny(sections):
+        logger.debug(
+            "Font analysis produced majority-tiny sections — falling back to text heuristic"
+        )
+        doc.close()
+        heuristic_sections = _ce.detect_sections_from_text(plain_text)
+        return {
+            "text": plain_text,
+            "pages": metadata["pages"],
+            "truncated": plain_truncated,
+            "metadata": metadata,
+            "sections": heuristic_sections,
+            "section_detection": "text_heuristic",
+        }
 
     doc.close()
 

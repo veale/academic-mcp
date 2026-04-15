@@ -66,13 +66,23 @@ class CachedArticle:
       - ``word_count`` (int)  — words in this section
 
     ``section_detection`` describes how sections were derived:
-      - ``"html_headings"``    — marker injection into HTML before trafilatura;
-                                 high confidence, exact boundaries
+      - ``"html_headings"``     — marker injection into HTML before trafilatura;
+                                  high confidence, exact boundaries
+      - ``"pdf_toc"``           — PDF bookmark/outline tree (hyperref); clean
+                                  titles with exact hierarchy
       - ``"pdf_font_analysis"`` — font-size threshold on PyMuPDF span data;
                                   reliable for most academic PDFs
-      - ``"text_heuristic"``   — conservative regex on plain text (ft-cache);
+      - ``"text_heuristic"``    — conservative regex on plain text (ft-cache);
                                   approximate, may miss subsections
-      - ``"unknown"``          — migrated from pre-field cache entry
+      - ``"keyword_skeleton"``  — TF-IDF chunks; no structural headings found
+      - ``"unknown"``           — migrated from pre-field cache entry
+
+    ``metadata`` contains bibliographic info and extraction flags:
+      - ``title``      (str)  — paper title
+      - ``authors``    (list) — list of author names
+      - ``year``       (str)  — publication year
+      - ``venue``      (str)  — publication venue
+      - ``is_ocr``     (bool) — True if the PDF was identified as OCR/scanned
     """
     doi: str
     text: str
@@ -80,6 +90,7 @@ class CachedArticle:
     sections: list = field(default_factory=list)
     section_detection: str = "unknown"
     word_count: int = 0
+    metadata: dict = field(default_factory=dict)
     cached_at: str = field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
@@ -93,6 +104,7 @@ class CachedArticle:
         # sensible defaults so we never crash on a stale cache entry.
         d.setdefault("section_detection", "unknown")
         d.setdefault("word_count", len(d.get("text", "").split()))
+        d.setdefault("metadata", {})
         return cls(**d)
 
 
@@ -125,6 +137,7 @@ def put_cached(
     sections: list,
     section_detection: str = "unknown",
     word_count: int = 0,
+    metadata: dict | None = None,
 ) -> CachedArticle:
     """Write *text* and *sections* to the article cache for *doi*.
 
@@ -132,6 +145,7 @@ def put_cached(
     without a second ``get_cached`` round-trip.
     """
     wc = word_count or len(text.split())
+    meta = metadata or {}
     article = CachedArticle(
         doi=doi,
         text=text,
@@ -139,6 +153,7 @@ def put_cached(
         sections=sections,
         section_detection=section_detection,
         word_count=wc,
+        metadata=meta,
     )
     path = _cache_path(doi)
     try:

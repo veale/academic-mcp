@@ -84,27 +84,35 @@ An MCP server that searches academic papers, fetches full text, and returns cont
 
 **Recommended workflow:** `fetch_fulltext(doi, mode="sections")` → inspect keyword-enriched headings → `fetch_fulltext(doi, mode="section", section="...")` or `search_in_article(doi, terms=[...])` → `fetch_fulltext(doi, mode="range", ...)` for specific passages.
 
-**Source-appropriate section detection.** Section boundaries are derived from the native structural signal of each extraction source rather than post-hoc text pattern matching:
+**Source-appropriate section detection.** Section boundaries are derived from the native structural signal of each extraction source rather than post-hoc text pattern matching. For PDF sources, four strategies are tried in order:
+
+- **PDF bookmark / outline tree** (`section_detection: pdf_toc`) — LaTeX documents compiled with `hyperref` (ACM `acmart`, NeurIPS, ICML, ACL, IEEE, Springer LNCS, and virtually all modern templates) automatically embed a PDF bookmark tree mapping `\section`, `\subsection`, `\subsubsection` to a structured outline. PyMuPDF exposes this via `doc.get_toc()`, giving properly spaced titles, correct hierarchy, and page numbers with no font-analysis heuristics. The server uses this when the outline has ≥ 3 entries and ≥ 60% of them can be located in the extracted text. Word-to-document-position matching uses three passes: exact, case-insensitive, and whitespace-collapsed (handles LaTeX PDFs where text extraction produces `"EvaluatingZeroRating..."` but the bookmark title is `"Evaluating Zero Rating..."`). This is also used for Word-origin PDFs with heading-style bookmarks. Confidence: highest.
 
 - **HTML sources** (`section_detection: html_headings`) — `<h2>` / `<h3>` tags are authoritative. Unique markers (`§§SEC:id:level:title§§`) are injected into the HTML before trafilatura runs, then parsed out of the output to give exact character positions without any string matching. Confidence: high.
 
-- **PDF sources** (`section_detection: pdf_font_analysis`) — PyMuPDF's `get_text("dict")` returns per-span font metadata. Spans smaller than the dominant body-text size by more than 1 pt are discarded entirely before building the text output — this eliminates footnotes, endnotes, page numbers, and running journal-title headers in one pass. The heading detector uses three signals on the remaining spans:
-  1. **Size-based** — span ≥ 1.5 pt larger than body size (numbered or title-case headings).
-  2. **Bold at body size** — bold flag set, span < 100 chars (headings that don't use a size increase).
-  3. **Italic at body size** — >70% of the line's body-size character content is italic, line < 100 chars, ≤ 12 words, does not end with a period. This catches italic section headings common in humanities and social-science journals (e.g. *Politics & Society*) without false-positives from inline emphasis or Latin phrases.
+- **PDF font analysis** (`section_detection: pdf_font_analysis`) — PyMuPDF's `get_text("dict")` returns per-span font metadata. Spans smaller than the dominant body-text size by more than 1 pt are discarded before building the text output — this eliminates footnotes, endnotes, page numbers, and running journal-title headers in one pass. **Bbox-aware span joining** inserts spaces between spans when the horizontal bbox gap exceeds 0.15 em of the font size, fixing the run-together word problem in LaTeX PDFs where words are positioned by x-coordinate rather than literal space characters. The heading detector uses three signals on the remaining spans:
+  1. **Size-based** — span ≥ 1.5 pt larger than body size.
+  2. **Bold at body size** — bold flag set, span < 100 chars.
+  3. **Italic at body size** — >70% of the line's body-size character content is italic, line < 100 chars, ≤ 12 words, does not end with a period (catches italic headings common in humanities journals).
 
-  After all headings are collected, they are clustered by `(font_size, is_bold, is_italic)`. If two or more distinct clusters exist, the largest/boldest group is assigned level 2 (main sections) and the rest level 3 (subsections). Font baseline is established from the first 30 pages. Falls back to text heuristics if fewer than 3 distinct font sizes are found (scanned PDFs). Confidence: reliable.
+  For **LaTeX PDFs** (detected via `producer`/`creator` metadata — pdfTeX, XeTeX, LuaTeX, MiKTeX, dvips, etc.), font *names* are used for level assignment rather than size clustering: Biolinum Bold → level 2 (ACM `\section`), Libertine Bold → level 3 (ACM `\subsection`), CMBX/LMBX design size ≥ 12 → level 2 else level 3, CMSS/LMSS bold → level 2, Times-based by size differential. For non-LaTeX PDFs, headings are clustered by `(font_size, is_bold, is_italic)` and the largest/boldest group is level 2. Font baseline from first 30 pages. Confidence: reliable.
 
-- **Zotero ft-cache / text fallback** (`section_detection: text_heuristic`) — No structural metadata is available. Conservative multi-pass heuristics are applied:
-  1. **Well-known names** — `Conclusion`, `References`, `Appendix`, etc. on isolated lines (zero false-positive risk).
-  2. **Roman numeral sections** — `I Introduction`, `III Gender equality and AI`, etc. (common in law reviews).
+- **Zotero ft-cache / text fallback** (`section_detection: text_heuristic`) — No structural metadata is available. Conservative multi-pass heuristics:
+  1. **Well-known names** — `Conclusion`, `References`, `Appendix`, etc. on isolated lines.
+  2. **Roman numeral sections** — `I Introduction`, `III Gender equality and AI` (common in law reviews).
   3. **Numbered sections** — `1. Introduction`, `4.1. TDM and copyright`.
   4. **ALL CAPS isolated lines** — ≤ 80 chars, ≤ 12 words, surrounded by blank or long-paragraph lines.
   5. **Common section names** — preceded by a blank or paragraph line.
 
-  After collection, multiple filters clean up false positives: a **population filter** discards undotted numbered groups whose maximum integer exceeds 30 *only when dotted candidates also exist* (the dotted ones are the real sections; dotted groups are never discarded by count alone since `1. Introduction` through `35. Appendix F` is unusual but legitimate); an **individual length filter** discards numbered lines whose body text exceeds 60 characters; **running-header deduplication** normalises each heading and discards any appearing 3+ times (2+ for ALL CAPS); **body-text deduplication** discards numbered candidates whose body text is identical across 3+ entries, catching page-number-prefixed journal running headers. Confidence: approximate.
+  Filters: **population filter** discards undotted numbered groups whose max integer exceeds 30 when dotted candidates also exist; **OCR filter** (see below) additionally discards dotted groups when the max exceeds 15 and structural headings (ALL CAPS, well-known names) are also present; **individual length filter** discards numbered lines whose body exceeds 60 chars; **running-header deduplication** normalises and discards headings appearing 3+ times (2+ for ALL CAPS); **body-text deduplication** discards numbered candidates with identical body text across 3+ entries. Confidence: approximate.
 
-- **Keyword skeleton** (`section_detection: keyword_skeleton`) — When all structural detection fails, the article is split into 20 equal chunks and TF-IDF identifies the 5 most distinctive tokens per chunk. The `sections` mode output becomes a navigational chunk map showing which part of the document discusses which concepts — letting the LLM request specific ranges via `mode="range"` or `search_in_article` without reading the full text.
+- **Keyword skeleton** (`section_detection: keyword_skeleton`) — When all structural detection fails, the article is split into 20 equal chunks and TF-IDF identifies the 5 most distinctive tokens per chunk. The `sections` mode output becomes a navigational chunk map — letting the LLM request specific ranges via `mode="range"` or `search_in_article` without reading the full text.
+
+**OCR / scanned PDF handling.** PDFs from scanning pipelines (ABBYY FineReader, Tesseract, OmniPage, Adobe Scan, etc.) are detected automatically via producer/creator metadata and font-uniformity analysis (>95% of characters at a single size). When detected, font analysis is skipped entirely (it would produce garbage on uniform-size OCR output) and the text heuristic path is used directly with the OCR-specific footnote filter. Common Unicode ligature characters (ﬁ → fi, ﬂ → fl, etc.) are normalised before detection. The `is_ocr` flag is stored in the cached article's metadata.
+
+**Post-hoc size filtering.** After any detection method runs, sections containing fewer than 50 words are merged into their neighbours (`consolidate_tiny_sections`). This handles footnotes that survive the text heuristic filters by appearing in isolated short blocks. If more than 60% of detected sections remain under 50 words after consolidation (`_majority_tiny`), the entire detection result is discarded and the server falls back to the next method in the cascade — keyword skeleton for the final fallback. This prevents the Brownsword problem (14 footnotes detected as sections, zero real sections found) from producing misleading navigation.
+
+**Batch sections bibliographic metadata.** `batch_sections` displays a one-line citation (`Author et al. (year) — Title. Venue`) above each paper's section listing, drawn from the cached bibliographic metadata. This avoids the need to cross-reference DOIs with search results when surveying multiple papers.
 
 The `sections` mode output includes a `Section detection:` line that tells you which method was used and its reliability. Cached `text_heuristic` entries are automatically re-processed on access so improvements to the heuristic take effect without manual cache clearing.
 
@@ -573,9 +581,9 @@ for s in sections:
 "
 ```
 
-### Test font-size PDF extraction
+### Test PDF section extraction
 
-Useful when you have a local PDF and want to verify that footnotes and running headers are filtered correctly:
+Useful when you have a local PDF and want to verify that footnotes and running headers are filtered correctly. The output shows which detection strategy fired (`pdf_toc`, `pdf_font_analysis`, or `text_heuristic`) and whether the document was identified as OCR:
 
 ```bash
 uv run python -c "
@@ -585,13 +593,16 @@ from academic_mcp.pdf_extractor import extract_text_with_sections
 result = extract_text_with_sections(Path('/path/to/paper.pdf'))
 print(f'Pages: {result[\"pages\"]}  Words: {len(result[\"text\"].split())}')
 print(f'Section detection: {result[\"section_detection\"]}')
+print(f'Is OCR: {result[\"metadata\"].get(\"is_ocr\", False)}')
 print(f'Sections ({len(result[\"sections\"])}):')
 for s in result['sections']:
-    print(f'  [{s[\"level\"]}] {s[\"title\"]}  (p{s[\"page\"]}, {s[\"word_count\"]} words)')
+    print(f'  [{s[\"level\"]}] {s[\"title\"]}  (p{s.get(\"page\", \"?\")}, {s[\"word_count\"]} words)')
 print()
 print(result['text'][:2000])
 "
 ```
+
+For LaTeX PDFs with `hyperref` (ACM, NeurIPS, ICML, etc.), the output will typically show `section_detection: pdf_toc` with clean section titles. For scanned journal articles, `is_ocr: True` and `section_detection: text_heuristic`.
 
 ### Search Zotero library
 

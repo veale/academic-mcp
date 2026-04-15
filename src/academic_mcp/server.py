@@ -22,6 +22,58 @@ logger = logging.getLogger(__name__)
 server = Server("academic-research")
 
 # ---------------------------------------------------------------------------
+# Per-DOI async lock for concurrent fetch protection
+# ---------------------------------------------------------------------------
+
+# Per-DOI locks to prevent concurrent fetches for the same paper.
+# The lock ensures that if two calls request the same uncached DOI
+# simultaneously, the second waits for the first to finish fetching
+# and then reads from cache.
+_doi_locks: dict[str, asyncio.Lock] = {}
+_doi_locks_lock = asyncio.Lock()  # protects the dict itself
+
+
+async def _get_doi_lock(doi: str) -> asyncio.Lock:
+    """Get or create an async lock for a specific DOI."""
+    async with _doi_locks_lock:
+        if doi not in _doi_locks:
+            _doi_locks[doi] = asyncio.Lock()
+        return _doi_locks[doi]
+
+
+def _format_citation_header(doi: str, metadata: dict | None = None) -> str:
+    """Format a short citation block for prepending to article text.
+
+    Returns an empty string if no metadata is available.
+    """
+    if not metadata:
+        return ""
+
+    parts = []
+    if metadata.get("title"):
+        parts.append(f"Title: {metadata['title']}")
+    if metadata.get("authors"):
+        authors = metadata["authors"]
+        if isinstance(authors, list):
+            if len(authors) <= 3:
+                parts.append(f"Authors: {', '.join(authors)}")
+            else:
+                parts.append(f"Authors: {', '.join(authors[:3])} et al.")
+        elif isinstance(authors, str):
+            parts.append(f"Authors: {authors}")
+    if metadata.get("year"):
+        parts.append(f"Year: {metadata['year']}")
+    if metadata.get("venue"):
+        parts.append(f"Venue: {metadata['venue']}")
+    parts.append(f"DOI: {doi}")
+
+    if not parts:
+        return ""
+
+    return "── Citation ──\n" + "\n".join(parts) + "\n──────────────\n\n"
+
+
+# ---------------------------------------------------------------------------
 # Tool definitions
 # ---------------------------------------------------------------------------
 
@@ -30,19 +82,14 @@ TOOLS = [
         name="search_papers",
         description=(
             "Search for academic papers across Zotero, Semantic Scholar, and OpenAlex. "
-            "Returns a semantically re-ranked list: results are sorted by cosine "
-            "similarity to your query (with Zotero items boosted), then by "
-            "retrievability, citations, and recency. Each result has metadata, "
-            "an abstract or preview, and tells you how to get the full text. "
-            "Results are deduplicated by DOI and enriched with Zotero availability.\n\n"
-            "USAGE NOTE — Query Expansion: Decompose natural language questions into "
-            "2-6 technical keywords before calling. VERBATIM queries are discouraged. "
+            "Returns a ranked list with metadata, abstracts, and retrieval options.\n\n"
+            "QUERY TIPS: Decompose natural language questions into 2-6 technical keywords. "
             "Example: 'How do bees navigate using magnetic fields?' → "
             "'magnetoreception honeybee navigation geomagnetic'. "
             "Use author:LastName to search by author.\n\n"
-            "NEXT STEP: after finding a paper, call "
-            "fetch_fulltext(doi=..., mode='sections') to see its structure and "
-            "keywords before reading further."
+            "NEXT STEP: Pass the DOIs from results to batch_sections to survey the "
+            "structure of multiple papers at once, or fetch_fulltext(mode='sections') "
+            "for a single paper."
         ),
         inputSchema={
             "type": "object",
@@ -122,23 +169,22 @@ TOOLS = [
     Tool(
         name="fetch_fulltext",
         description=(
-            "Get the full text of a paper for analysis. "
-            "Checks Zotero first (pre-extracted text if available, then PDF), "
-            "then tries Unpaywall, Semantic Scholar, OpenAlex, stealth browser, "
-            "and optionally institutional proxy. "
-            "After the first fetch the text is cached locally, so subsequent calls "
-            "are instant local reads.\n\n"
+            "Get the full text of a paper for analysis. Checks Zotero first, "
+            "then tries open-access sources, stealth browser, and institutional proxy. "
+            "After the first fetch, text is cached locally — subsequent calls are instant.\n\n"
             "RECOMMENDED WORKFLOW for targeted reading:\n"
-            "1. Call with mode='sections' first — shows headings with TF-IDF keywords "
-            "   revealing what each section discusses. Large gaps between headings are "
-            "   automatically filled with keyword-labelled chunks for navigation.\n"
+            "1. Call with mode='sections' — shows headings with TF-IDF keywords "
+            "revealing what each section discusses. Large gaps between headings are "
+            "automatically filled with keyword-labelled chunks.\n"
             "2. Call with mode='section' and the heading you need, OR use "
-            "   search_in_article to find specific terms across the paper.\n"
-            "3. Use mode='range' with character offsets from the sections listing "
-            "   or search_in_article results to read specific passages.\n\n"
-            "Use mode='full' only when you genuinely need the entire text (e.g. "
-            "summarising the whole paper). For answering specific questions, the "
-            "sections → search → range workflow uses far less context."
+            "search_in_article to find specific terms.\n"
+            "3. Use mode='range' with character offsets from sections or search results "
+            "to read specific passages.\n\n"
+            "Use mode='full' only when you need the entire text (e.g. summarising "
+            "the whole paper). For specific questions, sections → search → range is "
+            "far more efficient and avoids filling context with irrelevant content.\n\n"
+            "For multiple papers, use batch_sections instead — it fetches and surveys "
+            "them all in parallel."
         ),
         inputSchema={
             "type": "object",
@@ -149,7 +195,7 @@ TOOLS = [
                 },
                 "use_proxy": {
                     "type": "boolean",
-                    "description": "Route through institutional proxy if configured",
+                    "description": "Route uncached fetches through institutional proxy",
                     "default": False,
                 },
                 "pages": {
@@ -161,15 +207,14 @@ TOOLS = [
                     "enum": ["full", "sections", "preview", "section", "range"],
                     "description": (
                         "What to return. "
-                        "'sections' — lists headings with TF-IDF keywords showing what each "
-                        "section discusses; gaps between sparse headings are automatically "
-                        "filled with keyword-labelled chunks. CALL THIS FIRST. "
+                        "'sections' — CALL THIS FIRST — lists headings with TF-IDF keywords "
+                        "showing what each section discusses; large gaps are automatically "
+                        "filled with keyword-labelled navigation chunks. "
                         "'section' — returns a specific section by name (fuzzy-matched). "
-                        "'preview' — returns abstract + first paragraph of each section. "
-                        "'range' — returns a character slice (set range_start/range_end from "
-                        "the offsets shown in sections output or search_in_article results). "
-                        "'full' — returns everything; can be 50,000+ characters for a typical "
-                        "journal article — avoid unless you need the complete text."
+                        "'preview' — abstract + first paragraph of each section. "
+                        "'range' — character slice using range_start/range_end from the "
+                        "offsets in sections output or search_in_article results. "
+                        "'full' — returns everything (often 50,000+ chars for journal articles)."
                     ),
                     "default": "full",
                 },
@@ -196,16 +241,15 @@ TOOLS = [
         name="search_and_read",
         description=(
             "Combined: search for papers, then immediately fetch the FULL TEXT of "
-            "the best match. Returns the complete article, which can be 50,000+ "
-            "characters for a typical journal article.\n\n"
-            "Best for: short papers, or when you need a complete overview.\n"
-            "For targeted questions about long papers, prefer: search_papers → "
-            "fetch_fulltext(mode='sections') → fetch_fulltext(mode='section') or "
-            "search_in_article. This avoids loading the entire text into context.\n\n"
-            "USAGE NOTE — Query Expansion: Decompose natural language questions into "
-            "2-6 technical keywords before calling. VERBATIM queries are discouraged. "
-            "Example: 'What are the latest advances in CRISPR gene editing?' → "
-            "'CRISPR Cas9 gene editing recent advances'."
+            "the best match. Returns the complete article — often 50,000+ characters.\n\n"
+            "Best for: short papers, or when you need a complete overview.\n\n"
+            "For targeted questions about longer papers, prefer this workflow instead:\n"
+            "  search_papers → batch_sections(dois=[...]) → search_in_article or "
+            "  fetch_fulltext(mode='section').\n"
+            "This avoids loading the entire text into context.\n\n"
+            "QUERY TIPS: Decompose questions into 2-6 keywords. "
+            "Example: 'CRISPR gene editing advances' not 'What are the latest "
+            "advances in CRISPR gene editing?'"
         ),
         inputSchema={
             "type": "object",
@@ -298,19 +342,19 @@ TOOLS = [
         description=(
             "Search within a cached article for specific terms or concepts. "
             "Returns a distribution heatmap showing WHERE each term concentrates "
-            "across the article, plus BM25-ranked text snippets with surrounding "
-            "context and section attribution.\n\n"
-            "This is often the fastest way to answer a specific question about a "
-            "paper — more efficient than reading the full text or even a whole "
-            "section. Works even when section detection is poor.\n\n"
+            "across the paper, plus ranked text snippets with context and section "
+            "attribution.\n\n"
+            "Often the fastest way to answer a specific question — more efficient "
+            "than reading full text or even whole sections. Works well even when "
+            "section detection is poor.\n\n"
             "TIPS:\n"
-            "- Use 2-5 varied terms: synonyms, abbreviations, different word forms "
-            "  (e.g. 'algorithmic bias', 'discrimination', 'fairness', 'GDPR').\n"
+            "- Use 2-5 varied terms with synonyms and abbreviations "
+            "(e.g. 'algorithmic bias', 'discrimination', 'fairness', 'GDPR').\n"
             "- Multi-word phrases work: 'due diligence', 'surveillance capitalism'.\n"
-            "- Follow up with fetch_fulltext(mode='range') using the character "
-            "  offsets from results to read broader context around a match.\n\n"
-            "The article must have been fetched previously via fetch_fulltext or "
-            "search_and_read."
+            "- Follow up with fetch_fulltext(mode='range') using character offsets "
+            "from results to read broader context around a match.\n\n"
+            "The article must have been fetched previously via fetch_fulltext, "
+            "batch_sections, or search_and_read."
         ),
         inputSchema={
             "type": "object",
@@ -339,6 +383,65 @@ TOOLS = [
                 },
             },
             "required": ["doi", "terms"],
+        },
+    ),
+    Tool(
+        name="batch_sections",
+        description=(
+            "Get section listings (with keywords) for multiple papers in one call. "
+            "Uncached papers are automatically fetched in parallel — so this is also "
+            "the fastest way to fetch and survey a batch of papers from search results.\n\n"
+            "Returns a combined overview showing the structure, headings, and topic "
+            "keywords for each paper. Much faster than calling fetch_fulltext "
+            "repeatedly.\n\n"
+            "Typical workflow: search_papers → batch_sections(dois=[...from results...]) "
+            "→ read the sections listings → fetch_fulltext(mode='section') or "
+            "search_in_article on the papers and sections you care about."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "dois": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "DOIs to get sections for (up to 10)",
+                },
+                "use_proxy": {
+                    "type": "boolean",
+                    "description": "Route uncached fetches through institutional proxy",
+                    "default": False,
+                },
+            },
+            "required": ["dois"],
+        },
+    ),
+    Tool(
+        name="batch_search",
+        description=(
+            "Search for terms across multiple cached papers simultaneously. "
+            "Returns a compact summary showing which papers mention which terms "
+            "and where they concentrate — helping you quickly identify the most "
+            "relevant paper for a specific concept before drilling in.\n\n"
+            "Papers must have been fetched previously (use batch_sections to "
+            "fetch and survey them first). Returns match counts and concentration "
+            "patterns, not full snippets — use search_in_article on individual "
+            "papers for detailed passages."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "dois": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "DOIs to search across (up to 10)",
+                },
+                "terms": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "1-5 search terms or short phrases",
+                },
+            },
+            "required": ["dois", "terms"],
         },
     ),
 ]
@@ -376,6 +479,10 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
             return await _handle_refresh_zotero_index(arguments)
         elif name == "search_in_article":
             return await _handle_search_in_article(arguments)
+        elif name == "batch_sections":
+            return await _handle_batch_sections(arguments)
+        elif name == "batch_search":
+            return await _handle_batch_search(arguments)
         else:
             return [TextContent(type="text", text=f"Unknown tool: {name}")]
     except Exception as e:
@@ -748,6 +855,10 @@ async def _handle_fetch_pdf(args: dict) -> list[TextContent]:
     range_start = args.get("range_start")
     range_end = args.get("range_end")
 
+    # Initialize variables for failure message
+    html = None
+    extraction = None
+
     # ── Cache read: fastest path — skip all network/PDF work ────────
     cached_article = text_cache.get_cached(doi)
     if cached_article:
@@ -762,7 +873,10 @@ async def _handle_fetch_pdf(args: dict) -> list[TextContent]:
             and cached_article.section_detection in ("text_heuristic", "unknown", "")
         )
         if _should_redetect:
-            new_sections = content_extractor.detect_sections_from_text(cached_article.text)
+            new_sections = content_extractor.detect_sections_from_text(
+                cached_article.text,
+                is_ocr=cached_article.metadata.get("is_ocr", False),
+            )
             if new_sections != cached_article.sections:
                 logger.debug(
                     "Re-ran section detection for %s: %d → %d sections",
@@ -775,51 +889,351 @@ async def _handle_fetch_pdf(args: dict) -> list[TextContent]:
                     sections=new_sections,
                     section_detection="text_heuristic",
                     word_count=cached_article.word_count,
+                    metadata=cached_article.metadata,
                 )
         return _apply_mode_filter(
             cached_article, mode, section_name, range_start, range_end
         )
 
-    # ── Step 0: Check Zotero FIRST ──────────────────────────────────
-    zot_result = await zotero.get_paper_from_zotero(doi)
-    if zot_result and zot_result.get("found"):
-        # Got fulltext directly (already extracted by Zotero — best case!)
-        if zot_result.get("text"):
-            raw_text = zot_result["text"]
-            sections = content_extractor.detect_sections_from_text(raw_text)
-            cached_article = text_cache.put_cached(
-                doi, raw_text, zot_result["source"],
-                sections=sections,
-                section_detection="text_heuristic",
-                word_count=len(raw_text.split()),
-            )
-            if mode != "full":
-                return _apply_mode_filter(
+    # Acquire per-DOI lock before fetching to prevent duplicate work
+    lock = await _get_doi_lock(doi)
+    result: list[TextContent] | None = None
+    try:
+        async with lock:
+            # Double-check cache after acquiring lock — another concurrent call
+            # may have fetched and cached this DOI while we were waiting
+            cached_article = text_cache.get_cached(doi)
+            if cached_article:
+                logger.debug("Article cache hit after lock for %s", doi)
+                result = _apply_mode_filter(
                     cached_article, mode, section_name, range_start, range_end
                 )
-            header = f"Full text from Zotero (already indexed) for DOI: {doi}\n"
-            header += f"Source: {zot_result['source']}\n"
-            if zot_result.get("indexed_pages") and zot_result.get("total_pages"):
-                header += f"Pages indexed: {zot_result['indexed_pages']}/{zot_result['total_pages']}\n"
-            if zot_result.get("truncated"):
-                header += (
-                    "⚠ WARNING: Text is TRUNCATED — Zotero only indexed "
-                    f"{zot_result.get('indexed_pages', '?')}/{zot_result.get('total_pages', '?')} pages. "
-                    "Increase in Zotero > Settings > Search > PDF Indexing, reindex, and sync.\n"
-                    "Alternatively, use fetch_fulltext with use_proxy=true to get the full PDF.\n"
-                )
-            header += "=" * 60 + "\n\n"
-            text = header + raw_text
-            if len(text) > config.max_context_length:
-                text = text[:config.max_context_length] + "\n\n[... TRUNCATED ...]"
-            return [TextContent(type="text", text=text)]
+            else:
+                # ── Step 0: Check Zotero FIRST ──────────────────────────────────
+                zot_result = await zotero.get_paper_from_zotero(doi)
+                if zot_result and zot_result.get("found"):
+                    # Got fulltext directly (already extracted by Zotero — best case!)
+                    if zot_result.get("text"):
+                        raw_text = zot_result["text"]
+                        sections = content_extractor.detect_sections_from_text(raw_text)
+                        # Extract metadata from Zotero item if available
+                        zot_meta: dict = {}
+                        if zot_result.get("item"):
+                            item = zot_result["item"]
+                            zot_meta["title"] = item.get("title", "")
+                            zot_meta["year"] = str(item.get("date", ""))[:4] if item.get("date") else ""
+                            zot_meta["venue"] = item.get("publicationTitle", "")
+                            creators = item.get("creators", [])
+                            if creators:
+                                zot_meta["authors"] = [c.get("lastName", "") or c.get("firstName", "") for c in creators]
+                        cached_article = text_cache.put_cached(
+                            doi, raw_text, zot_result["source"],
+                            sections=sections,
+                            section_detection="text_heuristic",
+                            word_count=len(raw_text.split()),
+                            metadata=zot_meta,
+                        )
+                        if mode != "full":
+                            result = _apply_mode_filter(
+                                cached_article, mode, section_name, range_start, range_end
+                            )
+                        else:
+                            header = f"Full text from Zotero (already indexed) for DOI: {doi}\n"
+                            header += f"Source: {zot_result['source']}\n"
+                            if zot_result.get("indexed_pages") and zot_result.get("total_pages"):
+                                header += f"Pages indexed: {zot_result['indexed_pages']}/{zot_result['total_pages']}\n"
+                            if zot_result.get("truncated"):
+                                header += (
+                                    "⚠ WARNING: Text is TRUNCATED — Zotero only indexed "
+                                    f"{zot_result.get('indexed_pages', '?')}/{zot_result.get('total_pages', '?')} pages. "
+                                    "Increase in Zotero > Settings > Search > PDF Indexing, reindex, and sync.\n"
+                                    "Alternatively, use fetch_fulltext with use_proxy=true to get the full PDF.\n"
+                                )
+                            header += "=" * 60 + "\n\n"
+                            text = header + raw_text
+                            if len(text) > config.max_context_length:
+                                text = text[:config.max_context_length] + "\n\n[... TRUNCATED ...]"
+                            result = [TextContent(type="text", text=text)]
 
-        # Got PDF path from Zotero — extract text from disk
-        if zot_result.get("pdf_path"):
-            return _cache_pdf_and_return(
-                zot_result["pdf_path"], doi, zot_result["source"],
-                pages_str, mode, section_name, range_start, range_end,
-            )
+                        # Add citation header for full mode
+                        if result and mode == "full":
+                            citation_header = _format_citation_header(doi, zot_meta)
+                            result = [TextContent(type="text", text=citation_header + result[0].text)]
+
+                    # Got PDF path from Zotero — extract text from disk
+                    elif zot_result.get("pdf_path"):
+                        result = _cache_pdf_and_return(
+                            zot_result["pdf_path"], doi, zot_result["source"],
+                            pages_str, mode, section_name, range_start, range_end,
+                        )
+
+                if result is None:
+                    # ── Step 1: Gather candidate PDF URLs from external APIs ────────
+                    s2_paper = None
+                    oa_paper = None
+                    unpaywall_data = None
+
+                    try:
+                        s2_paper = await apis.s2_paper(f"DOI:{doi}")
+                    except Exception:
+                        pass
+                    try:
+                        oa_paper = await apis.openalex_work(doi)
+                    except Exception:
+                        pass
+                    try:
+                        unpaywall_data = await apis.unpaywall_lookup(doi)
+                    except Exception:
+                        pass
+
+                    # Build citation metadata from whatever API data we have
+                    cite_meta: dict = {}
+                    if s2_paper:
+                        cite_meta["title"] = s2_paper.get("title", "")
+                        cite_meta["year"] = s2_paper.get("year", "")
+                        cite_meta["venue"] = s2_paper.get("venue", "")
+                        authors = s2_paper.get("authors", [])
+                        if authors:
+                            cite_meta["authors"] = [a.get("name", "") for a in authors if a.get("name")]
+                    if oa_paper and not cite_meta.get("title"):
+                        cite_meta["title"] = oa_paper.get("title", "")
+                        cite_meta["year"] = str(oa_paper.get("publication_year", ""))
+                        # OpenAlex has authorship structure
+                        authorships = oa_paper.get("authorships", [])
+                        if authorships:
+                            cite_meta["authors"] = [
+                                a.get("author", {}).get("display_name", "")
+                                for a in authorships if a.get("author", {}).get("display_name")
+                            ]
+
+                    candidate_urls = apis.collect_pdf_urls(s2_paper, oa_paper, unpaywall_data)
+
+                    # ── Step 2: Direct HTTP on candidate URLs (fast; handles arXiv/OA) ──
+                    config.evict_cache_lru()
+                    for candidate in candidate_urls:
+                        url = candidate["url"]
+                        source = candidate["source"]
+                        pdf_cached = pdf_fetcher._cache_path(url)
+                        if pdf_cached.exists() and pdf_fetcher._is_pdf_file(pdf_cached):
+                            logger.info("Cache hit for %s", url)
+                            result = _cache_pdf_and_return(
+                                pdf_cached, doi, f"{source} (cached)",
+                                pages_str, mode, section_name, range_start, range_end,
+                            )
+                            if result:
+                                break
+                        path = await pdf_fetcher.fetch_direct(url)
+                        if path:
+                            result = _cache_pdf_and_return(
+                                path, doi, f"{source} (direct)",
+                                pages_str, mode, section_name, range_start, range_end,
+                            )
+                            if result:
+                                break
+
+                    # ── Step 3: Scrapling fetch of DOI landing page ──────────────────
+                    #
+                    # Makes a single stealth-browser call to the DOI URL.  The response is
+                    # typically a publisher HTML page (not a PDF), so we:
+                    #   3a. Extract citation_pdf_url meta tag (publisher's canonical PDF URL)
+                    #       and try a direct/proxied HTTP fetch of it.
+                    #   3b. Run trafilatura on the full HTML — if the article body is present
+                    #       and ≥1500 words, return the extracted text without touching a PDF.
+                    #   3c. Store the HTML for step 4 (PDF-link regex scanning).
+                    stored_html: str | None = None
+                    stored_html_url: str | None = None
+                    extra_pdf_candidates: list[dict[str, str]] = []  # URLs found in the HTML
+
+                    if config.use_stealth_browser and result is None:
+                        doi_url = (
+                            f"https://doi.org/{doi}" if not doi.startswith("http") else doi
+                        )
+                        scrapling_path, html, final_url = await pdf_fetcher.fetch_with_scrapling(
+                            doi_url
+                        )
+
+                        if scrapling_path:
+                            # Rare: Scrapling received a PDF directly (no HTML page in the way)
+                            result = _cache_pdf_and_return(
+                                scrapling_path, doi, "doi_redirect (scrapling)",
+                                pages_str, mode, section_name, range_start, range_end,
+                            )
+
+                        if html and result is None:
+                            effective_url = final_url or doi_url
+
+                            # ── 3a: citation_pdf_url meta tag ──────────────────────
+                            meta = content_extractor.extract_citation_meta(html, effective_url)
+
+                            # Guard: some publisher DOI resolvers redirect to a journal
+                            # homepage or a different article on lookup failure (Elsevier does
+                            # this occasionally).  If the page's embedded DOI doesn't match
+                            # what we requested, discard everything — HTML and PDF URL — so we
+                            # don't return the wrong paper's content with false confidence.
+                            citation_doi = meta.get("citation_doi", "")
+                            if citation_doi and zotero._normalize_doi(citation_doi) != zotero._normalize_doi(doi):
+                                logger.warning(
+                                    "DOI mismatch: requested %s, page reports %s — discarding HTML",
+                                    doi, citation_doi,
+                                )
+                                html = None
+
+                            citation_pdf = meta.get("citation_pdf_url", "") if html else ""
+                            if citation_pdf:
+                                logger.info("Found citation_pdf_url: %s", citation_pdf)
+                                path = await pdf_fetcher.fetch_direct(citation_pdf)
+                                if not path and use_proxy:
+                                    path = await pdf_fetcher.fetch_proxied(citation_pdf)
+                                if path:
+                                    result = _cache_pdf_and_return(
+                                        path, doi, "citation_pdf_url (direct)",
+                                        pages_str, mode, section_name, range_start, range_end,
+                                    )
+                                # Fetch failed — keep as a candidate for later retry
+                                extra_pdf_candidates.append(
+                                    {"url": citation_pdf, "source": "citation_pdf_url"}
+                                )
+
+                            # ── 3b: trafilatura HTML extraction ────────────────────
+                            if html and result is None:
+                                extraction = await content_extractor.extract_article_with_sections(
+                                    html, effective_url
+                                )
+                                if extraction:
+                                    raw_text = extraction["text"]
+                                    # If no h2/h3 markers survived trafilatura, fall back to
+                                    # the conservative text heuristic for the section index.
+                                    sections = extraction["sections"] or content_extractor.detect_sections_from_text(raw_text)
+                                    section_det = extraction["section_detection"] if extraction["sections"] else "text_heuristic"
+                                    html_source = f"html_extraction ({extraction['source']})"
+                                    cached_article = text_cache.put_cached(
+                                        doi, raw_text, html_source,
+                                        sections=sections,
+                                        section_detection=section_det,
+                                        word_count=extraction["word_count"],
+                                        metadata=cite_meta,
+                                    )
+                                    if mode != "full":
+                                        result = _apply_mode_filter(
+                                            cached_article, mode, section_name, range_start, range_end
+                                        )
+                                    else:
+                                        text = (
+                                            f"Full text extracted from DOI: {doi}\n"
+                                            f"Source: {html_source}\n"
+                                            f"Word count: {extraction['word_count']}\n"
+                                            f"{'=' * 60}\n\n"
+                                            + raw_text
+                                        )
+                                        if len(text) > config.max_context_length:
+                                            text = (
+                                                text[: config.max_context_length]
+                                                + "\n\n[... TRUNCATED — full text exceeds context limit ...]"
+                                            )
+                                        # Add citation header
+                                        citation_header = _format_citation_header(doi, cite_meta)
+                                        result = [TextContent(type="text", text=citation_header + text)]
+
+                                # ── 3c: Store HTML for PDF-link scanning in step 4 ────
+                                if extraction is None and html:
+                                    stored_html = html
+                                    stored_html_url = effective_url
+
+                    # ── Step 4: Proxied fetch on candidates (institutional access) ───
+                    if result is None and use_proxy and config.gost_proxy_url:
+                        for candidate in candidate_urls + extra_pdf_candidates:
+                            path = await pdf_fetcher.fetch_proxied(candidate["url"])
+                            if path:
+                                result = _cache_pdf_and_return(
+                                    path, doi, f"{candidate['source']} (proxied)",
+                                    pages_str, mode, section_name, range_start, range_end,
+                                )
+                                if result:
+                                    break
+                        if result is None:
+                            doi_url = (
+                                f"https://doi.org/{doi}" if not doi.startswith("http") else doi
+                            )
+                            path = await pdf_fetcher.fetch_proxied(doi_url)
+                            if path:
+                                result = _cache_pdf_and_return(
+                                    path, doi, "doi_redirect (proxied)",
+                                    pages_str, mode, section_name, range_start, range_end,
+                                )
+
+                    # ── Step 5: PDF link extraction from stored HTML ─────────────────
+                    if result is None and stored_html and stored_html_url:
+                        pdf_link = pdf_fetcher._extract_pdf_link_from_html(
+                            stored_html, stored_html_url
+                        )
+                        if pdf_link:
+                            logger.info("Trying PDF link found in Scrapling HTML: %s", pdf_link)
+                            path = await pdf_fetcher.fetch_direct(pdf_link)
+                            if not path and use_proxy:
+                                path = await pdf_fetcher.fetch_proxied(pdf_link)
+                            if path:
+                                result = _cache_pdf_and_return(
+                                    path, doi, "html_pdf_link",
+                                    pages_str, mode, section_name, range_start, range_end,
+                                )
+
+                    # ── Step 6: Scrapling on candidate URLs (last resort) ────────────
+                    if result is None and config.use_stealth_browser:
+                        all_candidates = candidate_urls + extra_pdf_candidates
+                        for candidate in all_candidates:
+                            scrap_path, _html, _url = await pdf_fetcher.fetch_with_scrapling(
+                                candidate["url"]
+                            )
+                            if scrap_path:
+                                result = _cache_pdf_and_return(
+                                    scrap_path, doi, f"{candidate['source']} (scrapling)",
+                                    pages_str, mode, section_name, range_start, range_end,
+                                )
+                                if result:
+                                    break
+
+                    # ── Failure ──────────────────────────────────────────────────────
+                    if result is None:
+                        sources_tried = [c["source"] for c in candidate_urls]
+                        lines = [
+                            f"Could not retrieve full text for DOI: {doi}\n",
+                            f"Sources tried: {', '.join(sources_tried) or 'none found'}\n",
+                        ]
+
+                        # Suggest next actions based on what wasn't tried
+                        if not use_proxy and config.gost_proxy_url:
+                            lines.append(
+                                "\n→ Try with institutional proxy: "
+                                f"fetch_fulltext(doi=\"{doi}\", use_proxy=true)\n"
+                            )
+                        elif not config.gost_proxy_url:
+                            lines.append(
+                                "\n→ No institutional proxy configured. If you have institutional access, "
+                                "configure GOST_PROXY_URL in .env.\n"
+                            )
+
+                        lines.append(
+                            f"→ Check available URLs: find_pdf_urls(doi=\"{doi}\")\n"
+                        )
+                        lines.append(
+                            f"→ Verify metadata: get_paper(identifier=\"{doi}\")\n"
+                        )
+
+                        # If we got HTML but it was too short (paywall), say so explicitly
+                        if html and not extraction:
+                            lines.append(
+                                "\nNote: The publisher page was reached but the full article text was not "
+                                "available — likely behind a paywall. Only the abstract could be accessed.\n"
+                            )
+
+                        result = [TextContent(type="text", text="".join(lines))]
+    finally:
+        # Cleanup: remove the lock if nobody else is waiting on it
+        async with _doi_locks_lock:
+            if doi in _doi_locks and not _doi_locks[doi].locked():
+                del _doi_locks[doi]
+
+    return result
 
     # ── Step 1: Gather candidate PDF URLs from external APIs ────────
     s2_paper = None
@@ -838,6 +1252,26 @@ async def _handle_fetch_pdf(args: dict) -> list[TextContent]:
         unpaywall_data = await apis.unpaywall_lookup(doi)
     except Exception:
         pass
+
+    # Build citation metadata from whatever API data we have
+    cite_meta: dict = {}
+    if s2_paper:
+        cite_meta["title"] = s2_paper.get("title", "")
+        cite_meta["year"] = s2_paper.get("year", "")
+        cite_meta["venue"] = s2_paper.get("venue", "")
+        authors = s2_paper.get("authors", [])
+        if authors:
+            cite_meta["authors"] = [a.get("name", "") for a in authors if a.get("name")]
+    if oa_paper and not cite_meta.get("title"):
+        cite_meta["title"] = oa_paper.get("title", "")
+        cite_meta["year"] = str(oa_paper.get("publication_year", ""))
+        # OpenAlex has authorship structure
+        authorships = oa_paper.get("authorships", [])
+        if authorships:
+            cite_meta["authors"] = [
+                a.get("author", {}).get("display_name", "")
+                for a in authorships if a.get("author", {}).get("display_name")
+            ]
 
     candidate_urls = apis.collect_pdf_urls(s2_paper, oa_paper, unpaywall_data)
 
@@ -940,6 +1374,7 @@ async def _handle_fetch_pdf(args: dict) -> list[TextContent]:
                         sections=sections,
                         section_detection=section_det,
                         word_count=extraction["word_count"],
+                        metadata=cite_meta,
                     )
                     if mode != "full":
                         return _apply_mode_filter(
@@ -1013,15 +1448,38 @@ async def _handle_fetch_pdf(args: dict) -> list[TextContent]:
 
     # ── Failure ──────────────────────────────────────────────────────
     sources_tried = [c["source"] for c in candidate_urls]
-    return [TextContent(
-        type="text",
-        text=(
-            f"Failed to fetch PDF for DOI: {doi}\n"
-            f"Tried sources: {', '.join(sources_tried) or 'none found'}\n"
-            f"Proxy used: {use_proxy}\n"
-            "The paper may require institutional access or the PDF links may be broken."
-        ),
-    )]
+    lines = [
+        f"Could not retrieve full text for DOI: {doi}\n",
+        f"Sources tried: {', '.join(sources_tried) or 'none found'}\n",
+    ]
+
+    # Suggest next actions based on what wasn't tried
+    if not use_proxy and config.gost_proxy_url:
+        lines.append(
+            "\n→ Try with institutional proxy: "
+            f"fetch_fulltext(doi=\"{doi}\", use_proxy=true)\n"
+        )
+    elif not config.gost_proxy_url:
+        lines.append(
+            "\n→ No institutional proxy configured. If you have institutional access, "
+            "configure GOST_PROXY_URL in .env.\n"
+        )
+
+    lines.append(
+        f"→ Check available URLs: find_pdf_urls(doi=\"{doi}\")\n"
+    )
+    lines.append(
+        f"→ Verify metadata: get_paper(identifier=\"{doi}\")\n"
+    )
+
+    # If we got HTML but it was too short (paywall), say so explicitly
+    if html and not extraction:
+        lines.append(
+            "\nNote: The publisher page was reached but the full article text was not "
+            "available — likely behind a paywall. Only the abstract could be accessed.\n"
+        )
+
+    return [TextContent(type="text", text="".join(lines))]
 
 
 async def _handle_search_and_read(args: dict) -> list[TextContent]:
@@ -1364,6 +1822,278 @@ async def _handle_search_in_article(args: dict) -> list[TextContent]:
 
 
 # ---------------------------------------------------------------------------
+# Batch tool handlers
+# ---------------------------------------------------------------------------
+
+async def _handle_batch_sections(args: dict) -> list[TextContent]:
+    """Get section listings for multiple papers, fetching uncached ones in parallel."""
+    dois = args.get("dois", [])
+    use_proxy = args.get("use_proxy", False)
+
+    # Cap at 10 DOIs
+    dois = dois[:10]
+
+    if not dois:
+        return [TextContent(type="text", text="No DOIs provided.")]
+
+    # Split into cached and uncached
+    cached = {}
+    uncached = []
+    for doi in dois:
+        article = text_cache.get_cached(doi)
+        if article:
+            cached[doi] = article
+        else:
+            uncached.append(doi)
+
+    # Fetch uncached papers in parallel
+    if uncached:
+        fetch_tasks = [
+            _handle_fetch_pdf({
+                "doi": doi,
+                "use_proxy": use_proxy,
+                "mode": "full",
+            })
+            for doi in uncached
+        ]
+        results = await asyncio.gather(*fetch_tasks, return_exceptions=True)
+
+        # After fetching, re-check cache for newly fetched articles
+        for doi, result in zip(uncached, results):
+            if isinstance(result, Exception):
+                logger.warning("batch_sections: failed to fetch %s: %s", doi, result)
+                continue
+            article = text_cache.get_cached(doi)
+            if article:
+                cached[doi] = article
+
+    # Build the combined output
+    lines = []
+    cached_count = len(cached)
+    fetched_count = len(uncached) - len(set(uncached) - set(cached.keys()))
+    lines.append(f"Batch sections for {len(dois)} papers ({cached_count} cached, {fetched_count} fetched)")
+    lines.append("=" * 60)
+    lines.append("")
+
+    for doi in dois:
+        lines.append(f"── {doi} ───────────────────────────────────")
+
+        if doi not in cached:
+            # Failed to fetch
+            lines.append("⚠ Could not fetch: article not in cache after fetch attempt")
+            lines.append("")
+            continue
+
+        article = cached[doi]
+        meta = article.metadata or {}
+
+        # Build a one-line citation from bibliographic metadata
+        title = meta.get("title", "")
+        authors = meta.get("authors", [])
+        year = meta.get("year", "")
+        venue = meta.get("venue", "")
+
+        if title:
+            cite_parts = []
+            if authors:
+                if len(authors) == 1:
+                    cite_parts.append(authors[0])
+                elif len(authors) == 2:
+                    cite_parts.append(f"{authors[0]} & {authors[1]}")
+                else:
+                    cite_parts.append(f"{authors[0]} et al.")
+            if year:
+                cite_parts.append(f"({year})")
+            cite_line = " ".join(cite_parts)
+            if cite_line:
+                cite_line += " \u2014 "
+            cite_line += title
+            if venue:
+                cite_line += f". {venue}"
+            lines.append(cite_line)
+
+        # Get section detection method
+        det = article.section_detection
+        det_note = {
+            "html_headings": "html_headings",
+            "pdf_font_analysis": "pdf_font_analysis",
+            "pdf_toc": "pdf_toc",
+            "text_heuristic": "text_heuristic",
+            "keyword_skeleton": "keyword_skeleton",
+            "unknown": "unknown",
+        }.get(det, det)
+        lines.append(f"Section detection: {det_note}")
+
+        # Get sections and format them (without the per-paper header)
+        if not article.sections:
+            lines.append("No sections detected")
+            lines.append("")
+            continue
+
+        # Use the same section formatting logic as _apply_mode_filter
+        sec_keywords = content_extractor.keywords_for_sections(article.text, article.sections)
+        display_sections = content_extractor.infill_keyword_chunks(article.text, article.sections)
+
+        kw_by_start: dict[int, list[str]] = {
+            sec.get("start", 0): kw
+            for sec, kw in zip(article.sections, sec_keywords)
+        }
+
+        structural_idx = 0
+        for entry in display_sections:
+            wc = entry.get("word_count", 0)
+            start = entry.get("start", 0)
+            end = entry.get("end", 0)
+
+            if entry.get("_infill"):
+                kw = ", ".join(entry.get("keywords", []))
+                title = entry["title"]
+                lines.append(f"  {title} chars {start:,}–{end:,} ({wc} words): {kw}")
+            else:
+                indent = "  " if entry.get("level", 2) == 3 else ""
+                kw_list = kw_by_start.get(start, [])
+                kw_str = ", ".join(kw_list) if kw_list else ""
+                lines.append(f"{indent}[{structural_idx}] {entry['title']}  ({wc} words, chars {start:,}–{end:,})")
+                if kw_str:
+                    lines.append(f"{indent}    → {kw_str}")
+                structural_idx += 1
+
+        lines.append("")
+
+    return [TextContent(type="text", text="\n".join(lines))]
+
+
+async def _handle_batch_search(args: dict) -> list[TextContent]:
+    """Search for terms across multiple cached papers."""
+    dois = args.get("dois", [])
+    terms = args.get("terms", [])
+
+    # Cap at 10 DOIs and 5 terms
+    dois = dois[:10]
+    terms = terms[:5]
+
+    if not dois:
+        return [TextContent(type="text", text="No DOIs provided.")]
+
+    if not terms:
+        return [TextContent(type="text", text="No search terms provided.")]
+
+    # Check which DOIs are cached
+    cached = {}
+    uncached = []
+    for doi in dois:
+        article = text_cache.get_cached(doi)
+        if article:
+            cached[doi] = article
+        else:
+            uncached.append(doi)
+
+    # Build the header
+    lines = []
+    terms_str = ", ".join(f'"{t}"' for t in terms)
+    lines.append(f"Cross-paper search: {terms_str}")
+    uncached_note = ""
+    if uncached:
+        uncached_note = f" ({len(uncached)} not cached — use batch_sections to fetch)"
+    lines.append(f"Searched {len(dois)} papers{uncached_note}")
+    lines.append("=" * 60)
+    lines.append("")
+
+    # For each term, count matches per paper
+    term_results: dict[str, dict[str, dict]] = {}
+
+    for term in terms:
+        term_results[term] = {}
+        term_lower = term.lower()
+
+        for doi, article in cached.items():
+            text = article.text.lower()
+            count = text.count(term_lower)
+
+            if count == 0:
+                term_results[term][doi] = {"count": 0, "sections": {}}
+                continue
+
+            # Find which sections the matches concentrate in
+            sections = article.sections or []
+            section_counts: dict[str, int] = {}
+
+            # Simple approach: find match positions and map to sections
+            pos = 0
+            while True:
+                pos = text.find(term_lower, pos)
+                if pos == -1:
+                    break
+
+                # Find which section this position falls into
+                for sec in sections:
+                    sec_start = sec.get("start", 0)
+                    sec_end = sec.get("end", len(text))
+                    if sec_start <= pos < sec_end:
+                        sec_title = sec.get("title", "Unknown")
+                        section_counts[sec_title] = section_counts.get(sec_title, 0) + 1
+                        break
+
+                pos += 1
+
+            term_results[term][doi] = {
+                "count": count,
+                "sections": section_counts,
+            }
+
+    # Format results for each term
+    for term in terms:
+        lines.append(f'"{term}" — found in {sum(1 for r in term_results[term].values() if r["count"] > 0)} of {len(dois)} papers:')
+
+        for doi in dois:
+            if doi in uncached:
+                continue  # Skip uncached in the main listing
+
+            result = term_results[term].get(doi, {"count": 0, "sections": {}})
+            count = result["count"]
+            sections = result["sections"]
+
+            if count > 0:
+                # Format section concentration
+                if sections:
+                    sorted_sections = sorted(sections.items(), key=lambda x: -x[1])
+                    sec_str = ", ".join(f"{s[0]} ({s[1]})" for s in sorted_sections[:3])
+                    lines.append(f"  {doi} — {count} mentions")
+                    lines.append(f"    concentrated in: {sec_str}")
+                else:
+                    lines.append(f"  {doi} — {count} mentions")
+            else:
+                lines.append(f"  {doi} — not found")
+
+        lines.append("")
+
+    # Find most relevant paper (highest total matches across all terms)
+    paper_totals: dict[str, int] = {}
+    paper_distinct: dict[str, int] = {}
+
+    for term, results in term_results.items():
+        for doi, result in results.items():
+            if result["count"] > 0:
+                paper_totals[doi] = paper_totals.get(doi, 0) + result["count"]
+                paper_distinct[doi] = paper_distinct.get(doi, 0) + 1
+
+    if paper_totals:
+        # Sort by total matches, then by distinct terms
+        sorted_papers = sorted(
+            paper_totals.items(),
+            key=lambda x: (-x[1], -paper_distinct.get(x[0], 0))
+        )
+        most_relevant = sorted_papers[0][0]
+        total_matches = sorted_papers[0][1]
+
+        lines.append(f"Most relevant paper: {most_relevant} ({total_matches} total matches)")
+        lines.append("")
+        lines.append(f"→ search_in_article(doi=\"{most_relevant}\", terms={terms})")
+
+    return [TextContent(type="text", text="\n".join(lines))]
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -1376,6 +2106,12 @@ def _apply_mode_filter(
 ) -> list[TextContent]:
     """Apply a mode filter to a cached article and return formatted text."""
     doi = cached.doi
+
+    # Prepend citation header for all modes except "sections"
+    if mode != "sections":
+        citation_header = _format_citation_header(doi, cached.metadata)
+    else:
+        citation_header = ""
 
     if mode == "sections":
         det = cached.section_detection
@@ -1485,7 +2221,7 @@ def _apply_mode_filter(
             ]
             text = "".join(lines)
 
-        return [TextContent(type="text", text=text)]
+        return [TextContent(type="text", text=citation_header + text)]
 
     if mode == "section":
         if not section_name:
@@ -1524,7 +2260,7 @@ def _apply_mode_filter(
         full = header + section_text
         if len(full) > config.max_context_length:
             full = full[:config.max_context_length] + "\n\n[... TRUNCATED ...]"
-        return [TextContent(type="text", text=full)]
+        return [TextContent(type="text", text=citation_header + full)]
 
     if mode == "preview":
         lines = [
@@ -1569,7 +2305,7 @@ def _apply_mode_filter(
         text = "".join(lines)
         if len(text) > config.max_context_length:
             text = text[:config.max_context_length] + "\n\n[... TRUNCATED ...]"
-        return [TextContent(type="text", text=text)]
+        return [TextContent(type="text", text=citation_header + text)]
 
     if mode == "range":
         start = range_start or 0
@@ -1580,7 +2316,7 @@ def _apply_mode_filter(
             f"Source: {cached.source}\n"
             + "=" * 60 + "\n\n"
         )
-        return [TextContent(type="text", text=header + snippet)]
+        return [TextContent(type="text", text=citation_header + header + snippet)]
 
     # mode == "full" (default)
     header = (
@@ -1591,7 +2327,7 @@ def _apply_mode_filter(
     full = header + cached.text
     if len(full) > config.max_context_length:
         full = full[:config.max_context_length] + "\n\n[... TRUNCATED ...]"
-    return [TextContent(type="text", text=full)]
+    return [TextContent(type="text", text=citation_header + full)]
 
 
 def _fuzzy_match_section(query: str, sections: list[dict]) -> dict | None:
@@ -1634,11 +2370,21 @@ def _cache_pdf_and_return(
 
     result = pdf_extractor.extract_text_with_sections(pdf_source)
     raw_text = result["text"]
+
+    # Build metadata from PDF extraction result
+    pdf_meta: dict = {}
+    if result["metadata"]:
+        pdf_meta["title"] = result["metadata"].get("title", "")
+        # Authors may be in the PDF metadata
+        if result["metadata"].get("author"):
+            pdf_meta["authors"] = result["metadata"]["author"].split(",") if isinstance(result["metadata"]["author"], str) else result["metadata"]["author"]
+
     cached_article = text_cache.put_cached(
         doi, raw_text, source,
         sections=result["sections"],
         section_detection=result.get("section_detection", "pdf_font_analysis"),
         word_count=len(raw_text.split()),
+        metadata=pdf_meta,
     )
 
     if mode != "full":
@@ -1658,10 +2404,13 @@ def _cache_pdf_and_return(
             s["title"] for s in result["sections"][:15]
         ) + "\n"
     header += "\n" + "=" * 60 + "\n\n"
+
+    # Add citation header for full mode
+    citation_header = _format_citation_header(doi, pdf_meta)
     full_text = header + raw_text
     if len(full_text) > config.max_context_length:
         full_text = full_text[:config.max_context_length] + "\n\n[... TRUNCATED ...]"
-    return [TextContent(type="text", text=full_text)]
+    return [TextContent(type="text", text=citation_header + full_text)]
 
 
 def _reconstruct_abstract(inverted_index: dict | None) -> str:

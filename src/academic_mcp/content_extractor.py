@@ -551,7 +551,76 @@ def infill_keyword_chunks(
     return combined
 
 
-def detect_sections_from_text(text: str) -> list[dict]:
+def consolidate_tiny_sections(
+    sections: list[dict],
+    text: str,
+    min_words: int = 50,
+) -> list[dict]:
+    """Merge sections that are too small to be real into their predecessors.
+
+    Academic sections are almost always 100+ words.  Sections under
+    *min_words* are artefacts — footnotes misidentified as headings,
+    author-affiliation lines picked up by font analysis, or OCR noise.
+
+    Strategy: walk sections in order; if a section has fewer than *min_words*
+    words, absorb it into the previous section (extend the predecessor's
+    ``end`` and recompute its ``word_count``).  If the tiny section is the
+    first, absorb it into the next section instead.  Iterates until stable.
+
+    Does NOT discard sections — only merges, so text coverage is preserved.
+    """
+    if len(sections) <= 1:
+        return sections
+
+    changed = True
+    while changed:
+        changed = False
+        new_sections: list[dict] = []
+        i = 0
+        while i < len(sections):
+            sec = sections[i]
+            wc = sec.get("word_count", 0)
+            if wc < min_words:
+                changed = True
+                if new_sections:
+                    # Merge into predecessor
+                    pred = new_sections[-1]
+                    pred["end"] = sec["end"]
+                    pred["word_count"] = len(
+                        text[pred["start"]: pred["end"]].split()
+                    )
+                elif i + 1 < len(sections):
+                    # First section is tiny — merge into successor
+                    succ = sections[i + 1]
+                    succ["start"] = sec["start"]
+                    succ["word_count"] = len(
+                        text[succ["start"]: succ["end"]].split()
+                    )
+                else:
+                    # Only section, keep as-is
+                    new_sections.append(sec)
+            else:
+                new_sections.append(sec)
+            i += 1
+        sections = new_sections
+
+    return sections
+
+
+def _majority_tiny(sections: list[dict], min_words: int = 50) -> bool:
+    """Return True if >60% of sections are below *min_words*.
+
+    When this is true, section detection has probably failed — it's matching
+    footnotes or reference entries rather than real headings.  The caller
+    should fall back to ``generate_keyword_skeleton`` instead.
+    """
+    if len(sections) < 3:
+        return False
+    tiny = sum(1 for s in sections if s.get("word_count", 0) < min_words)
+    return tiny / len(sections) > 0.6
+
+
+def detect_sections_from_text(text: str, is_ocr: bool = False) -> list[dict]:
     """Detect section headings in plain extracted text (conservative).
 
     Designed for Zotero ``.zotero-ft-cache`` text where no structural metadata
@@ -570,6 +639,8 @@ def detect_sections_from_text(text: str) -> list[dict]:
     Post-collection filters:
     - **Footnote sequence filter** — discard entire numbered group (dotted or
       undotted) if the max integer in that group exceeds 30 (endnote sequences)
+    - **OCR footnote filter** (when *is_ocr* is True) — discard dotted numbered
+      groups when max integer exceeds 15 AND structural candidates exist
     - **Individual length filter** — numbered candidates whose body text is
       > 60 characters are footnotes, not section headings
     - **Running header deduplication** — normalise (strip trailing page numbers,
@@ -578,9 +649,13 @@ def detect_sections_from_text(text: str) -> list[dict]:
     - **Page-number-suffixed ALL CAPS** — if the normalised form of an ALL CAPS
       candidate matches the normalised form of another (with a different page
       number suffix), discard both
+    - **Size consolidation** — tiny artefact sections (< 50 words) are merged
+      into their neighbours via :func:`consolidate_tiny_sections`
+    - **Majority-tiny guard** — if >60% of sections are tiny after consolidation,
+      returns ``[]`` so the caller can fall back to keyword_skeleton
 
     Returns ``[{"title": str, "level": int, "start": int, "end": int,
-    "word_count": int}]``.
+    "word_count": int}]``, or ``[]`` if detection quality is too poor.
     """
     lines = text.split("\n")
     n = len(lines)
@@ -718,6 +793,18 @@ def detect_sections_from_text(text: str) -> list[dict]:
     if _max_int_in_group(undotted_ids) > 30 and dotted_ids:
         discard.update(undotted_ids)
 
+    # ── OCR-specific: aggressive dotted-footnote filtering ────────────────
+    # In OCR'd PDFs (scanned journal articles), page-footnotes are numbered
+    # sequentially (sometimes reaching 40–70 per paper) and match the dotted
+    # numbered pattern "16. Code, above n 4, at 93–94."  For OCR text, if
+    # dotted numbers go high AND structural candidates (ALL CAPS, well-known
+    # names) also exist, the dotted group is footnotes — discard it.
+    if is_ocr:
+        dotted_max = _max_int_in_group(dotted_ids)
+        structural_ids = set(id(c) for c in candidates if id(c) not in set(dotted_ids) | set(undotted_ids))
+        if dotted_max > 15 and structural_ids:
+            discard.update(dotted_ids)
+
     # ── 5c: Individual length filter for numbered candidates ─────────────
     # A numbered line whose body text (after the number) is > 60 chars is
     # likely a footnote, not a section heading.  Applied after 5e.
@@ -789,5 +876,15 @@ def detect_sections_from_text(text: str) -> list[dict]:
             candidates[j + 1]["start"] if j + 1 < len(candidates) else len(text)
         )
         sec["word_count"] = len(text[sec["start"] : sec["end"]].split())
+
+    # ── Post-hoc size filtering ───────────────────────────────────────────
+    # Merge tiny artefact sections (footnotes, author lines) into neighbours.
+    candidates = consolidate_tiny_sections(candidates, text)
+
+    # If the majority of remaining sections are still tiny, detection has
+    # latched onto a non-section pattern.  Return empty so the caller's
+    # keyword_skeleton fallback produces more useful navigation.
+    if _majority_tiny(candidates):
+        return []
 
     return candidates
