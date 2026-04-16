@@ -531,6 +531,347 @@ async def primo_search(
     return results
 
 
+async def primo_search_law_reviews(
+    query: str,
+    limit: int = 10,
+    start_year: int | None = None,
+    end_year: int | None = None,
+) -> list[dict]:
+    """Search Primo specifically for law review and legal journal articles.
+
+    Runs TWO Primo queries to maximise coverage:
+    1. jtitle contains "law" — catches "law review", "law journal",
+       "criminal law", "international law", etc. (~90% of law reviews)
+    2. jtitle contains "legal" — catches "legal studies", "legal theory",
+       "Journal of Legal Analysis", etc.
+
+    Results are deduplicated by DOI and merged.
+
+    Returns the same normalised result dict schema as primo_search().
+    """
+    if not config.primo_domain or not config.primo_vid:
+        return []
+
+    all_results = []
+    seen_dois: set[str] = set()
+
+    # The two journal-title constraints that together cover the vast
+    # majority of law reviews and legal journals.
+    # "law" catches: Harvard Law Review, Yale L.J., Criminal Law Forum,
+    #   International Law Quarterly, Law & Society Review, etc.
+    # "legal" catches: Journal of Legal Studies, Legal Theory,
+    #   Journal of Legal Analysis, Legal Affairs, etc.
+    jtitle_constraints = ["law", "legal"]
+
+    for jtitle_term in jtitle_constraints:
+        # Build the multi-field query:
+        #   any,contains,{user_query},AND;jtitle,contains,{law|legal}
+        # This means: user's keywords in any field AND journal title
+        # contains "law" (or "legal").
+        clean_query = _re.sub(r'\b\w+:', '', query).strip() or query
+        q_value = f"any,contains,{clean_query},AND;jtitle,contains,{jtitle_term}"
+
+        params: dict[str, Any] = {
+            "q": q_value,
+            "vid": config.primo_vid,
+            "tab": config.primo_tab,
+            "search_scope": config.primo_search_scope,
+            "limit": min(limit, 50),
+            "offset": 0,
+        }
+
+        # Combine facets: restrict to articles + optional date range
+        qInclude_parts = ["facet_rtype,exact,articles"]
+        if start_year or end_year:
+            lo = start_year or 1000
+            hi = end_year or 9999
+            qInclude_parts.append(
+                f"facet_searchcreationdate,exact,[{lo} TO {hi}]"
+            )
+        params["qInclude"] = "|,|".join(qInclude_parts)
+
+        url = f"https://{config.primo_domain}/primaws/rest/pub/pnxs"
+
+        data = None
+        for use_proxy in (True, False):
+            try:
+                client_factory = _proxied_client if use_proxy else _client
+                async with client_factory() as client:
+                    resp = await _request_with_retry(client, "GET", url, params=params)
+                if resp.status_code == 400:
+                    logger.warning(
+                        "Primo law review search returned 400 for jtitle=%s", jtitle_term
+                    )
+                    break  # Don't retry direct on a 400
+                resp.raise_for_status()
+                data = resp.json()
+                break
+            except Exception as exc:
+                if use_proxy and config.gost_proxy_url:
+                    logger.debug("Primo law search via proxy failed (%s), retrying direct", exc)
+                    continue
+                logger.debug("Primo law review search failed: %s", exc)
+                break
+
+        if not data:
+            continue
+
+        # Parse results using the same logic as primo_search()
+        for doc in (data.get("docs") or []):
+            addata  = (doc.get("pnx") or {}).get("addata")  or {}
+            display = (doc.get("pnx") or {}).get("display") or {}
+            links   = (doc.get("pnx") or {}).get("links")   or {}
+            delivery = doc.get("delivery") or {}
+
+            doi_raw = (addata.get("doi") or [""])[0].strip()
+
+            # Deduplicate across the two queries
+            if doi_raw:
+                doi_lower = doi_raw.lower()
+                if doi_lower in seen_dois:
+                    continue
+                seen_dois.add(doi_lower)
+
+            title = (
+                (addata.get("atitle") or addata.get("btitle") or
+                 display.get("title") or [""])[0]
+            )
+            raw_authors = addata.get("au") or display.get("creator") or []
+            authors = [a for a in raw_authors if a][:10]
+            date_raw = (addata.get("date") or display.get("creationdate") or [""])[0]
+            year = date_raw[:4] if date_raw else None
+            venue = (
+                addata.get("jtitle") or addata.get("btitle") or
+                display.get("ispartof") or [None]
+            )[0]
+
+            abstract_parts = display.get("description") or addata.get("abstract") or []
+            abstract = abstract_parts[0] if abstract_parts else None
+
+            oa_url = None
+            for link_key in ("linkunpaywall", "linktopdf", "linktohtml"):
+                raw = (links.get(link_key) or [""])[0]
+                u = _primo_extract_url(raw)
+                if u:
+                    oa_url = u
+                    break
+
+            proxy_url = delivery.get("almaOpenurl") or None
+
+            all_results.append({
+                "title": title or "Untitled",
+                "authors": authors,
+                "year": year,
+                "doi": doi_raw or None,
+                "abstract": abstract,
+                "citations": None,
+                "venue": venue,
+                "found_in": ["primo_law"],
+                "in_zotero": False,
+                "has_oa_pdf": bool(oa_url),
+                "s2_id": None,
+                "_primo_oa_url": oa_url,
+                "_primo_proxy_url": proxy_url,
+            })
+
+    return all_results
+
+
+# ---------------------------------------------------------------------------
+# SSRN DOI resolution
+# ---------------------------------------------------------------------------
+
+
+async def resolve_ssrn_doi(ssrn_doi: str, client: httpx.AsyncClient) -> dict:
+    """Resolve an SSRN DOI to a published DOI and/or OA PDF URLs.
+
+    Queries (in order): OpenAlex, Semantic Scholar, Crossref.
+
+    Returns dict:
+        published_doi: str | None — journal/conference DOI if found
+        oa_pdf_urls: list[str] — direct OA PDF URLs from any location
+        title: str | None — paper title (useful for fallback title search)
+        all_dois: list[str] — all known DOIs for this work
+    """
+    result: dict = {
+        "published_doi": None,
+        "oa_pdf_urls": [],
+        "title": None,
+        "all_dois": [ssrn_doi],
+    }
+    ssrn_norm = ssrn_doi.lower()
+
+    # Step 1 — OpenAlex (best source for version mapping)
+    try:
+        work = await openalex_work(ssrn_doi)
+        if work:
+            result["title"] = work.get("title")
+            canonical_doi = (work.get("doi") or "").replace("https://doi.org/", "")
+            if canonical_doi and canonical_doi.lower() != ssrn_norm:
+                result["published_doi"] = canonical_doi
+                if canonical_doi not in result["all_dois"]:
+                    result["all_dois"].append(canonical_doi)
+            # Collect OA PDF URLs from all locations
+            for loc in work.get("locations") or []:
+                if loc.get("is_oa") and loc.get("pdf_url"):
+                    url = loc["pdf_url"]
+                    if url not in result["oa_pdf_urls"]:
+                        result["oa_pdf_urls"].append(url)
+            primary = work.get("primary_location") or {}
+            if primary.get("pdf_url") and primary["pdf_url"] not in result["oa_pdf_urls"]:
+                result["oa_pdf_urls"].append(primary["pdf_url"])
+    except Exception as e:
+        logger.debug("OpenAlex SSRN lookup failed for %s: %s", ssrn_doi, e)
+
+    # Step 2 — Semantic Scholar (backup)
+    if not result["published_doi"]:
+        try:
+            headers: dict[str, str] = {}
+            if config.semantic_scholar_api_key:
+                headers["x-api-key"] = config.semantic_scholar_api_key
+            resp = await _request_with_retry(
+                client, "GET", f"{S2_BASE}/paper/DOI:{ssrn_doi}",
+                params={"fields": "externalIds,title,openAccessPdf"},
+                headers=headers,
+            )
+            if resp.status_code == 200:
+                s2_data = resp.json()
+                if not result["title"] and s2_data.get("title"):
+                    result["title"] = s2_data["title"]
+                ext_ids = s2_data.get("externalIds") or {}
+                s2_doi = ext_ids.get("DOI")
+                if s2_doi and s2_doi.lower() != ssrn_norm:
+                    result["published_doi"] = s2_doi
+                    if s2_doi not in result["all_dois"]:
+                        result["all_dois"].append(s2_doi)
+                oa_pdf_url = (s2_data.get("openAccessPdf") or {}).get("url")
+                if oa_pdf_url and oa_pdf_url not in result["oa_pdf_urls"]:
+                    result["oa_pdf_urls"].append(oa_pdf_url)
+        except Exception as e:
+            logger.debug("S2 SSRN lookup failed for %s: %s", ssrn_doi, e)
+
+    # Step 3 — Crossref (for is-preprint-of relations)
+    if not result["published_doi"]:
+        try:
+            crossref_data = await crossref_work(ssrn_doi)
+            if crossref_data:
+                if not result["title"]:
+                    titles = crossref_data.get("title") or []
+                    result["title"] = titles[0] if titles else None
+                relations = crossref_data.get("relation") or {}
+                for rel_type in ("is-preprint-of", "is-version-of"):
+                    for rel in relations.get(rel_type) or []:
+                        if rel.get("id-type") == "doi" and rel.get("id"):
+                            published = rel["id"]
+                            result["published_doi"] = published
+                            if published not in result["all_dois"]:
+                                result["all_dois"].append(published)
+                            break
+                    if result["published_doi"]:
+                        break
+        except Exception as e:
+            logger.debug("Crossref SSRN lookup failed for %s: %s", ssrn_doi, e)
+
+    # Step 4 — Primo law review search (if no published DOI found yet)
+    # SSRN papers destined for law reviews often have no cross-linked DOI
+    # in OpenAlex/S2/Crossref. Search Primo by title to find the published version.
+    if not result["published_doi"] and result.get("title"):
+        title = result["title"]
+
+        # Detect whether this SSRN paper is likely a law review article.
+        # Check venue field OR common law review citation patterns in the title
+        # (e.g. "Article Title, 95 Harv. L. Rev. 123 (2023)").
+        venue_str = (result.get("venue") or "").lower()
+        title_lower = title.lower()
+        _law_signals = [
+            "law review", "law journal", "l. rev.", "l.j.",
+            "legal stud", "jurisprudence", "law quarterly",
+        ]
+        is_law = any(sig in venue_str or sig in title_lower for sig in _law_signals)
+
+        if is_law:
+            try:
+                primo_hits = await primo_search_law_reviews(
+                    f"title:{title}",
+                    limit=3,
+                )
+                for hit in primo_hits:
+                    hit_doi = hit.get("doi")
+                    if hit_doi and hit_doi.lower() != ssrn_doi.lower():
+                        result["published_doi"] = hit_doi
+                        if hit_doi not in result["all_dois"]:
+                            result["all_dois"].append(hit_doi)
+                        logger.info(
+                            "SSRN law review %s → %s via Primo", ssrn_doi, hit_doi
+                        )
+                        break
+            except Exception as e:
+                logger.debug("Primo law review search for SSRN %s failed: %s", ssrn_doi, e)
+
+    return result
+
+
+async def search_by_title_for_published_version(
+    title: str, ssrn_doi: str, client: httpx.AsyncClient
+) -> dict | None:
+    """Search OpenAlex and S2 by title to find a published version.
+
+    This catches cases where the SSRN DOI isn't linked to the published
+    version in metadata, but the same paper exists under a different DOI.
+    """
+    ssrn_norm = ssrn_doi.lower()
+
+    # OpenAlex title search
+    try:
+        resp = await _request_with_retry(
+            client, "GET", f"{OA_BASE}/works",
+            params={"search": title, "per_page": 3, **_openalex_mailto_param()},
+            headers=_openalex_headers(),
+        )
+        if resp.status_code == 200:
+            for work in resp.json().get("results") or []:
+                work_doi = (work.get("doi") or "").replace("https://doi.org/", "")
+                if work_doi and work_doi.lower() != ssrn_norm and not work_doi.startswith("10.2139"):
+                    oa_urls = [
+                        loc["pdf_url"]
+                        for loc in (work.get("locations") or [])
+                        if loc.get("is_oa") and loc.get("pdf_url")
+                    ]
+                    return {
+                        "published_doi": work_doi,
+                        "oa_pdf_urls": oa_urls,
+                        "title": work.get("title"),
+                    }
+    except Exception as e:
+        logger.debug("OpenAlex title search for published version failed: %s", e)
+
+    # S2 title search
+    try:
+        headers = {}
+        if config.semantic_scholar_api_key:
+            headers["x-api-key"] = config.semantic_scholar_api_key
+        resp = await _request_with_retry(
+            client, "GET", f"{S2_BASE}/paper/search",
+            params={"query": title, "limit": 3, "fields": "externalIds,title,openAccessPdf"},
+            headers=headers,
+        )
+        if resp.status_code == 200:
+            for paper in resp.json().get("data") or []:
+                ext_ids = paper.get("externalIds") or {}
+                paper_doi = ext_ids.get("DOI")
+                if paper_doi and paper_doi.lower() != ssrn_norm and not paper_doi.startswith("10.2139"):
+                    oa_url = (paper.get("openAccessPdf") or {}).get("url")
+                    return {
+                        "published_doi": paper_doi,
+                        "oa_pdf_urls": [oa_url] if oa_url else [],
+                        "title": paper.get("title"),
+                    }
+    except Exception as e:
+        logger.debug("S2 title search for published version failed: %s", e)
+
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

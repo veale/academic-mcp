@@ -6,15 +6,17 @@ import logging
 from pathlib import Path
 from typing import Any
 
+import httpx
+
 from mcp.server import Server
 from mcp.types import Tool, TextContent
 
 try:
-    from . import apis, content_extractor, pdf_fetcher, pdf_extractor, text_cache, zotero, zotero_sqlite
+    from . import apis, content_extractor, core_api, pdf_fetcher, pdf_extractor, text_cache, web_search, zotero, zotero_sqlite
     from .config import config
     from .reranker import rerank_results
 except ImportError:
-    from academic_mcp import apis, content_extractor, pdf_fetcher, pdf_extractor, text_cache, zotero, zotero_sqlite
+    from academic_mcp import apis, content_extractor, core_api, pdf_fetcher, pdf_extractor, text_cache, web_search, zotero, zotero_sqlite
     from academic_mcp.config import config
     from academic_mcp.reranker import rerank_results
 
@@ -92,7 +94,11 @@ TOOLS = [
             "for a single paper.\n\n"
             "FOUND A KEY PAPER? Use get_citations(doi) to find papers that build on it, "
             "or get_references(doi) to find its foundations. This is often more productive "
-            "than running more keyword searches."
+            "than running more keyword searches.\n\n"
+            "Use domain_hint='law' when the query involves legal scholarship, law "
+            "review articles, or legal academic research. This triggers a specialised "
+            "Primo search constrained to law journals, which covers HeinOnline and "
+            "other legal databases not indexed by Semantic Scholar or OpenAlex."
         ),
         inputSchema={
             "type": "object",
@@ -143,6 +149,19 @@ TOOLS = [
                         "(e.g. 'Nature', 'NeurIPS'). Applies to OpenAlex; "
                         "Semantic Scholar results are post-filtered. Optional."
                     ),
+                },
+                "domain_hint": {
+                    "type": "string",
+                    "enum": ["general", "law"],
+                    "description": (
+                        "Domain hint for specialised search strategies. "
+                        "'law' triggers an additional Primo search constrained to law "
+                        "reviews and legal journals (HeinOnline, Lexis, Gale) — use "
+                        "this when searching for law review articles, legal scholarship, "
+                        "or any academic legal research. "
+                        "'general' (default) uses standard sources."
+                    ),
+                    "default": "general",
                 },
             },
             "required": ["query"],
@@ -692,6 +711,7 @@ async def _handle_search(args: dict) -> list[TextContent]:
     start_year = args.get("start_year")
     end_year = args.get("end_year")
     venue = args.get("venue")
+    domain_hint = args.get("domain_hint", "general")
 
     results = []  # unified list of normalized result dicts
     seen_dois = set()
@@ -863,6 +883,39 @@ async def _handle_search(args: dict) -> list[TextContent]:
         except Exception:
             logger.exception("Primo search failed")
 
+    # ── 4a. Primo law review search (domain_hint="law") ─────────────
+    if domain_hint == "law" and source in ("all", "primo") and (config.primo_domain and config.primo_vid):
+        try:
+            law_results = await apis.primo_search_law_reviews(
+                query, limit=limit,
+                start_year=start_year, end_year=end_year,
+            )
+            for r in law_results:
+                doi = (r.get("doi") or "").strip()
+                doi_norm = zotero._normalize_doi(doi) if doi else None
+                if doi_norm and doi_norm in seen_dois:
+                    # Merge into existing result
+                    for existing in results:
+                        if existing.get("doi") and zotero._normalize_doi(existing["doi"]) == doi_norm:
+                            if "primo_law" not in existing["found_in"]:
+                                existing["found_in"].append("primo_law")
+                            if not existing.get("_primo_proxy_url"):
+                                existing["_primo_proxy_url"] = r.get("_primo_proxy_url")
+                            if not existing.get("_primo_oa_url"):
+                                existing["_primo_oa_url"] = r.get("_primo_oa_url")
+                                existing["has_oa_pdf"] = existing["has_oa_pdf"] or r["has_oa_pdf"]
+                            break
+                    continue
+                if doi_norm:
+                    seen_dois.add(doi_norm)
+                in_zot = doi_norm in zot_index if doi_norm else False
+                if in_zot:
+                    r["in_zotero"] = True
+                    r["has_oa_pdf"] = True
+                results.append(r)
+        except Exception:
+            logger.exception("Primo law review search failed")
+
     # ── 5. For Zotero items without abstracts, try getting a preview ──
     for r in results:
         if r["in_zotero"] and not r["abstract"] and r.get("doi"):
@@ -922,7 +975,8 @@ async def _handle_search(args: dict) -> list[TextContent]:
                 text += f"  |  Citations: {r['citations']}"
             text += "\n"
         if r.get("venue"):
-            text += f"    Venue: {r['venue']}\n"
+            law_note = "  [law review — via Primo/HeinOnline]" if "primo_law" in r["found_in"] else ""
+            text += f"    Venue: {r['venue']}{law_note}\n"
         if r.get("doi"):
             text += f"    DOI: {r['doi']}\n"
         text += f"    Sources: {', '.join(r['found_in'])}\n"
@@ -1425,6 +1479,53 @@ async def _handle_fetch_pdf(args: dict) -> list[TextContent]:
                         )
 
                 if result is None:
+                    # ── Step 0b: SSRN DOI remapping ─────────────────────────────────
+                    # For SSRN preprints, try to find the published version's DOI and
+                    # any OA PDF URLs before doing any network fetching.  We skip this
+                    # when re-entering the pipeline via a remap (to avoid recursion).
+                    _ssrn_remap: dict | None = None
+                    if doi.startswith("10.2139/ssrn.") and not args.get("_original_ssrn_doi"):
+                        async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as _c:
+                            _ssrn_remap = await apis.resolve_ssrn_doi(doi, _c)
+
+                        # Try OA PDF URLs discovered by remap
+                        for _oa_url in (_ssrn_remap or {}).get("oa_pdf_urls", []):
+                            _oa_path = await pdf_fetcher.fetch_direct(_oa_url)
+                            if _oa_path:
+                                result = _cache_pdf_and_return(
+                                    _oa_path, doi, "ssrn_remap_oa",
+                                    pages_str, mode, section_name, range_start, range_end,
+                                )
+                                if result:
+                                    break
+
+                        # If a published DOI was found, re-enter pipeline with it
+                        if result is None and (_ssrn_remap or {}).get("published_doi"):
+                            _pub_doi = _ssrn_remap["published_doi"]
+                            logger.info("SSRN %s → published %s", doi, _pub_doi)
+                            result = await _handle_fetch_pdf({
+                                **args,
+                                "doi": _pub_doi,
+                                "_original_ssrn_doi": doi,
+                            })
+
+                        # If still nothing, try title-based search for a published version
+                        if result is None and (_ssrn_remap or {}).get("title"):
+                            async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as _c:
+                                _title_remap = await apis.search_by_title_for_published_version(
+                                    _ssrn_remap["title"], doi, _c
+                                )
+                            if _title_remap and _title_remap.get("published_doi"):
+                                logger.info(
+                                    "SSRN title search %r → %s",
+                                    _ssrn_remap["title"][:60], _title_remap["published_doi"],
+                                )
+                                result = await _handle_fetch_pdf({
+                                    **args,
+                                    "doi": _title_remap["published_doi"],
+                                    "_original_ssrn_doi": doi,
+                                })
+
                     # ── Step 1: Gather candidate PDF URLs from external APIs ────────
                     s2_paper = None
                     oa_paper = None
@@ -1487,6 +1588,83 @@ async def _handle_fetch_pdf(args: dict) -> list[TextContent]:
                             )
                             if result:
                                 break
+
+                    # ── Step 2b: CORE.ac.uk ─────────────────────────────────────────
+                    if result is None and config.core_api_key:
+                        _core_title = cite_meta.get("title") or (_ssrn_remap or {}).get("title")
+                        async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as _cc:
+                            # DOI lookup first, then title if no direct hit
+                            _core_hits = await core_api.search_core(doi=doi, client=_cc)
+                            if not _core_hits and _core_title:
+                                _core_hits = await core_api.search_core(title=_core_title, client=_cc)
+                            for _ch in _core_hits:
+                                if _ch.get("core_id"):
+                                    _core_path = await core_api.download_from_core(
+                                        _ch["core_id"], _ch.get("download_url"), _cc
+                                    )
+                                    if _core_path:
+                                        result = _cache_pdf_and_return(
+                                            _core_path, doi, "core.ac.uk",
+                                            pages_str, mode, section_name, range_start, range_end,
+                                        )
+                                        if result:
+                                            break
+                                # Also try sourceFulltextUrls directly
+                                if result is None:
+                                    for _src_url in _ch.get("source_fulltext_urls") or []:
+                                        _src_path = await pdf_fetcher.fetch_direct(_src_url)
+                                        if _src_path:
+                                            result = _cache_pdf_and_return(
+                                                _src_path, doi, "core_source_url",
+                                                pages_str, mode, section_name, range_start, range_end,
+                                            )
+                                            if result:
+                                                break
+                                if result:
+                                    break
+
+                    # ── Step 2c: Web search fallback (Serper / Brave) ────────────────
+                    if result is None and (config.serper_api_key or config.brave_search_api_key):
+                        _ws_title = cite_meta.get("title") or (_ssrn_remap or {}).get("title")
+                        if _ws_title:
+                            _ws_authors = cite_meta.get("authors") or []
+                            async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as _wc:
+                                _ws_hits = await web_search.search_for_pdf(
+                                    _ws_title, _ws_authors, _wc
+                                )
+                            for _wh in _ws_hits:
+                                _ws_url = _wh["url"]
+                                # Only attempt direct PDF URLs; landing pages are
+                                # handled by the stealth browser tier (step 3).
+                                _ws_url_lower = _ws_url.lower()
+                                if (
+                                    not _ws_url_lower.endswith(".pdf")
+                                    and "viewcontent.cgi" not in _ws_url_lower
+                                ):
+                                    continue
+                                _ws_path = await pdf_fetcher.fetch_direct(_ws_url)
+                                if not _ws_path and use_proxy:
+                                    _ws_path = await pdf_fetcher.fetch_proxied(_ws_url)
+                                if _ws_path:
+                                    # Validate: is this actually the paper we wanted?
+                                    if not pdf_fetcher._pdf_matches_expected_paper(
+                                        _ws_path, _ws_title, _ws_authors
+                                    ):
+                                        logger.info(
+                                            "Web search result rejected by validation: %s",
+                                            _ws_url,
+                                        )
+                                        try:
+                                            _ws_path.unlink(missing_ok=True)
+                                        except OSError:
+                                            pass
+                                        continue
+                                    result = _cache_pdf_and_return(
+                                        _ws_path, doi, f"web_search ({_wh['source']})",
+                                        pages_str, mode, section_name, range_start, range_end,
+                                    )
+                                    if result:
+                                        break
 
                     # ── Step 3: Scrapling fetch of DOI landing page ──────────────────
                     #
@@ -1669,39 +1847,113 @@ async def _handle_fetch_pdf(args: dict) -> list[TextContent]:
                                 if result:
                                     break
 
+                    # ── Step 7: HeinOnline (law review + institutional proxy) ────────
+                    if result is None and web_search._looks_like_law_review(cite_meta):
+                        _hein_title = cite_meta.get("title") or (_ssrn_remap or {}).get("title")
+                        if _hein_title:
+                            async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as _hc:
+                                _hein_path = await web_search.fetch_from_heinonline(_hein_title, _hc)
+                            if _hein_path:
+                                result = _cache_pdf_and_return(
+                                    _hein_path, doi, "heinonline",
+                                    pages_str, mode, section_name, range_start, range_end,
+                                )
+
+                    # ── Step 8: SSRN cookie injection ────────────────────────────────
+                    if result is None and doi.startswith("10.2139/ssrn.") and config.ssrn_cookies:
+                        _ssrn_id = doi.rsplit(".", 1)[-1]
+                        _ssrn_page_url = f"https://papers.ssrn.com/sol3/papers.cfm?abstract_id={_ssrn_id}"
+                        logger.info("Trying SSRN cookie injection for %s", doi)
+                        _ssrn_html = await web_search.fetch_ssrn_with_cookies(_ssrn_page_url)
+                        if _ssrn_html:
+                            # Extract direct PDF link from the SSRN page
+                            _ssrn_pdf_link = pdf_fetcher._extract_pdf_link_from_html(
+                                _ssrn_html, _ssrn_page_url
+                            )
+                            if _ssrn_pdf_link:
+                                _ssrn_path = await pdf_fetcher.fetch_direct(_ssrn_pdf_link)
+                                if not _ssrn_path and use_proxy:
+                                    _ssrn_path = await pdf_fetcher.fetch_proxied(_ssrn_pdf_link)
+                                if _ssrn_path:
+                                    result = _cache_pdf_and_return(
+                                        _ssrn_path, doi, "ssrn_cookies",
+                                        pages_str, mode, section_name, range_start, range_end,
+                                    )
+                            # Also try HTML extraction if the page has full text
+                            if result is None:
+                                _ssrn_extraction = await content_extractor.extract_article_with_sections(
+                                    _ssrn_html, _ssrn_page_url
+                                )
+                                if _ssrn_extraction and _ssrn_extraction.get("word_count", 0) > 1500:
+                                    _raw = _ssrn_extraction["text"]
+                                    _secs = _ssrn_extraction["sections"] or content_extractor.detect_sections_from_text(_raw)
+                                    _cached_art = text_cache.put_cached(
+                                        doi, _raw, "ssrn_cookies_html",
+                                        sections=_secs,
+                                        section_detection=_ssrn_extraction.get("section_detection", "text_heuristic"),
+                                        word_count=_ssrn_extraction["word_count"],
+                                        metadata=cite_meta,
+                                    )
+                                    result = _apply_mode_filter(
+                                        _cached_art, mode, section_name, range_start, range_end
+                                    )
+
                     # ── Failure ──────────────────────────────────────────────────────
                     if result is None:
-                        sources_tried = [c["source"] for c in candidate_urls]
-                        lines = [
-                            f"Could not retrieve full text for DOI: {doi}\n",
-                            f"Sources tried: {', '.join(sources_tried) or 'none found'}\n",
-                        ]
+                        _original_doi = args.get("_original_ssrn_doi") or doi
+                        _is_ssrn = _original_doi.startswith("10.2139/ssrn.")
 
-                        # Suggest next actions based on what wasn't tried
-                        if not use_proxy and config.gost_proxy_url:
+                        if _is_ssrn:
+                            _ssrn_id = _original_doi.rsplit(".", 1)[-1]
+                            _pub_note = ""
+                            if (_ssrn_remap or {}).get("published_doi"):
+                                _pub_note = (
+                                    f"\n\nNote: this paper may also be published as "
+                                    f"https://doi.org/{_ssrn_remap['published_doi']}"
+                                )
+                            lines = [
+                                f"Could not retrieve {_original_doi} automatically.\n",
+                                "\nThis is an SSRN paper. Automated download failed (SSRN blocks bots).\n",
+                                "\n**To get this paper, ask the user to either:**\n",
+                                f"1. Download from https://papers.ssrn.com/sol3/papers.cfm?abstract_id={_ssrn_id}\n",
+                                "2. Save it to Zotero using the browser connector (which handles SSRN well)\n",
+                                "3. Attach the PDF directly to this conversation\n",
+                                _pub_note,
+                                "\nOnce available, re-run this request.",
+                            ]
+                        else:
+                            sources_tried = [c["source"] for c in candidate_urls]
+                            doi_url = f"https://doi.org/{doi}"
+                            lines = [
+                                f"Could not retrieve full text for DOI: {doi}\n",
+                                f"Sources tried: {', '.join(sources_tried) or 'none found'}\n",
+                            ]
+
+                            if not use_proxy and config.gost_proxy_url:
+                                lines.append(
+                                    "\n→ Try with institutional proxy: "
+                                    f"fetch_fulltext(doi=\"{doi}\", use_proxy=true)\n"
+                                )
+                            elif not config.gost_proxy_url:
+                                lines.append(
+                                    "\n→ No institutional proxy configured. If you have institutional access, "
+                                    "configure GOST_PROXY_URL in .env.\n"
+                                )
+
+                            lines.append(f"→ Check available URLs: find_pdf_urls(doi=\"{doi}\")\n")
+                            lines.append(f"→ Verify metadata: get_paper(identifier=\"{doi}\")\n")
                             lines.append(
-                                "\n→ Try with institutional proxy: "
-                                f"fetch_fulltext(doi=\"{doi}\", use_proxy=true)\n"
-                            )
-                        elif not config.gost_proxy_url:
-                            lines.append(
-                                "\n→ No institutional proxy configured. If you have institutional access, "
-                                "configure GOST_PROXY_URL in .env.\n"
+                                f"\n**Ask the user to:**\n"
+                                f"1. Open {doi_url} in their browser and download the PDF\n"
+                                f"2. Save it to Zotero, or attach the PDF to this conversation\n"
+                                f"\nOnce available, re-run this request."
                             )
 
-                        lines.append(
-                            f"→ Check available URLs: find_pdf_urls(doi=\"{doi}\")\n"
-                        )
-                        lines.append(
-                            f"→ Verify metadata: get_paper(identifier=\"{doi}\")\n"
-                        )
-
-                        # If we got HTML but it was too short (paywall), say so explicitly
-                        if html and not extraction:
-                            lines.append(
-                                "\nNote: The publisher page was reached but the full article text was not "
-                                "available — likely behind a paywall. Only the abstract could be accessed.\n"
-                            )
+                            if html and not extraction:
+                                lines.append(
+                                    "\n\nNote: The publisher page was reached but the full article text was not "
+                                    "available — likely behind a paywall. Only the abstract could be accessed.\n"
+                                )
 
                         result = [TextContent(type="text", text="".join(lines))]
     finally:
@@ -2098,6 +2350,15 @@ async def _handle_search_in_article(args: dict) -> list[TextContent]:
     max_matches = min(int(args.get("max_matches_per_term", 3)), 10)
 
     cached = text_cache.get_cached(doi)
+    if not cached and doi.startswith("10.2139/ssrn."):
+        # Try the remapped published DOI
+        try:
+            async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as _src:
+                _si_remap = await apis.resolve_ssrn_doi(doi, _src)
+            if _si_remap.get("published_doi"):
+                cached = text_cache.get_cached(_si_remap["published_doi"])
+        except Exception:
+            pass
     if not cached:
         return [TextContent(
             type="text",
@@ -2312,6 +2573,26 @@ async def _handle_batch_sections(args: dict) -> list[TextContent]:
 
     if not dois:
         return [TextContent(type="text", text="No DOIs provided.")]
+
+    # Remap any SSRN DOIs to their published versions before fetching
+    resolved_dois: list[str] = []
+    ssrn_remap_index: dict[str, str] = {}  # original_doi → resolved_doi
+    async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as _rc:
+        for _doi in dois:
+            if _doi.startswith("10.2139/ssrn."):
+                try:
+                    _remap = await apis.resolve_ssrn_doi(_doi, _rc)
+                    if _remap.get("published_doi"):
+                        logger.info(
+                            "batch_sections: SSRN %s → %s", _doi, _remap["published_doi"]
+                        )
+                        ssrn_remap_index[_doi] = _remap["published_doi"]
+                        resolved_dois.append(_remap["published_doi"])
+                        continue
+                except Exception as e:
+                    logger.debug("batch_sections SSRN remap failed for %s: %s", _doi, e)
+            resolved_dois.append(_doi)
+    dois = resolved_dois
 
     # Split into cached and uncached
     cached = {}
@@ -2866,6 +3147,11 @@ def _cache_pdf_and_return(
         word_count=len(raw_text.split()),
         metadata=pdf_meta,
     )
+
+    # Queue for background Zotero import (non-blocking; only when we have a file)
+    if isinstance(pdf_source, Path):
+        from . import zotero_import
+        zotero_import.enqueue_zotero_import(doi, pdf_source, cached_article)
 
     if mode != "full":
         return _apply_mode_filter(cached_article, mode, section_name, range_start, range_end)

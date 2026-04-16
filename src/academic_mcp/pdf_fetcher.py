@@ -90,6 +90,101 @@ async def _stream_to_cache(url: str, resp: httpx.Response) -> Path | None:
 
 
 # ---------------------------------------------------------------------------
+# PDF content validation
+# ---------------------------------------------------------------------------
+
+def _pdf_matches_expected_paper(
+    pdf_path: Path,
+    expected_title: str,
+    expected_authors: list[str] | None = None,
+) -> bool:
+    """Check that a downloaded PDF is the paper we wanted.
+
+    Rejects CVs, bibliographies, syllabi, and reading lists that mention the
+    target paper but are not the paper itself.
+
+    Two checks:
+    1. CV/bibliography rejection — if the first two pages contain CV-indicator
+       phrases, reject the PDF.
+    2. Title word match — at least 40% of significant title words must appear
+       in the first 3000 characters of the PDF text.
+
+    Returns True if the PDF looks like the right paper, False if it looks like
+    a wrong document. Returns True on any error (benefit of the doubt — let
+    the extraction pipeline handle it).
+    """
+    import fitz  # PyMuPDF
+
+    try:
+        doc = fitz.open(pdf_path)
+        if len(doc) == 0:
+            doc.close()
+            return False
+
+        # Extract text from first 2 pages
+        first_text = ""
+        for page in doc[:min(2, len(doc))]:
+            first_text += page.get_text()
+        doc.close()
+
+        first_text_lower = first_text[:5000].lower()
+
+        # ── Check 1: CV / bibliography indicators ──────────────────────────
+        # "curriculum vitae" alone is decisive — academic papers never contain it.
+        if "curriculum vitae" in first_text_lower:
+            logger.info("PDF rejected (curriculum vitae detected): %s", pdf_path.name)
+            return False
+
+        # Two or more of these phrases → almost certainly a CV or publication list.
+        cv_indicators = [
+            "selected publications",
+            "resume",
+            "resumé",
+            "résumé",
+        ]
+        cv_hits = sum(1 for phrase in cv_indicators if phrase in first_text_lower)
+        if cv_hits >= 2:
+            logger.info(
+                "PDF rejected (CV/bibliography detected, %d indicators): %s",
+                cv_hits, pdf_path.name,
+            )
+            return False
+
+        # ── Check 2: Title word match ───────────────────────────────────────
+        stopwords = {
+            "the", "and", "for", "with", "from", "that", "this", "which",
+            "between", "about", "into", "through", "after", "before",
+            "their", "there", "these", "those", "other", "some", "such",
+            "than", "then", "when", "where", "what", "will", "would",
+            "could", "should", "have", "been", "were", "being", "does",
+        }
+        title_words = [
+            w.lower() for w in expected_title.split()
+            if len(w) > 3 and w.lower() not in stopwords
+        ]
+
+        if not title_words:
+            return True  # Can't check — benefit of the doubt
+
+        check_region = first_text_lower[:3000]
+        matches = sum(1 for w in title_words if w in check_region)
+        match_ratio = matches / len(title_words)
+
+        if match_ratio < 0.4:
+            logger.info(
+                "PDF rejected (title match %.0f%%, need 40%%): %s — expected '%s'",
+                match_ratio * 100, pdf_path.name, expected_title[:60],
+            )
+            return False
+
+        return True
+
+    except Exception as exc:
+        logger.debug("PDF validation failed (assuming OK): %s — %s", pdf_path.name, exc)
+        return True  # Can't validate — let it through
+
+
+# ---------------------------------------------------------------------------
 # Strategy 1: Direct HTTP fetch
 # ---------------------------------------------------------------------------
 

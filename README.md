@@ -10,6 +10,7 @@ An MCP server that searches academic papers, fetches full text, and returns cont
 │                                                                  │
 │  Tools:                                                          │
 │  ├── search_papers       (Zotero + S2 + OpenAlex + Primo)        │
+│  │     domain_hint: general | law  (law → Primo law review search)│
 │  ├── search_zotero       (search your Zotero library)            │
 │  ├── search_by_doi       (instant DOI lookup via SQLite)         │
 │  ├── get_paper           (metadata by DOI)                       │
@@ -28,30 +29,52 @@ An MCP server that searches academic papers, fetches full text, and returns cont
 │  │    Checked before all other sources.  Written on first   │    │
 │  │    successful extraction.  Subject to LRU eviction.      │    │
 │  ├──────────────────────────────────────────────────────────┤    │
-│  │ 0. SQLITE (fastest — direct read of zotero.sqlite)       │    │
+│  │ 0. SQLITE / ZOTERO (local library — fastest path)        │    │
 │  │    a) .zotero-ft-cache  (pre-extracted fulltext on disk) │    │
 │  │    b) Local storage PDF  (~/Zotero/storage/<key>/)       │    │
 │  │    c) Local WebDAV dir   (skip HTTP, read zip from disk) │    │
 │  │    d) WebDAV over HTTP   (stream zip → extract to cache) │    │
+│  │    e) Zotero Web/local API fallback                      │    │
 │  ├──────────────────────────────────────────────────────────┤    │
-│  │ 1. ZOTERO API (fallback if SQLite unavailable)           │    │
-│  │    a) Fulltext from Web API (pre-extracted text)         │    │
-│  │    b) PDF from local ~/Zotero/storage/<key>/             │    │
-│  │    c) PDF from Zotero Web API file download              │    │
-│  │    d) PDF from WebDAV server (<key>.zip)                 │    │
+│  │ 1. SSRN DOI REMAP  (if doi starts with 10.2139/ssrn.)   │    │
+│  │    a) OpenAlex → published DOI + OA PDF URLs             │    │
+│  │    b) Semantic Scholar → externalIds mapping             │    │
+│  │    c) Crossref → relation.is-preprint-of                 │    │
+│  │    d) Title search in OpenAlex / S2 / CORE               │    │
+│  │    e) Re-enter pipeline with published DOI if found      │    │
 │  ├──────────────────────────────────────────────────────────┤    │
-│  │ 2. DIRECT HTTP (if not in Zotero)                        │    │
-│  │    Unpaywall / Semantic Scholar / OpenAlex OA PDF URLs   │    │
-│  │    — fast HTTP GET, no browser, handles arXiv/PMC/SSRN   │    │
+│  │ 2. DIRECT HTTP (Unpaywall / S2 / OpenAlex OA URLs)       │    │
+│  │    Fast HTTP GET, no browser, handles arXiv/PMC/SSRN     │    │
 │  ├──────────────────────────────────────────────────────────┤    │
-│  │ 3. STEALTH BROWSER (if direct fetch fails)               │    │
-│  │    Single Scrapling call to the DOI landing page, then:  │    │
+│  │ 3. CORE.ac.uk  (300M+ papers, 40M+ PDFs)                 │    │
+│  │    DOI lookup → title search → /outputs/{id}/download    │    │
+│  ├──────────────────────────────────────────────────────────┤    │
+│  │ 4. WEB SEARCH  (Serper / Brave)                          │    │
+│  │    "Title" filetype:pdf + author — trusted domains only  │    │
+│  ├──────────────────────────────────────────────────────────┤    │
+│  │ 5. STEALTH BROWSER (DOI landing page)                    │    │
 │  │    a) citation_pdf_url meta tag → direct/proxied fetch   │    │
 │  │    b) HTML article extraction via trafilatura (≥1500 wds)│    │
 │  │    c) <a>-tag PDF link scanning → direct/proxied fetch   │    │
 │  │    d) GOST proxy on candidate URLs (institutional access)│    │
 │  │    e) Scrapling on candidate URLs (last resort)          │    │
+│  ├──────────────────────────────────────────────────────────┤    │
+│  │ 6. HEINONLINE  (law reviews — persistent session)        │    │
+│  │    Scrapling open_session → search → article → PDF       │    │
+│  │    Requires GOST_PROXY_URL + SCRAPLING_MCP_URL           │    │
+│  ├──────────────────────────────────────────────────────────┤    │
+│  │ 7. SSRN COOKIES  (authenticated SSRN access)             │    │
+│  │    Scrapling session + injected cookies from Firefox     │    │
+│  │    Requires SSRN_COOKIES + SCRAPLING_MCP_URL             │    │
+│  ├──────────────────────────────────────────────────────────┤    │
+│  │ 8. LLM FALLBACK  (actionable failure message)            │    │
+│  │    SSRN papers: direct download link + Zotero connector  │    │
+│  │    Other: DOI URL + Zotero / conversation attachment     │    │
 │  └──────────────────────────────────────────────────────────┘    │
+│                                                                  │
+│  Background (non-blocking):                                      │
+│  └── ZOTERO AUTO-IMPORT  (AUTO_IMPORT_TO_ZOTERO=true)           │
+│       Web-fetched PDFs → Crossref metadata → Zotero library      │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
@@ -164,6 +187,26 @@ cp .env.example .env
 | `PDF_CACHE_MAX_BYTES` | `2147483648` (2 GB) | Max cache size before LRU eviction kicks in |
 | `MAX_CONTEXT_LENGTH` | `100000` | Max characters returned to the LLM |
 | `USE_PYMUPDF4LLM` | `true` | Use pymupdf4llm for Markdown PDF extraction (tables, multi-column, bold/italic). Falls back to the legacy pipeline on failure. |
+
+### OA aggregator and web search fallback
+
+| Variable | Default | Description |
+|---|---|---|
+| `CORE_API_KEY` | *(empty)* | CORE.ac.uk API key — free, register at [core.ac.uk/services/api](https://core.ac.uk/services/api). Rate: 5 req/10s (free tier). 300M+ records, 40M+ full-text PDFs. |
+| `SERPER_API_KEY` | *(empty)* | [Serper.dev](https://serper.dev) key — Google results. 2,500 free queries, then ~$1/1K. |
+| `BRAVE_SEARCH_API_KEY` | *(empty)* | Brave Search API key — own index. $5/mo free credits (~1K queries). |
+
+### SSRN authenticated access
+
+| Variable | Default | Description |
+|---|---|---|
+| `SSRN_COOKIES` | *(empty)* | JSON cookie array for authenticated SSRN access (see below). |
+
+### Zotero auto-import
+
+| Variable | Default | Description |
+|---|---|---|
+| `AUTO_IMPORT_TO_ZOTERO` | `false` | Auto-import web-fetched PDFs into local Zotero library with full Crossref metadata. Requires Zotero desktop running. The `.article.json` text cache is always kept; only the PDF moves to Zotero. |
 
 ### Zotero settings
 
@@ -279,6 +322,225 @@ ZOTERO_WEBDAV_USER=alice
 ZOTERO_WEBDAV_PASS=secret
 ```
 
+## SSRN DOI Remapping
+
+SSRN preprints (DOIs starting with `10.2139/ssrn.`) are often published in journals under a different DOI. The server automatically resolves these before attempting any network fetch:
+
+1. **OpenAlex** — looks up the SSRN DOI and checks whether OpenAlex's canonical DOI differs (OpenAlex groups preprints with their published versions as a single Work). Also collects all OA PDF URLs from the work's locations.
+2. **Semantic Scholar** — checks `externalIds.DOI` for a non-SSRN DOI.
+3. **Crossref** — checks `relation.is-preprint-of` / `is-version-of` links.
+4. **Title search** — if no published DOI is found by DOI lookup, searches OpenAlex and S2 by title to find a matching published version.
+5. **Primo law review search** — if the venue or title contains law review signals (`L. Rev.`, `law review`, `law journal`, etc.) and no published DOI was found in steps 1–4, searches Primo by title constrained to law journals. This catches SSRN papers destined for law reviews that have no cross-linked DOI in OpenAlex/S2/Crossref.
+
+When a published DOI is found, the pipeline re-enters transparently with the journal DOI — institutional proxy and OA links are much more likely to work for the published version than for the SSRN preprint page. OA PDF URLs found during remap are tried immediately via direct HTTP before falling through to the rest of the pipeline.
+
+This also applies to `batch_sections` (SSRN DOIs in the list are remapped before the parallel fetch) and `search_in_article` (SSRN cache misses try the remapped DOI).
+
+## CORE.ac.uk
+
+[CORE](https://core.ac.uk) aggregates 300M+ metadata records and 40M+ full-text PDFs from institutional repositories worldwide. It is queried after direct HTTP (Unpaywall/S2/OpenAlex) fails:
+
+1. DOI lookup: `GET /search/works?q=doi:{doi}`
+2. Title search (if DOI misses): `GET /search/works?q=title:"{title}" AND _exists_:fullText`
+3. Download: `GET /outputs/{core_id}/download` — returns raw PDF bytes directly (no landing page)
+
+Requires `CORE_API_KEY`. The free tier allows 5 requests per 10 seconds. Register at [core.ac.uk/services/api](https://core.ac.uk/services/api).
+
+```bash
+# Test CORE search
+uv run python -c "
+import asyncio, httpx
+from academic_mcp.core_api import search_core
+
+async def test():
+    async with httpx.AsyncClient() as client:
+        results = await search_core(title='attention is all you need', client=client)
+        for r in results:
+            print(f'{(r[\"title\"] or \"\")[:60]}  download={r[\"download_url\"]}')
+
+asyncio.run(test())
+"
+```
+
+## Web Search Fallback (Serper / Brave)
+
+When CORE fails, the server searches Google (via [Serper.dev](https://serper.dev)) and/or Brave Search for direct PDF links and publisher landing pages. Two queries are constructed:
+
+1. `"Exact Paper Title" filetype:pdf` — finds direct PDF links
+2. `"Exact Paper Title" AuthorSurname` — finds landing pages
+
+Results are filtered to a trusted domain allowlist of 70+ academic publishers, preprint servers, institutional repository patterns (`.edu`, `.ac.uk`, `.ac.jp`, etc.), and law review domains. This prevents following links to paywalled aggregators or unrelated sites.
+
+Configure at least one search key to enable this tier:
+
+```bash
+SERPER_API_KEY=your_key    # 2,500 free queries, no credit card required
+BRAVE_SEARCH_API_KEY=your_key  # $5/mo free credits
+```
+
+```bash
+# Test web search
+uv run python -c "
+import asyncio, httpx
+from academic_mcp.web_search import search_for_pdf
+
+async def test():
+    async with httpx.AsyncClient() as client:
+        results = await search_for_pdf(
+            'Attention Is All You Need',
+            authors=['Vaswani'],
+            client=client,
+        )
+        for r in results:
+            print(f'{r[\"source\"]}: {r[\"url\"]}')
+
+asyncio.run(test())
+"
+```
+
+## Law Review / HeinOnline Retrieval
+
+Law review articles are detected automatically from their venue name using a layered pattern set:
+
+- **Full names**: `law review`, `law journal`, `law forum`, `legal studies`, `legal theory`, `international law`, `constitutional law`, `criminal law`, etc.
+- **Bluebook abbreviations**: `L. Rev.`, `L.J.`, ` L. ` (catches `Crim. L. Forum`), `Harv. L. Rev.`, `Yale L.J.`, `Colum. L. Rev.`, etc.
+- **HeinOnline markers**: `hein.journals`
+
+A convenience wrapper `_looks_like_law_review_by_venue(venue_string)` is also available.
+
+### Search: `domain_hint="law"`
+
+Before attempting any PDF fetch, `search_papers(domain_hint="law")` runs a dedicated Primo search constrained to law journals (`jtitle,contains,law` + `jtitle,contains,legal`). This surfaces HeinOnline and Lexis content not indexed by Semantic Scholar or OpenAlex. See the [Primo section](#ex-libris-primo-institutional-catalogue) for full details.
+
+### Fetch: tiered law review retrieval
+
+When `fetch_fulltext` fails through the normal pipeline and the venue is detected as a law review, these additional tiers fire:
+
+1. **CORE** — searches Digital Commons / bepress institutional repositories by exact quoted title. Most US law schools host their reviews on Digital Commons, which CORE indexes via OAI-PMH.
+2. **Web search** — targeted query (`"title" "venue" filetype:pdf`) biased toward law school repositories and law review sites.
+3. **HeinOnline via Scrapling** — persistent browser session using your institutional proxy:
+   - `open_session` with Cloudflare solving
+   - Search HeinOnline for the article title
+   - Navigate to the article page → "Download PDF"
+   - Follow meta-refresh staging page to the PDF URL
+   - Download via proxied HTTP
+
+   Requires both `GOST_PROXY_URL` and `SCRAPLING_MCP_URL`.
+
+```bash
+# Test law review detection
+uv run python -c "
+from academic_mcp.web_search import _looks_like_law_review, _looks_like_law_review_by_venue
+
+tests = [
+    'Harvard Law Review',
+    'Harv. L. Rev.',
+    'Yale L.J.',
+    'Criminal Law Forum',
+    'Crim. L. Forum',
+    'Journal of Legal Studies',
+    'European Journal of International Law',
+    'Nature',
+    'Journal on Regulation',
+]
+for v in tests:
+    print(f'{v:50s} → {_looks_like_law_review_by_venue(v)}')
+"
+```
+
+## SSRN Authenticated Access
+
+SSRN blocks automated access. If you have an SSRN account, you can export your session cookies from Firefox and inject them into a Scrapling browser session for authenticated downloads.
+
+### Extracting SSRN cookies from Firefox
+
+The easiest method is the **Cookie Quick Manager** Firefox extension:
+
+1. Install [Cookie Quick Manager](https://addons.mozilla.org/firefox/addon/cookie-quick-manager/) in Firefox
+2. **Log into SSRN** at https://www.ssrn.com
+3. Click the Cookie Quick Manager icon → search for `ssrn.com` → select all → **Export as text file**
+4. The exported file is tab-separated. Paste the contents directly as `SSRN_COOKIES`:
+
+```bash
+SSRN_COOKIES='.ssrn.com	false	/	false	1779808177	SSRN_TOKEN	eyJ0eXAiOiJKV1Qi...
+.ssrn.com	false	/	false	0	AWSELB	F583A35D0...
+.ssrn.com	false	/	true	0	__cf_bm	IceVFM03AG...'
+```
+
+The format is tab-separated with columns: `domain`, `hostOnly`, `path`, `secure`, `expires`, `name`, `value` — exactly what Cookie Quick Manager exports. No conversion needed.
+
+Alternatively, use the **JSON format** (from DevTools or manual entry):
+
+```bash
+SSRN_COOKIES='[
+  {"name":"SSRN_TOKEN","value":"YOUR_VALUE","domain":".ssrn.com","path":"/"},
+  {"name":"AWSELB","value":"YOUR_VALUE","domain":".ssrn.com","path":"/"}
+]'
+```
+
+Both formats are auto-detected. The key cookies to include are `SSRN_TOKEN`, `AWSELB`, and any Cloudflare cookies (`__cf_bm`, `cf_clearance`).
+
+**Note:** Cookies expire after a few days to a few weeks. When SSRN access stops working, repeat the export. Requires `SCRAPLING_MCP_URL` for the persistent browser session.
+
+## Zotero Auto-Import
+
+When `AUTO_IMPORT_TO_ZOTERO=true`, every PDF fetched from the web is automatically imported into your local Zotero library after extraction. This converts the paper from a temporary cache entry into a permanent library item — the next request for the same DOI becomes a tier-0 Zotero hit.
+
+**What happens:**
+
+1. The PDF is copied to `~/Zotero/storage/{KEY}/` (Zotero's native attachment format)
+2. Full bibliographic metadata is fetched from Crossref (title, authors, journal, volume/issue/pages, ISSN, abstract)
+3. A Zotero item is created via the local API (`localhost:23119`) with the correct item type (`journalArticle`, `conferencePaper`, `bookSection`, `preprint`, `thesis`, etc.)
+4. The PDF is attached to the item
+5. The cached PDF is deleted from `PDF_CACHE_DIR` to save space; the `.article.json` (extracted text + sections) is always kept
+6. Items are tagged `auto-imported` for easy identification; items with incomplete Crossref metadata also get `metadata-incomplete`
+
+**Duplicate handling:** Before importing, the server checks whether the DOI already exists in Zotero (SQLite first, then local API). If the item exists but has no PDF attachment, the PDF is attached to the existing item instead of creating a new one.
+
+**Non-blocking:** Import is debounced and runs in a background task 5 seconds after the fetch completes — it never delays the response to the LLM.
+
+**Requirements:** Zotero desktop must be running (local API at `localhost:23119`). The `ZOTERO_LOCAL_ENABLED=true` setting must be active (it is by default).
+
+```bash
+# Enable in .env
+AUTO_IMPORT_TO_ZOTERO=true
+
+# Test Crossref metadata fetch
+uv run python -c "
+import asyncio, httpx
+from academic_mcp.zotero_import import _fetch_crossref_metadata
+
+async def test():
+    async with httpx.AsyncClient() as client:
+        meta = await _fetch_crossref_metadata('10.1145/3701716.3715297', client)
+        print(f'Type: {meta[\"crossref_type\"]}')
+        print(f'Title: {meta[\"title\"]}')
+        print(f'Authors: {len(meta[\"authors\"])} authors')
+        print(f'Venue: {meta[\"container_title\"]}')
+        print(f'Year: {meta[\"year\"]}')
+
+asyncio.run(test())
+"
+
+# Test item type resolution
+uv run python -c "
+from academic_mcp.zotero_import import _resolve_zotero_item_type
+
+tests = [
+    ({'crossref_type': 'journal-article'}, None),
+    ({'crossref_type': 'proceedings-article', 'event_name': 'FAccT 2025'}, None),
+    ({'crossref_type': 'book-chapter'}, None),
+    ({'crossref_type': 'posted-content'}, None),
+    ({'crossref_type': 'dissertation'}, None),
+    (None, 'preprint'),
+]
+for cr, oa in tests:
+    result = _resolve_zotero_item_type(cr, oa)
+    label = (cr or {}).get('crossref_type') or oa or '?'
+    print(f'{label:25s} → {result}')
+"
+```
+
 ## Ex Libris Primo (Institutional Catalogue)
 
 If your institution runs Ex Libris Primo, the server can query it as an additional search source. Primo results are deduplicated against Semantic Scholar and OpenAlex results by DOI. When a paper is only available via your institution's link resolver, the resolver URL is shown directly in the result instead of the generic "may need proxy" message.
@@ -302,6 +564,22 @@ Primo is included automatically when `source="all"` (the default). To search onl
 
 ```python
 search_papers(query="...", source="primo")
+```
+
+### Law review search (`domain_hint="law"`)
+
+Pass `domain_hint="law"` to trigger a dedicated Primo search constrained to law reviews and legal journals. This runs **in addition to** the normal Primo search and targets HeinOnline, Lexis, and Gale-indexed content that is not covered by Semantic Scholar or OpenAlex.
+
+The law review search runs two Primo queries — `jtitle,contains,law` and `jtitle,contains,legal` — deduplicates results by DOI, and merges them with the main result list. Law review results are annotated in the output:
+
+```
+Venue: Harvard Law Review  [law review — via Primo/HeinOnline]
+```
+
+Use `domain_hint="law"` any time the query involves legal scholarship, law review articles, or academic legal research. The LLM is guided to set this automatically based on the query content.
+
+```python
+search_papers(query="administrative law algorithmic decision-making", domain_hint="law")
 ```
 
 ### Query field prefixes
@@ -408,6 +686,24 @@ docker run -p 23119:23119 -p 3000:3000 -v ./zotero-data:/config lscr.io/linuxser
 All tool handlers are importable Python functions, so you can exercise the server directly without running the MCP transport layer. These one-liners are useful for testing a new DOI, debugging extraction, or verifying configuration.
 
 Substitute your own DOIs throughout.
+
+### Test SSRN DOI remapping
+
+```bash
+uv run python -c "
+import asyncio, httpx
+from academic_mcp.apis import resolve_ssrn_doi
+
+async def test():
+    async with httpx.AsyncClient() as client:
+        result = await resolve_ssrn_doi('10.2139/ssrn.5018893', client)
+        print(f'Published DOI: {result[\"published_doi\"]}')
+        print(f'OA PDF URLs: {result[\"oa_pdf_urls\"]}')
+        print(f'Title: {result[\"title\"]}')
+
+asyncio.run(test())
+"
+```
 
 ### Check which articles are cached
 
@@ -667,6 +963,64 @@ r = asyncio.run(_handle_search({
     'source': 'all',
 }))
 print(r[0].text)
+"
+```
+
+### Search law reviews via Primo (`domain_hint="law"`)
+
+```bash
+uv run python -c "
+import asyncio
+from academic_mcp.server import _handle_search
+r = asyncio.run(_handle_search({
+    'query': 'artificial intelligence regulation administrative law',
+    'limit': 10,
+    'domain_hint': 'law',
+}))
+print(r[0].text)
+"
+```
+
+Results annotated with a law review source will show `[law review — via Primo/HeinOnline]` on the Venue line.
+
+### Test the Primo law review search function directly
+
+```bash
+uv run python -c "
+import asyncio
+from academic_mcp.apis import primo_search_law_reviews
+
+async def test():
+    results = await primo_search_law_reviews(
+        'artificial intelligence regulation',
+        limit=10,
+    )
+    print(f'{len(results)} results')
+    for r in results[:5]:
+        print(f'  {(r[\"venue\"] or \"?\")[:40]:40s}  {r[\"year\"]}  DOI={r[\"doi\"]}')
+        print(f'    {r[\"title\"][:70]}')
+
+asyncio.run(test())
+"
+```
+
+### Test SSRN → law review DOI resolution
+
+```bash
+uv run python -c "
+import asyncio, httpx
+from academic_mcp.apis import resolve_ssrn_doi
+
+async def test():
+    # Replace with an SSRN DOI for a paper that was published in a law review
+    async with httpx.AsyncClient() as client:
+        result = await resolve_ssrn_doi('10.2139/ssrn.5018893', client)
+    print(f'Published DOI: {result[\"published_doi\"]}')
+    print(f'Title:         {result[\"title\"]}')
+    print(f'All DOIs:      {result[\"all_dois\"]}')
+    print(f'OA PDF URLs:   {result[\"oa_pdf_urls\"]}')
+
+asyncio.run(test())
 "
 ```
 

@@ -76,6 +76,37 @@ class Config:
         default_factory=lambda: int(os.getenv("MAX_CONTEXT_LENGTH", "100000"))
     )
 
+    # ── Auto-import to Zotero ─────────────────────────────────────────
+    # When enabled, PDFs fetched from the web (not from Zotero) are
+    # automatically added to the local Zotero library with full metadata.
+    # Requires Zotero desktop to be running (local API at localhost:23119).
+    # The .article.json text cache is kept; only the PDF moves to Zotero.
+    auto_import_to_zotero: bool = field(
+        default_factory=lambda: os.getenv("AUTO_IMPORT_TO_ZOTERO", "false").lower()
+        in ("true", "1", "yes")
+    )
+
+    # ── CORE.ac.uk (OA paper aggregator, 300M+ papers) ───────────────
+    core_api_key: str = field(
+        default_factory=lambda: os.getenv("CORE_API_KEY", "")
+    )
+
+    # ── Web search fallback ──────────────────────────────────────────
+    # Serper.dev: Google results. 2,500 free queries (no CC), then $1/1K.
+    serper_api_key: str = field(
+        default_factory=lambda: os.getenv("SERPER_API_KEY", "")
+    )
+    # Brave Search: Own index. $5/mo free credits (~1K queries).
+    brave_search_api_key: str = field(
+        default_factory=lambda: os.getenv("BRAVE_SEARCH_API_KEY", "")
+    )
+
+    # ── SSRN authenticated access ────────────────────────────────────
+    # JSON array of cookies exported from Firefox.
+    ssrn_cookies: str = field(
+        default_factory=lambda: os.getenv("SSRN_COOKIES", "")
+    )
+
     # ── PDF extraction backend ───────────────────────────────────────
     # When true, use pymupdf4llm for Markdown extraction (tables, multi-column,
     # bold/italic). Falls back to extract_text_with_sections on failure or if
