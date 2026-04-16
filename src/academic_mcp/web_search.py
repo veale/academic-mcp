@@ -83,6 +83,10 @@ TRUSTED_PDF_DOMAINS: frozenset[str] = frozenset({
     "pennlawreview.com",
     "virginialawreview.org",
     "yalelawjournal.org",
+    # Specialty / tech / comms law journals (non-.edu self-published)
+    "fclj.org",           # Federal Communications Law Journal (Indiana U.)
+    "jolt.law.harvard.edu",
+    "jtl.columbia.edu",
 
     # ── Other OA / aggregators ────────────────────────────────────────────
     "ssrn.com", "papers.ssrn.com",
@@ -123,6 +127,17 @@ _LAW_REPO_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Standalone law journal websites not covered by TRUSTED_PDF_DOMAINS.
+# Catches:  *lawreview.org/com  *lawjournal.org/com  *legalforum.org
+#           abbreviation sites ending in "lj" or "lr" (e.g. fclj.org, ualr.org → false
+#           positive risk low since those .org domains are rare outside law)
+_STANDALONE_LAW_ORG_RE = re.compile(
+    r"^[a-z0-9-]*(lawreview|lawjournal|lawforum|lawquarterly"
+    r"|legalstudies|legaltheory|legalforum)\.(org|com)$"
+    r"|^[a-z]{1,6}(lj|lr)\.(org|com)$",
+    re.IGNORECASE,
+)
+
 
 def _is_trusted_domain(url: str) -> bool:
     """Return True if the URL's hostname is on the trusted academic allowlist."""
@@ -141,6 +156,8 @@ def _is_trusted_domain(url: str) -> bool:
     if any(infix in host for infix in TRUSTED_DOMAIN_INFIXES):
         return True
     if _LAW_REPO_RE.search(host):
+        return True
+    if _STANDALONE_LAW_ORG_RE.search(host):
         return True
     return False
 
@@ -364,7 +381,7 @@ async def fetch_from_heinonline(
 
                 # Step 1: Open persistent session with proxy + Cloudflare solving
                 open_result = await session.call_tool("open_session", {
-                    "session_type": "stealthy",
+                    "session_type": "dynamic",
                     "proxy": config.gost_proxy_url,
                     "solve_cloudflare": True,
                 })
@@ -623,7 +640,7 @@ async def fetch_ssrn_with_cookies(url: str) -> str | None:
                 await session.initialize()
 
                 open_args: dict = {
-                    "session_type": "stealthy",
+                    "session_type": "dynamic",
                     "cookies": cookies,
                     "solve_cloudflare": True,
                 }
