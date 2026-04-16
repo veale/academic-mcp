@@ -21,6 +21,7 @@ env/
 
 # uv
 .uv/
+uv.lock
 
 # Cache
 .cache/
