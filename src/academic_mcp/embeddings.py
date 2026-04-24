@@ -6,7 +6,9 @@ Three backends, selected via ``SEMANTIC_PROVIDER``:
                   (e.g. ``all-MiniLM-L6-v2``, ``BAAI/bge-small-en-v1.5``,
                   ``nomic-ai/nomic-embed-text-v1.5``). The model is shared
                   with :mod:`reranker` so we keep one instance per process.
-  * ``openai``  — OpenAI ``/v1/embeddings``. Any model the API accepts.
+  * ``openai``  — OpenAI ``/v1/embeddings`` or any OpenAI-compatible endpoint
+                  (e.g. a self-hosted llama-server). Any model id the
+                  endpoint accepts.
   * ``gemini``  — Google Generative Language API embeddings. Any model id.
 
 Design rules:
@@ -28,6 +30,7 @@ Design rules:
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass
 from typing import Callable
 
@@ -57,9 +60,10 @@ class Embedder:
     dim: int | None  # None until the first encode
     _encode: Callable[[list[str]], list[list[float]]]
     # Optional separate callable for query-time encoding.
-    # Some models (e.g. nomic-embed-text) require different task prompts for
-    # document indexing vs. query encoding.  When None, encode_query() falls
-    # back to _encode so all non-task-prompt models are unaffected.
+    # Some models (e.g. nomic-embed-text, Qwen3-Embedding) require different
+    # task prompts for document indexing vs. query encoding.  When None,
+    # encode_query() falls back to _encode so all non-task-prompt models
+    # are unaffected.
     _encode_query: Callable[[list[str]], list[list[float]]] | None = None
 
     def encode(self, texts: list[str]) -> list[list[float]]:
@@ -191,7 +195,7 @@ def _local_encoder(
 
 
 # ---------------------------------------------------------------------------
-# OpenAI
+# OpenAI / OpenAI-compatible (llama-server, vLLM, LM Studio, etc.)
 # ---------------------------------------------------------------------------
 
 # Fragment that identifies Qwen3-Embedding models (case-insensitive check).
@@ -214,20 +218,38 @@ def _l2_normalize(vecs: list[list[float]]) -> list[list[float]]:
     return (arr / norms).tolist()
 
 
-def _openai_encoder(model_name: str) -> tuple[Callable[[list[str]], list[list[float]]], Callable[[list[str]], list[list[float]]] | None]:
+def _openai_encoder(
+    model_name: str,
+) -> tuple[Callable[[list[str]], list[list[float]]], Callable[[list[str]], list[list[float]]] | None]:
     """Return (doc_encoder, query_encoder | None) for the OpenAI-compatible endpoint.
 
-    When ``config.openai_base_url`` points to localhost/127.0.0.1, the API
-    key check is relaxed — any non-empty key is accepted, and a missing key
-    defaults to ``sk-noop`` (llama-server ignores the Authorization header).
+    Backend detection:
+      * ``api.openai.com`` in the base URL → real OpenAI.  Requires a real
+        API key; uses large batches (OpenAI's parallelism is effectively
+        unlimited from a single client's perspective).
+      * Anything else (llama-server, vLLM, LM Studio, Ollama) → treated as a
+        self-hosted backend.  API key defaults to ``sk-noop`` if missing.
+        Batches are small because self-hosted queue depth is bounded by the
+        server's ``-np`` / ``--parallel`` setting.
+
+    Qwen3-Embedding quirks (triggered when ``qwen3-embed`` appears in the
+    model id, case-insensitive):
+      * Returned vectors are L2-normalised client-side because llama-server
+        does not honour ``--embd-normalize`` at the HTTP layer.
+      * Query-time inputs are wrapped in an instruction prefix for the
+        asymmetric-retrieval lift (documents are not).
+      * EOS token is added automatically by the llama.cpp tokenizer via the
+        model's config; we do NOT append ``<|endoftext|>`` manually (doing
+        so produces double-EOS warnings and slightly off-distribution
+        inputs).
     """
     base = (config.openai_base_url or "https://api.openai.com/v1").rstrip("/")
     endpoint = f"{base}/embeddings"
 
-    is_local = any(h in base for h in ("127.0.0.1", "localhost"))
+    is_openai_cloud = "api.openai.com" in base
     api_key = config.openai_api_key
     if not api_key:
-        if is_local:
+        if not is_openai_cloud:
             api_key = "sk-noop"
         else:
             raise EmbedderUnavailable(
@@ -237,11 +259,19 @@ def _openai_encoder(model_name: str) -> tuple[Callable[[list[str]], list[list[fl
     is_qwen3 = _QWEN3_EMBED_FRAGMENT in model_name.lower()
 
     def _encode_batch(texts: list[str]) -> list[list[float]]:
-        # OpenAI accepts batches of up to ~2,000 inputs; keep well under that.
-        # llama-server handles up to -b batch size; chunk at 64 client-side.
-        batch = 64 if is_local else 96
+        # Real OpenAI: big batches.  Self-hosted: small batches so each
+        # request finishes inside the read timeout even when the server is
+        # processing only a few in parallel.  Override with
+        # OPENAI_EMBED_BATCH in .env if you want to retune after changing
+        # the server's ``-np`` setting.
+        default_batch = 96 if is_openai_cloud else 16
+        batch = int(os.getenv("OPENAI_EMBED_BATCH", str(default_batch)))
+
         out: list[list[float]] = []
-        with httpx.Client(timeout=120.0) as client:
+        # Connect fast, read patiently.  180s read timeout covers a batch
+        # stuck behind other load on a constrained self-hosted server.
+        timeout = httpx.Timeout(connect=10.0, read=180.0, write=30.0, pool=10.0)
+        with httpx.Client(timeout=timeout) as client:
             for i in range(0, len(texts), batch):
                 chunk = texts[i : i + batch]
                 resp = client.post(
@@ -265,14 +295,19 @@ def _openai_encoder(model_name: str) -> tuple[Callable[[list[str]], list[list[fl
         return out
 
     def _doc_encoder(texts: list[str]) -> list[list[float]]:
-        if is_qwen3:
-            texts = [t + "<|endoftext|>" for t in texts]
+        # Historically we appended <|endoftext|> manually here because older
+        # llama.cpp builds didn't auto-add it.  Current builds add the EOS
+        # token correctly via the model's tokenizer config, so we let the
+        # server handle it — adding it here produces a double-EOS warning
+        # and slightly off-distribution inputs.
         return _encode_batch(texts)
 
     if is_qwen3:
         def _query_encoder(texts: list[str]) -> list[list[float]]:
+            # Prepend the task instruction only; EOS is added by the
+            # tokenizer server-side (see note in _doc_encoder above).
             prefixed = [
-                _QWEN3_QUERY_INSTRUCTION.format(query=t) + "<|endoftext|>"
+                _QWEN3_QUERY_INSTRUCTION.format(query=t)
                 for t in texts
             ]
             return _encode_batch(prefixed)

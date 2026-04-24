@@ -33,6 +33,8 @@ class FakeCollection:
     def __init__(self) -> None:
         # chunk_id -> {doc, metadata}
         self._store: dict[str, dict] = {}
+        # Each entry is a dict with the kwargs passed to upsert().
+        self.upsert_calls: list[dict] = []
 
     def get(self, include=None):
         ids = list(self._store.keys())
@@ -41,6 +43,7 @@ class FakeCollection:
         return {"ids": ids, "documents": docs, "metadatas": metas}
 
     def upsert(self, ids, documents, embeddings, metadatas):
+        self.upsert_calls.append({"ids": list(ids), "documents": list(documents), "metadatas": list(metadatas)})
         for i, d, m in zip(ids, documents, metadatas):
             self._store[i] = {"doc": d, "metadata": m}
 
@@ -311,3 +314,110 @@ def test_item_key_from_chunk_id():
     assert _item_key_from_chunk_id("ABCD1234:7") == "ABCD1234"
     # Keys themselves should not contain the separator.
     assert _item_key_from_chunk_id("COMPLEX:KEY:0") == "COMPLEX:KEY"
+
+
+# ---------------------------------------------------------------------------
+# Streaming upsert tests
+# ---------------------------------------------------------------------------
+
+async def test_sync_streams_upserts_incrementally(fake_index, monkeypatch):
+    """sync() should call col.upsert in multiple small batches, not one big call."""
+    idx, col = fake_index
+
+    # 50 items, each with a title+abstract → each produces 1 chunk → 50 chunks total.
+    # With batch_size=8 we expect ceil(50/8) = 7 upsert calls.
+    items = [
+        _make_item(f"K{i:03d}", title=f"Paper {i}", abstract=f"Abstract for paper {i}")
+        for i in range(50)
+    ]
+
+    async def _list(): return items
+    monkeypatch.setattr(semantic_index.zotero_sqlite, "list_items_for_semantic_index", _list)
+    monkeypatch.setenv("SEMANTIC_UPSERT_BATCH", "8")
+
+    # Track _save_status calls via a wrapper.
+    status_writes: list[dict] = []
+    _orig_save = idx._save_status
+
+    def _capturing_save(s):
+        status_writes.append(dict(s))
+        _orig_save(s)
+
+    monkeypatch.setattr(idx, "_save_status", _capturing_save)
+
+    status = await idx.sync()
+
+    # Each upsert call must contain ≤ 8 ids.
+    assert len(col.upsert_calls) >= 7
+    for call in col.upsert_calls:
+        assert len(call["ids"]) <= 8
+
+    # status_writes: 1 initial (in_progress=True) + N batch writes + 1 final (in_progress=False)
+    # Total = len(upsert_calls) + 2
+    assert len(status_writes) == len(col.upsert_calls) + 2
+
+    # Final status must reflect all chunks upserted.
+    assert status["upserted"] == 50
+    assert status["in_progress"] is False
+    assert status["pending"] == 0
+
+
+async def test_sync_persists_partial_state_on_mid_batch_crash(fake_index, monkeypatch):
+    """If upsert raises on the 3rd call, partial progress must be persisted."""
+    idx, col = fake_index
+
+    # 100 items → 100 chunks; with batch_size=32: batches [0:32],[32:64],[64:96],[96:100].
+    # The 3rd call raises → 2 successful batches × 32 = 64 upserted chunks.
+    items = [
+        _make_item(f"K{i:03d}", title=f"Paper {i}", abstract=f"Abstract {i}")
+        for i in range(100)
+    ]
+
+    async def _list(): return items
+    monkeypatch.setattr(semantic_index.zotero_sqlite, "list_items_for_semantic_index", _list)
+    monkeypatch.setenv("SEMANTIC_UPSERT_BATCH", "32")
+
+    call_count = 0
+    _orig_upsert = col.upsert
+
+    def _failing_upsert(**kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 3:
+            raise RuntimeError("simulated upsert failure")
+        _orig_upsert(**kwargs)
+
+    monkeypatch.setattr(col, "upsert", _failing_upsert)
+
+    with pytest.raises(RuntimeError, match="simulated upsert failure"):
+        await idx.sync()
+
+    # First two calls succeeded, third raised.
+    assert call_count == 3
+    assert len(col.upsert_calls) == 2  # only 2 recorded via _orig_upsert
+
+    # status.json must exist and reflect partial progress.
+    assert idx.status_path.exists()
+    import json
+    saved = json.loads(idx.status_path.read_text())
+    assert saved["upserted"] == 64  # 2 batches × 32
+    assert saved["in_progress"] is True
+
+
+async def test_env_override_batch_size_respected(fake_index, monkeypatch):
+    """SEMANTIC_UPSERT_BATCH env var must cap each upsert call's batch size."""
+    idx, col = fake_index
+
+    items = [
+        _make_item(f"Z{i:02d}", title=f"Title {i}", abstract=f"Abstract {i}")
+        for i in range(30)
+    ]
+
+    async def _list(): return items
+    monkeypatch.setattr(semantic_index.zotero_sqlite, "list_items_for_semantic_index", _list)
+    monkeypatch.setenv("SEMANTIC_UPSERT_BATCH", "8")
+
+    await idx.sync()
+
+    for call in col.upsert_calls:
+        assert len(call["ids"]) <= 8

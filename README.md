@@ -239,6 +239,20 @@ documents are represented only by their first ~100 pages.
 
 ---
 
+#### Monitoring rebuild progress
+
+The semantic index persists progress to `~/.cache/academic-mcp/chroma/status.json`
+after every batch of embeddings (64 chunks by default, tunable via
+`SEMANTIC_UPSERT_BATCH`).  While a rebuild is running you can watch it:
+
+    watch -n 5 'cat ~/.cache/academic-mcp/chroma/status.json | jq ".upserted, .pending, .count"'
+
+Crashes are cheap — a re-run with plain `semantic_index_rebuild()` (no
+`force=True`) skips items whose `dateModified` hasn't changed, so the
+build resumes from where it stopped.
+
+---
+
 ### Semantic index provider
 
 The semantic index uses pluggable embedding backends. Vectors are **always stored locally** in a Chroma database; cloud providers only compute the embedding for the text being indexed or the query string. ANN search runs on your machine regardless of provider.

@@ -56,6 +56,22 @@ class SemanticIndexUnavailable(RuntimeError):
 # Separator between item_key and chunk index in composite Chroma IDs.
 _CHUNK_ID_SEP = ":"
 
+# How many chunks to embed + upsert per streamed batch.
+# Must be >= the embedder's per-HTTP-request batch size so we don't
+# issue more round-trips than necessary, and small enough that a
+# crash during the run loses at most this many chunks' worth of work.
+# Read from env to allow tuning without code changes.
+_DEFAULT_UPSERT_BATCH = 64
+
+
+def _get_upsert_batch_size() -> int:
+    import os
+    try:
+        v = int(os.getenv("SEMANTIC_UPSERT_BATCH", str(_DEFAULT_UPSERT_BATCH)))
+        return max(8, v)
+    except ValueError:
+        return _DEFAULT_UPSERT_BATCH
+
 
 def _make_chunk_id(item_key: str, idx: int) -> str:
     return f"{item_key}{_CHUNK_ID_SEP}{idx}"
@@ -289,28 +305,80 @@ class SemanticIndex:
                 col.delete(ids=to_delete_ids)
 
             upserted = 0
-            if to_upsert_ids:
-                embs = embedder.encode(to_upsert_docs)
-                col.upsert(
-                    ids=to_upsert_ids,
-                    documents=to_upsert_docs,
-                    embeddings=embs,
-                    metadatas=to_upsert_metas,
-                )
-                upserted = len(to_upsert_ids)
+            total_pending = len(to_upsert_ids)
+            batch_size = _get_upsert_batch_size()
+            started_at = datetime.now(timezone.utc).isoformat()
 
-            total = col.count()
-            status = {
-                "last_sync": datetime.now(timezone.utc).isoformat(),
-                "count": total,
-                "provider": embedder.provider,
-                "model": embedder.model,
-                "dim": embedder.dim,
-                "sqlite_items_seen": len(items),
-                "upserted": upserted,
-                "deleted": len(to_delete_ids) if not force_rebuild else len(all_ids),
-            }
-            self._save_status(status)
+            def _write_progress_status(done: bool) -> None:
+                """Persist a status snapshot.  Called after every batch and at end."""
+                snapshot = {
+                    "last_sync": datetime.now(timezone.utc).isoformat(),
+                    "started_at": started_at,
+                    "count": col.count(),
+                    "provider": embedder.provider,
+                    "model": embedder.model,
+                    "dim": embedder.dim,
+                    "sqlite_items_seen": len(items),
+                    "upserted": upserted,
+                    "pending": max(0, total_pending - upserted),
+                    "deleted": (
+                        len(to_delete_ids) if not force_rebuild else len(all_ids)
+                    ),
+                    "in_progress": not done,
+                }
+                try:
+                    self._save_status(snapshot)
+                except Exception as e:
+                    # Never fail the sync for a status-write hiccup; log and keep going.
+                    logger.warning("semantic_index: status write failed: %s", e)
+
+            if total_pending:
+                logger.info(
+                    "semantic_index: beginning streamed upsert of %d chunks "
+                    "(batch_size=%d, provider=%s, model=%s)",
+                    total_pending, batch_size, embedder.provider, embedder.model,
+                )
+                # Write an initial status.json so external pollers can see a build is
+                # under way before the first batch finishes.
+                _write_progress_status(done=False)
+
+                for start in range(0, total_pending, batch_size):
+                    end = min(start + batch_size, total_pending)
+                    ids_batch = to_upsert_ids[start:end]
+                    docs_batch = to_upsert_docs[start:end]
+                    metas_batch = to_upsert_metas[start:end]
+
+                    embs_batch = embedder.encode(docs_batch)
+                    # If the embedder returned fewer vectors than documents (rare but
+                    # possible if the backend silently drops inputs), skip this batch
+                    # and log — persisting a mismatched upsert would corrupt Chroma.
+                    if len(embs_batch) != len(docs_batch):
+                        logger.error(
+                            "semantic_index: embedder returned %d vectors for %d "
+                            "documents; skipping batch %d-%d",
+                            len(embs_batch), len(docs_batch), start, end,
+                        )
+                        continue
+
+                    col.upsert(
+                        ids=ids_batch,
+                        documents=docs_batch,
+                        embeddings=embs_batch,
+                        metadatas=metas_batch,
+                    )
+                    upserted += len(ids_batch)
+
+                    logger.info(
+                        "semantic_index: upserted %d / %d chunks (%.1f%%)",
+                        upserted, total_pending,
+                        100.0 * upserted / max(1, total_pending),
+                    )
+                    _write_progress_status(done=False)
+
+            # Final status — consistent even if no upserts happened.
+            _write_progress_status(done=True)
+
+            status = self._load_status()
             return status
 
         return await asyncio.to_thread(_sync_blocking)
