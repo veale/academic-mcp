@@ -8,8 +8,10 @@ from mcp.server.stdio import stdio_server
 
 try:
     from .server import server
+    from . import zotero_import
 except ImportError:
     from academic_mcp.server import server
+    from academic_mcp import zotero_import
 
 
 def main():
@@ -40,6 +42,7 @@ def main():
 
 
 async def _run_stdio():
+    await zotero_import.ensure_auto_import_initialized()
     async with stdio_server() as (read_stream, write_stream):
         await server.run(read_stream, write_stream, server.create_initialization_options())
 
@@ -53,6 +56,7 @@ def _run_sse(port: int):
     sse = SseServerTransport("/messages/")
 
     async def handle_sse(request):
+        await zotero_import.ensure_auto_import_initialized()
         async with sse.connect_sse(
             request.scope, request.receive, request._send
         ) as streams:

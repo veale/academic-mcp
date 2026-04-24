@@ -25,6 +25,24 @@ dependencies = [
 stealth = [
     "scrapling>=0.2",        # stealth browser
 ]
+semantic = [
+    "chromadb>=0.5.0",
+]
+# Hosted embedding providers (optional — not used by the default local
+# all-MiniLM-L6-v2 backend). Install one of these alongside [semantic] to
+# enable provider-switching in a future iteration.
+semantic-openai = [
+    "openai>=1.0.0",
+]
+semantic-gemini = [
+    "google-genai>=0.3.0",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/academic_mcp"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+    "pytest-asyncio>=1.3.0",
+]

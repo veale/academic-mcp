@@ -12,11 +12,11 @@ from mcp.server import Server
 from mcp.types import Tool, TextContent
 
 try:
-    from . import apis, content_extractor, core_api, pdf_fetcher, pdf_extractor, text_cache, web_search, zotero, zotero_sqlite
+    from . import apis, content_extractor, core_api, pdf_fetcher, pdf_extractor, scite, text_cache, web_search, zotero, zotero_import, zotero_sqlite
     from .config import config
     from .reranker import rerank_results
 except ImportError:
-    from academic_mcp import apis, content_extractor, core_api, pdf_fetcher, pdf_extractor, text_cache, web_search, zotero, zotero_sqlite
+    from academic_mcp import apis, content_extractor, core_api, pdf_fetcher, pdf_extractor, scite, text_cache, web_search, zotero, zotero_import, zotero_sqlite
     from academic_mcp.config import config
     from academic_mcp.reranker import rerank_results
 
@@ -33,6 +33,7 @@ server = Server("academic-research")
 # and then reads from cache.
 _doi_locks: dict[str, asyncio.Lock] = {}
 _doi_locks_lock = asyncio.Lock()  # protects the dict itself
+_semantic_sync_task: asyncio.Task | None = None
 
 
 async def _get_doi_lock(doi: str) -> asyncio.Lock:
@@ -41,6 +42,46 @@ async def _get_doi_lock(doi: str) -> asyncio.Lock:
         if doi not in _doi_locks:
             _doi_locks[doi] = asyncio.Lock()
         return _doi_locks[doi]
+
+
+def _ensure_semantic_background_sync(max_age_hours: int = 24) -> None:
+    """Kick off a background semantic sync when stale; never blocks request paths."""
+    global _semantic_sync_task
+
+    if _semantic_sync_task and not _semantic_sync_task.done():
+        return
+
+    async def _runner() -> None:
+        try:
+            try:
+                from .semantic_index import SemanticIndexUnavailable, get_semantic_index
+            except ImportError:
+                from academic_mcp.semantic_index import SemanticIndexUnavailable, get_semantic_index
+
+            idx = get_semantic_index()
+            status = await idx.status()
+            last_sync = status.get("last_sync")
+            stale = True
+            if isinstance(last_sync, str) and last_sync:
+                try:
+                    from datetime import datetime, timezone
+
+                    ts = datetime.fromisoformat(last_sync.replace("Z", "+00:00"))
+                    age_hours = (datetime.now(timezone.utc) - ts).total_seconds() / 3600.0
+                    stale = age_hours > max_age_hours
+                except Exception:
+                    stale = True
+            if stale:
+                await idx.sync(force_rebuild=False, include_fulltext=False)
+        except SemanticIndexUnavailable:
+            return
+        except Exception as e:
+            logger.debug("Background semantic sync skipped: %s", e)
+
+    try:
+        _semantic_sync_task = asyncio.create_task(_runner())
+    except RuntimeError:
+        pass
 
 
 def _format_citation_header(doi: str, metadata: dict | None = None) -> str:
@@ -103,6 +144,10 @@ TOOLS = [
             "WIDENING A SEARCH: When the keyword results feel saturated, pick the most "
             "relevant seed(s) and call get_citations with exclude_dois=[all DOIs from this "
             "result set, plus the seed itself] so every returned paper is FRESH.\n\n"
+            "BOOKS & CHAPTERS: Results tagged [BOOK] or [CHAPTER] support an extra "
+            "navigation step — get_book_chapters(doi=...) drills down from a book to its "
+            "chapters, or up from a chapter to its siblings. For book chapters, prefer this "
+            "over fetching the book as a single PDF.\n\n"
             "Use domain_hint='law' when the query involves legal scholarship, law "
             "review articles, or legal academic research. This triggers a specialised "
             "Primo search constrained to law journals, which covers HeinOnline and "
@@ -170,6 +215,22 @@ TOOLS = [
                         "'general' (default) uses standard sources."
                     ),
                     "default": "general",
+                },
+                "include_scite": {
+                    "type": "boolean",
+                    "description": (
+                        "When true, enrich results with Scite tallies and apply a small "
+                        "ranking penalty for retraction/correction notices."
+                    ),
+                    "default": False,
+                },
+                "semantic": {
+                    "type": "boolean",
+                    "description": (
+                        "When true, blend semantic search hits from your Zotero index "
+                        "(ChromaDB) with lexical results."
+                    ),
+                    "default": False,
                 },
             },
             "required": ["query"],
@@ -397,6 +458,59 @@ TOOLS = [
         },
     ),
     Tool(
+        name="get_book_chapters",
+        description=(
+            "List the chapters of an edited volume or monograph. Use this to DRILL DOWN "
+            "from a book DOI into its individual chapters (each chapter usually has its "
+            "own DOI and can be fetched independently — far more useful than trying to "
+            "fetch the whole book PDF, which publishers often don't host). Equally, use "
+            "it to DRILL UP from a chapter DOI to see its sibling chapters — a strong "
+            "way to discover topically-related work that keyword search tends to miss.\n\n"
+            "INPUT: pass either a `doi` (of the book OR any of its chapters) or an `isbn`. "
+            "The tool resolves the DOI via Crossref, extracts the ISBN/container-title, "
+            "and lists all sibling chapters.\n\n"
+            "Optional `keywords` narrows to chapters matching those terms — useful for "
+            "edited handbooks where only a subset of chapters is relevant.\n\n"
+            "Results include chapter DOIs, authors, page ranges, and Zotero status. "
+            "Pass DOIs to fetch_fulltext or batch_sections to read specific chapters.\n\n"
+            "LIMITATION: Crossref chapter-of-book coverage is patchy — recent academic "
+            "volumes (Springer, Routledge, OUP, CUP) usually have per-chapter DOIs; older "
+            "monographs and trade books often don't. If no chapters come back, the book "
+            "likely isn't registered at the chapter level."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "doi": {
+                    "type": "string",
+                    "description": (
+                        "DOI of either the book itself OR one of its chapters. "
+                        "Either doi or isbn must be provided."
+                    ),
+                },
+                "isbn": {
+                    "type": "string",
+                    "description": (
+                        "ISBN of the book (dashes tolerated). Use when you have the ISBN "
+                        "but no DOI, or to bypass DOI resolution."
+                    ),
+                },
+                "keywords": {
+                    "type": "string",
+                    "description": (
+                        "Optional keyword filter — narrows to chapters whose "
+                        "bibliographic metadata matches these terms."
+                    ),
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Max chapters to return (default 50, max 100).",
+                    "default": 50,
+                },
+            },
+        },
+    ),
+    Tool(
         name="fetch_fulltext",
         description=(
             "Get the full text of a paper for analysis. Checks Zotero first, "
@@ -590,6 +704,98 @@ TOOLS = [
         inputSchema={"type": "object", "properties": {}},
     ),
     Tool(
+        name="zotero_import_status",
+        description=(
+            "Inspect recent Zotero auto-import attempts, startup write probe state, "
+            "and persistent queue depth. Use this to diagnose silent import failures."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer",
+                    "description": "How many recent attempts to show (default 20, max 50).",
+                    "default": 20,
+                },
+            },
+        },
+    ),
+    Tool(
+        name="scite_enrich",
+        description=(
+            "Fetch Scite citation intelligence for a DOI: supporting/contrasting/"
+            "mentioning tallies, total citations, and retraction/correction signal."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "doi": {"type": "string", "description": "Paper DOI."},
+            },
+            "required": ["doi"],
+        },
+    ),
+    Tool(
+        name="scite_check_retractions",
+        description=(
+            "Scan Zotero items (via SQLite shadow DB) for Scite retraction/correction "
+            "notices. Optionally filter by collection key/name fragment."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "collection": {
+                    "type": "string",
+                    "description": "Optional Zotero collection key or name fragment.",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Max Zotero DOI items to scan (default 200, max 2000).",
+                    "default": 200,
+                },
+            },
+        },
+    ),
+    Tool(
+        name="semantic_search_zotero",
+        description=(
+            "Semantic search over your Zotero library using the ChromaDB embedding index."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Natural language query."},
+                "k": {
+                    "type": "integer",
+                    "description": "Number of hits to return (default 10, max 50).",
+                    "default": 10,
+                },
+            },
+            "required": ["query"],
+        },
+    ),
+    Tool(
+        name="semantic_index_status",
+        description="Show semantic index status: last sync, model, item count, and cache path.",
+        inputSchema={"type": "object", "properties": {}},
+    ),
+    Tool(
+        name="semantic_index_rebuild",
+        description=(
+            "Force a semantic index rebuild. Optional fulltext flag is accepted for "
+            "forward compatibility and future richer indexing."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "fulltext": {
+                    "type": "boolean",
+                    "description": "Attempt richer text indexing where available.",
+                    "default": False,
+                },
+            },
+        },
+    ),
+    Tool(
         name="search_in_article",
         description=(
             "Search within a cached article for specific terms or concepts. "
@@ -721,6 +927,8 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
             return await _handle_get_references(arguments)
         elif name == "get_citation_tree":
             return await _handle_get_citation_tree(arguments)
+        elif name == "get_book_chapters":
+            return await _handle_get_book_chapters(arguments)
         elif name in ("fetch_fulltext", "fetch_pdf"):
             return await _handle_fetch_pdf(arguments)
         elif name == "search_and_read":
@@ -735,6 +943,18 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
             return await _handle_list_libraries(arguments)
         elif name == "refresh_zotero_index":
             return await _handle_refresh_zotero_index(arguments)
+        elif name == "zotero_import_status":
+            return await _handle_zotero_import_status(arguments)
+        elif name == "scite_enrich":
+            return await _handle_scite_enrich(arguments)
+        elif name == "scite_check_retractions":
+            return await _handle_scite_check_retractions(arguments)
+        elif name == "semantic_search_zotero":
+            return await _handle_semantic_search_zotero(arguments)
+        elif name == "semantic_index_status":
+            return await _handle_semantic_index_status(arguments)
+        elif name == "semantic_index_rebuild":
+            return await _handle_semantic_index_rebuild(arguments)
         elif name == "search_in_article":
             return await _handle_search_in_article(arguments)
         elif name == "batch_sections":
@@ -752,6 +972,173 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
 # Handler implementations
 # ---------------------------------------------------------------------------
 
+async def _handle_zotero_import_status(args: dict) -> list[TextContent]:
+    limit = max(1, min(int(args.get("limit", 20)), 50))
+    status = await zotero_import.get_import_status(limit=limit)
+
+    lines = [
+        "Zotero auto-import status",
+        "=" * 40,
+        f"Enabled: {status.get('auto_import_enabled')}",
+        f"Local API enabled: {status.get('local_api_enabled')}",
+        f"Queue depth: {status.get('queue_count')}",
+    ]
+
+    probe = status.get("write_probe") or {}
+    lines.append(
+        "Write probe: "
+        f"state={probe.get('state')}"
+        f", status={probe.get('status_code')}"
+        f", checked_at={probe.get('checked_at')}"
+    )
+    if probe.get("message"):
+        lines.append(f"Probe detail: {probe['message']}")
+
+    attempts = status.get("recent_attempts") or []
+    lines.append("\nRecent attempts:")
+    if not attempts:
+        lines.append("  (none)")
+    else:
+        for a in attempts[-limit:]:
+            err = f" | error={a.get('error')}" if a.get("error") else ""
+            lines.append(
+                f"  - {a.get('timestamp')} | {a.get('doi')} | {a.get('stage')} | {a.get('status')}{err}"
+            )
+
+    return [TextContent(type="text", text="\n".join(lines))]
+
+
+async def _handle_scite_enrich(args: dict) -> list[TextContent]:
+    doi = (args.get("doi") or "").strip()
+    if not doi:
+        return [TextContent(type="text", text="scite_enrich requires a DOI.")]
+
+    tallies = await scite.get_scite_tallies(doi)
+    papers = await scite.get_scite_papers_batch([doi])
+    paper = papers.get(zotero._normalize_doi(doi)) or papers.get(doi) or {}
+    retracted = scite.paper_has_retraction_notice(paper)
+
+    if not tallies and not paper:
+        return [TextContent(type="text", text=f"No Scite data found for DOI: {doi}")]
+
+    lines = [
+        f"Scite for DOI: {doi}",
+        "=" * 40,
+    ]
+    if tallies:
+        lines.append(f"Citing publications: {tallies.get('citing', 0)}")
+        lines.append(f"Supporting: {tallies.get('supporting', 0)}")
+        lines.append(f"Contrasting: {tallies.get('contrasting', 0)}")
+        lines.append(f"Mentioning: {tallies.get('mentioning', 0)}")
+        lines.append(f"Total statements: {tallies.get('total', 0)}")
+    lines.append(f"Retraction/correction signal: {retracted}")
+
+    return [TextContent(type="text", text="\n".join(lines))]
+
+
+async def _handle_scite_check_retractions(args: dict) -> list[TextContent]:
+    limit = max(1, min(int(args.get("limit", 200)), 2000))
+    collection = (args.get("collection") or "").strip() or None
+
+    items = await zotero_sqlite.list_items_with_doi(limit=limit, collection=collection)
+    if not items:
+        scope = f" in collection '{collection}'" if collection else ""
+        return [TextContent(type="text", text=f"No DOI-bearing Zotero items found{scope}.")]
+
+    doi_to_item: dict[str, dict] = {}
+    for it in items:
+        doi = zotero._normalize_doi(it.get("doi") or "")
+        if doi:
+            doi_to_item[doi] = it
+
+    papers = await scite.get_scite_papers_batch(list(doi_to_item.keys()))
+    flagged: list[dict] = []
+    for doi, paper in papers.items():
+        if scite.paper_has_retraction_notice(paper):
+            it = doi_to_item.get(zotero._normalize_doi(doi))
+            if it:
+                flagged.append({
+                    "doi": it.get("doi"),
+                    "item_key": it.get("item_key"),
+                    "title": it.get("title") or "(untitled)",
+                })
+
+    lines = [
+        f"Scanned {len(doi_to_item)} DOI-bearing Zotero items.",
+        f"Flagged by Scite retraction/correction notices: {len(flagged)}",
+    ]
+    if flagged:
+        lines.append("=" * 40)
+        for row in flagged[:200]:
+            lines.append(f"- {row['title']}")
+            lines.append(f"  DOI: {row['doi']}")
+            lines.append(f"  Zotero key: {row['item_key']}")
+
+    return [TextContent(type="text", text="\n".join(lines))]
+
+
+async def _handle_semantic_search_zotero(args: dict) -> list[TextContent]:
+    query = (args.get("query") or "").strip()
+    k = max(1, min(int(args.get("k", 10)), 50))
+    if not query:
+        return [TextContent(type="text", text="semantic_search_zotero requires a query.")]
+
+    try:
+        from .semantic_index import SemanticIndexUnavailable, get_semantic_index
+    except ImportError:
+        from academic_mcp.semantic_index import SemanticIndexUnavailable, get_semantic_index
+
+    try:
+        _ensure_semantic_background_sync()
+        idx = get_semantic_index()
+        hits = await idx.search(query, k=k)
+    except SemanticIndexUnavailable as e:
+        return [TextContent(type="text", text=str(e))]
+
+    if not hits:
+        return [TextContent(type="text", text="No semantic hits found. Build the index with semantic_index_rebuild first.")]
+
+    lines = [f"Semantic Zotero hits for: {query}", "=" * 50]
+    for i, h in enumerate(hits, start=1):
+        lines.append(f"[{i}] {h.get('title') or '(untitled)'}")
+        lines.append(f"    key={h.get('item_key')} | score={h.get('score')}")
+        if h.get("doi"):
+            lines.append(f"    DOI: {h['doi']}")
+        if h.get("snippet"):
+            lines.append(f"    {h['snippet'][:220]}")
+        lines.append("")
+    return [TextContent(type="text", text="\n".join(lines))]
+
+
+async def _handle_semantic_index_status(args: dict) -> list[TextContent]:
+    try:
+        from .semantic_index import SemanticIndexUnavailable, get_semantic_index
+    except ImportError:
+        from academic_mcp.semantic_index import SemanticIndexUnavailable, get_semantic_index
+
+    try:
+        status = await get_semantic_index().status()
+    except SemanticIndexUnavailable as e:
+        return [TextContent(type="text", text=str(e))]
+
+    return [TextContent(type="text", text=json.dumps(status, indent=2))]
+
+
+async def _handle_semantic_index_rebuild(args: dict) -> list[TextContent]:
+    fulltext = bool(args.get("fulltext", False))
+    try:
+        from .semantic_index import SemanticIndexUnavailable, get_semantic_index
+    except ImportError:
+        from academic_mcp.semantic_index import SemanticIndexUnavailable, get_semantic_index
+
+    try:
+        status = await get_semantic_index().sync(force_rebuild=True, include_fulltext=fulltext)
+    except SemanticIndexUnavailable as e:
+        return [TextContent(type="text", text=str(e))]
+
+    return [TextContent(type="text", text=json.dumps(status, indent=2))]
+
+
 async def _handle_search(args: dict) -> list[TextContent]:
     query = args["query"]
     limit = min(args.get("limit", 5), 20)
@@ -760,6 +1147,8 @@ async def _handle_search(args: dict) -> list[TextContent]:
     end_year = args.get("end_year")
     venue = args.get("venue")
     domain_hint = args.get("domain_hint", "general")
+    include_scite = bool(args.get("include_scite", False))
+    use_semantic = bool(args.get("semantic", False))
 
     results = []  # unified list of normalized result dicts
     seen_dois = set()
@@ -872,6 +1261,11 @@ async def _handle_search(args: dict) -> list[TextContent]:
                             r["citations"] = r["citations"] or work.get("cited_by_count")
                             if not r["abstract"]:
                                 r["abstract"] = _reconstruct_abstract(work.get("abstract_inverted_index"))
+                            _t = (work.get("type") or "").lower()
+                            if _t and not r.get("work_type"):
+                                r["work_type"] = _t
+                            if _t == "book-chapter" and not r.get("container_title"):
+                                r["container_title"] = ((work.get("primary_location") or {}).get("source") or {}).get("display_name")
                             break
                     continue
                 if doi_norm:
@@ -886,6 +1280,8 @@ async def _handle_search(args: dict) -> list[TextContent]:
                     if len(authors) >= 5:
                         break
                 in_zot = doi_norm in zot_index if doi_norm else False
+                _oa_source = (work.get("primary_location") or {}).get("source") or {}
+                _oa_type = (work.get("type") or "").lower()
                 results.append({
                     "title": work.get("title") or "Untitled",
                     "authors": authors,
@@ -893,11 +1289,13 @@ async def _handle_search(args: dict) -> list[TextContent]:
                     "doi": doi,
                     "abstract": _reconstruct_abstract(work.get("abstract_inverted_index")) or None,
                     "citations": work.get("cited_by_count"),
-                    "venue": ((work.get("primary_location") or {}).get("source") or {}).get("display_name") or None,
+                    "venue": _oa_source.get("display_name") or None,
                     "found_in": ["openalex"],
                     "in_zotero": in_zot,
                     "has_oa_pdf": (work.get("open_access") or {}).get("is_oa", False),
                     "s2_id": None,
+                    "work_type": _oa_type or None,
+                    "container_title": _oa_source.get("display_name") if _oa_type in ("book-chapter",) else None,
                 })
         except Exception as e:
             logger.warning("OpenAlex search failed: %s", e)
@@ -990,7 +1388,63 @@ async def _handle_search(args: dict) -> list[TextContent]:
             except Exception as e:
                 logger.debug("Preview extraction failed for %s: %s", r["doi"], e)
 
-    # ── 5. Semantic re-ranking ─────────────────────────────────────
+    # ── 5. Optional semantic Zotero merge ──────────────────────────
+    if use_semantic:
+        _ensure_semantic_background_sync()
+        try:
+            from .semantic_index import SemanticIndexUnavailable, get_semantic_index
+        except ImportError:
+            from academic_mcp.semantic_index import SemanticIndexUnavailable, get_semantic_index
+
+        try:
+            sem_hits = await get_semantic_index().search(query, k=limit)
+        except SemanticIndexUnavailable:
+            sem_hits = []
+        except Exception as e:
+            logger.warning("Semantic Zotero search failed: %s", e)
+            sem_hits = []
+
+        if sem_hits:
+            by_key = {
+                r.get("zotero_key"): r
+                for r in results
+                if r.get("zotero_key")
+            }
+            for hit in sem_hits:
+                key = hit.get("item_key")
+                if not key:
+                    continue
+                if key in by_key:
+                    if "semantic_zotero" not in by_key[key]["found_in"]:
+                        by_key[key]["found_in"].append("semantic_zotero")
+                    by_key[key]["_semantic_zotero_score"] = hit.get("score")
+                    continue
+
+                item = await zotero_sqlite.search_by_key(key)
+                if not item:
+                    continue
+                author_names = []
+                for c in (item.creators or []):
+                    nm = c.display_name.strip()
+                    if nm:
+                        author_names.append(nm)
+                results.append({
+                    "title": item.title or hit.get("title") or "Untitled",
+                    "authors": author_names,
+                    "year": (item.date or "")[:4] or None,
+                    "doi": item.DOI or hit.get("doi") or None,
+                    "zotero_key": item.key,
+                    "abstract": item.abstractNote or hit.get("snippet") or None,
+                    "citations": None,
+                    "venue": item.publicationTitle or None,
+                    "found_in": ["semantic_zotero", "zotero"],
+                    "in_zotero": True,
+                    "has_oa_pdf": True,
+                    "s2_id": None,
+                    "_semantic_zotero_score": hit.get("score"),
+                })
+
+    # ── 6. Semantic re-ranking ─────────────────────────────────────
     #
     # Use sentence-transformers (all-MiniLM-L6-v2) to compute cosine
     # similarity between the query and each result's abstract/title.
@@ -999,7 +1453,60 @@ async def _handle_search(args: dict) -> list[TextContent]:
     # Falls back to composite scoring if the model is unavailable.
     results = await rerank_results(query, results)
 
-    # ── 6. Format output as RAG-friendly text ────────────────────────
+    # ── 7. Optional Scite enrichment ─────────────────────────────────
+    if include_scite:
+        dois = [zotero._normalize_doi(r["doi"]) for r in results if r.get("doi")]
+        if dois:
+            tallies_by_doi = await scite.get_scite_tallies_batch(dois)
+            papers_by_doi = await scite.get_scite_papers_batch(dois)
+
+            for r in results:
+                doi = r.get("doi")
+                if not doi:
+                    continue
+                doi_norm = zotero._normalize_doi(doi)
+                tally = tallies_by_doi.get(doi_norm)
+                paper = papers_by_doi.get(doi_norm) or papers_by_doi.get(doi)
+                is_retracted = scite.paper_has_retraction_notice(paper)
+                if tally:
+                    tally = dict(tally)
+                    tally["retracted"] = is_retracted
+                    r["scite"] = tally
+                elif is_retracted:
+                    r["scite"] = {
+                        "supporting": 0,
+                        "contrasting": 0,
+                        "mentioning": 0,
+                        "citing": 0,
+                        "total": 0,
+                        "retracted": True,
+                    }
+
+            # Conservative ranking adjustment: retractions sink; strong support ratio nudges up.
+            def _scite_adjust(rr: dict) -> float:
+                s = rr.get("scite") or {}
+                if not s:
+                    return 0.0
+                if s.get("retracted"):
+                    return -0.25
+                citing = max(1, int(s.get("citing") or 0))
+                supporting = int(s.get("supporting") or 0)
+                return min(0.08, (supporting / citing) * 0.08)
+
+            for r in results:
+                r["_scite_adjust"] = _scite_adjust(r)
+
+            results.sort(
+                key=lambda r: (
+                    0 if (r.get("scite") or {}).get("retracted") else 1,
+                    1 if r.get("in_zotero") else 0,
+                    (r.get("_semantic_similarity") or 0.0) + (r.get("_scite_adjust") or 0.0),
+                    r.get("citations") or 0,
+                ),
+                reverse=True,
+            )
+
+    # ── 8. Format output as RAG-friendly text ────────────────────────
     if not results:
         return [TextContent(type="text", text=f"No papers found for '{query}'.")]
 
@@ -1016,6 +1523,13 @@ async def _handle_search(args: dict) -> list[TextContent]:
             badges.append("★ IN ZOTERO")
         if r["has_oa_pdf"]:
             badges.append("OA")
+        if (r.get("scite") or {}).get("retracted"):
+            badges.append("RETRACTED?")
+        _wt = (r.get("work_type") or "").lower()
+        if _wt == "book-chapter":
+            badges.append("CHAPTER")
+        elif _wt in ("book", "edited-book", "monograph", "reference-book"):
+            badges.append("BOOK")
         badge_str = f"  [{', '.join(badges)}]" if badges else ""
         text += f"[{i}] {r['title']}{badge_str}\n"
 
@@ -1029,11 +1543,27 @@ async def _handle_search(args: dict) -> list[TextContent]:
         if r.get("venue"):
             law_note = "  [law review — via Primo/HeinOnline]" if "primo_law" in r["found_in"] else ""
             text += f"    Venue: {r['venue']}{law_note}\n"
+        if _wt == "book-chapter" and r.get("container_title") and r.get("container_title") != r.get("venue"):
+            text += f"    In book: {r['container_title']}\n"
         if r.get("doi"):
             text += f"    DOI: {r['doi']}\n"
         text += f"    Sources: {', '.join(r['found_in'])}\n"
         if r.get("_semantic_similarity") is not None:
             text += f"    Relevance: {r['_semantic_similarity']:.3f}\n"
+        if r.get("_semantic_zotero_score") is not None:
+            text += f"    Semantic Zotero score: {r['_semantic_zotero_score']:.3f}\n"
+        if r.get("scite"):
+            s = r["scite"]
+            text += (
+                "    Scite: "
+                f"citing={s.get('citing', 0)} | "
+                f"supporting={s.get('supporting', 0)} | "
+                f"contrasting={s.get('contrasting', 0)} | "
+                f"mentioning={s.get('mentioning', 0)}"
+            )
+            if s.get("retracted"):
+                text += "  [retraction/correction signal]"
+            text += "\n"
 
         # Abstract / Preview
         abstract = r.get("abstract") or ""
@@ -1079,6 +1609,20 @@ async def _handle_search(args: dict) -> list[TextContent]:
                 f"get_citations(doi=\"{r['doi']}\") to see what built on it. "
                 "Pass exclude_dois=[the DOIs below] to skip results you've already seen, "
                 "and use BROADER keywords than this query to pull in adjacent work."
+            )
+        # Book/chapter navigation hints
+        if r.get("doi") and _wt == "book-chapter":
+            text += (
+                f"\n    ⇢ Book chapter: get_book_chapters(doi=\"{r['doi']}\") lists "
+                "the sibling chapters in the same volume — often a richer topical "
+                "neighbourhood than keyword search."
+            )
+        elif r.get("doi") and _wt in ("book", "edited-book", "monograph", "reference-book"):
+            text += (
+                f"\n    ⇢ Book: get_book_chapters(doi=\"{r['doi']}\") drills down into "
+                "the individual chapters (each has its own DOI and can be fetched separately). "
+                "Prefer this to fetching the whole book — chapter PDFs are usually the only "
+                "thing publishers host, and sectioning works much better per-chapter."
             )
         text += "\n\n"
 
@@ -1157,6 +1701,23 @@ async def _handle_get_paper(args: dict) -> list[TextContent]:
         abstract = _reconstruct_abstract(oa_paper.get("abstract_inverted_index"))
         if abstract:
             text += f"\nAbstract:\n{abstract}\n"
+
+    # Book / chapter drill hint
+    oa_type = ((oa_paper or {}).get("type") or "").lower()
+    if oa_type in _CHAPTER_TYPES:
+        container = ((oa_paper.get("primary_location") or {}).get("source") or {}).get("display_name", "")
+        text += "\nType: book chapter"
+        if container:
+            text += f" in \"{container}\""
+        text += (
+            f"\n→ See sibling chapters: get_book_chapters(doi=\"{doi}\")\n"
+        )
+    elif oa_type in _BOOK_TYPES:
+        text += (
+            "\nType: book\n"
+            f"→ List chapters: get_book_chapters(doi=\"{doi}\") — fetch individual "
+            "chapters rather than the whole book PDF.\n"
+        )
 
     # PDF URLs
     pdf_urls = apis.collect_pdf_urls(s2_paper, oa_paper, unpaywall_data)
@@ -1440,6 +2001,175 @@ async def _handle_get_citation_tree(args: dict) -> list[TextContent]:
             parts.append(f"(Filtered out {ref_dropped} reference(s) matching exclude_dois.)")
 
     return [TextContent(type="text", text="\n".join(parts))]
+
+
+_BOOK_TYPES = {"book", "edited-book", "monograph", "reference-book"}
+_CHAPTER_TYPES = {"book-chapter", "reference-entry", "book-part", "book-section"}
+
+
+def _page_sort_key(item: dict) -> tuple:
+    """Sort chapters by first page number when available; otherwise by title."""
+    page = item.get("page") or ""
+    first = page.split("-")[0].strip()
+    try:
+        return (0, int(first))
+    except (TypeError, ValueError):
+        return (1, (item.get("title") or [""])[0].lower())
+
+
+async def _handle_get_book_chapters(args: dict) -> list[TextContent]:
+    """List chapters sharing an ISBN or book title — drill up/down between book and chapters."""
+    raw_doi = (args.get("doi") or "").strip()
+    raw_isbn = (args.get("isbn") or "").strip()
+    keywords = args.get("keywords")
+    limit = min(max(args.get("limit", 50), 1), 100)
+
+    if not raw_doi and not raw_isbn:
+        return [TextContent(type="text", text="Provide either 'doi' or 'isbn'.")]
+
+    # Resolve seed metadata
+    seed: dict | None = None
+    seed_doi = raw_doi.replace("https://doi.org/", "").replace("http://doi.org/", "") or None
+    isbns: list[str] = []
+    container_title: str | None = None
+    seed_type: str = ""
+
+    if seed_doi:
+        try:
+            seed = await apis.crossref_work(seed_doi)
+        except Exception as e:
+            logger.debug("Crossref lookup failed for %s: %s", seed_doi, e)
+        if seed:
+            seed_type = (seed.get("type") or "").lower()
+            isbns = [apis._normalize_isbn(i) for i in (seed.get("ISBN") or []) if i]
+            # For a chapter, container-title is the book title; for a book itself it's empty.
+            ct_list = seed.get("container-title") or []
+            if ct_list:
+                container_title = ct_list[0]
+            elif seed_type in _BOOK_TYPES:
+                title_list = seed.get("title") or []
+                container_title = title_list[0] if title_list else None
+
+    if raw_isbn:
+        isbns.insert(0, apis._normalize_isbn(raw_isbn))
+    # Deduplicate while preserving order
+    isbns = list(dict.fromkeys([i for i in isbns if i]))
+
+    if not isbns and not container_title:
+        return [TextContent(type="text", text=(
+            f"Could not resolve a book identifier from {raw_doi or raw_isbn}. "
+            "Crossref returned no ISBN or container-title. Try passing the ISBN directly "
+            "via the 'isbn' parameter."
+        ))]
+
+    # Query Crossref — ISBNs first (concat results), then fall back to title if empty
+    items: list[dict] = []
+    seen: set[str] = set()
+    for isbn in isbns:
+        try:
+            batch = await apis.crossref_book_chapters(
+                isbn=isbn, keywords=keywords, limit=limit,
+            )
+        except Exception as e:
+            logger.warning("Crossref chapter query failed for ISBN %s: %s", isbn, e)
+            continue
+        for it in batch:
+            d = (it.get("DOI") or "").lower()
+            if d and d not in seen:
+                seen.add(d)
+                items.append(it)
+
+    if not items and container_title:
+        try:
+            batch = await apis.crossref_book_chapters(
+                container_title=container_title, keywords=keywords, limit=limit,
+            )
+        except Exception as e:
+            logger.warning("Crossref chapter query failed for title %r: %s", container_title, e)
+            batch = []
+        for it in batch:
+            d = (it.get("DOI") or "").lower()
+            if d and d not in seen:
+                seen.add(d)
+                items.append(it)
+
+    items.sort(key=_page_sort_key)
+    items = items[:limit]
+
+    # Header — describe what we resolved
+    book_title = container_title or ""
+    if seed and seed_type in _BOOK_TYPES and not book_title:
+        title_list = seed.get("title") or []
+        book_title = title_list[0] if title_list else ""
+
+    lines = []
+    if seed_type in _CHAPTER_TYPES and seed_doi:
+        lines.append(f"Drilled UP from chapter {seed_doi} → sibling chapters in:")
+    elif seed_type in _BOOK_TYPES and seed_doi:
+        lines.append(f"Drilled DOWN from book {seed_doi} → chapters:")
+    else:
+        lines.append("Chapters matching the provided identifier:")
+    if book_title:
+        lines.append(f"  Book: {book_title}")
+    if isbns:
+        lines.append(f"  ISBN: {', '.join(isbns)}")
+    lines.append("=" * 60)
+    lines.append("")
+
+    if not items:
+        lines.append(
+            "No chapters found in Crossref for this volume.\n\n"
+            "Likely causes: the book is not registered at the chapter level "
+            "(common for older/trade books), or Crossref does not have complete "
+            "coverage for this publisher. You can still fetch the main work via "
+            "fetch_fulltext if a full-book PDF exists."
+        )
+        return [TextContent(type="text", text="\n".join(lines))]
+
+    lines.append(f"Found {len(items)} chapter(s):\n")
+
+    zot_index = await zotero.get_doi_index()
+    current_doi_norm = zotero._normalize_doi(seed_doi) if seed_doi else None
+
+    for i, it in enumerate(items):
+        ch_doi = (it.get("DOI") or "").strip()
+        ch_doi_norm = zotero._normalize_doi(ch_doi) if ch_doi else None
+        title = (it.get("title") or [""])[0]
+        authors = []
+        for a in (it.get("author") or [])[:4]:
+            name = (a.get("given", "") + " " + a.get("family", "")).strip()
+            if name:
+                authors.append(name)
+        page = it.get("page") or ""
+        marker = "  ← THIS ONE" if ch_doi_norm and ch_doi_norm == current_doi_norm else ""
+        in_zot = ch_doi_norm in zot_index if ch_doi_norm else False
+        zot_badge = "  ★ IN ZOTERO" if in_zot else ""
+
+        lines.append(f"[{i}] {title}{marker}{zot_badge}")
+        if authors:
+            more = f" +{len(it.get('author') or []) - 4} more" if len(it.get("author") or []) > 4 else ""
+            lines.append(f"    Authors: {', '.join(authors)}{more}")
+        if page:
+            lines.append(f"    Pages: {page}")
+        if ch_doi:
+            lines.append(f"    DOI: {ch_doi}")
+            lines.append(f"    → fetch_fulltext(doi=\"{ch_doi}\", mode=\"sections\") to read")
+        lines.append("")
+
+    # Footer: workflow hints
+    dois = [it.get("DOI") for it in items if it.get("DOI")]
+    if dois:
+        lines.append("─" * 60)
+        lines.append("Next steps:")
+        lines.append(
+            "→ batch_sections(dois=[...]) to survey several chapters in parallel"
+        )
+        if keywords is None:
+            lines.append(
+                "→ Re-call with keywords='...' to narrow to chapters on a specific subtopic"
+            )
+
+    return [TextContent(type="text", text="\n".join(lines))]
 
 
 async def _handle_fetch_pdf(args: dict) -> list[TextContent]:
@@ -2063,21 +2793,27 @@ async def _handle_fetch_pdf(args: dict) -> list[TextContent]:
 
                         if _is_ssrn:
                             _ssrn_id = _original_doi.rsplit(".", 1)[-1]
+                            _ssrn_url = f"https://papers.ssrn.com/sol3/papers.cfm?abstract_id={_ssrn_id}"
                             _pub_note = ""
                             if (_ssrn_remap or {}).get("published_doi"):
                                 _pub_note = (
-                                    f"\n\nNote: this paper may also be published as "
-                                    f"https://doi.org/{_ssrn_remap['published_doi']}"
+                                    "\n\nNote: this paper may also be published as "
+                                    f"https://doi.org/{_ssrn_remap['published_doi']} — "
+                                    "try fetch_fulltext on that DOI if available.\n"
                                 )
                             lines = [
-                                f"Could not retrieve {_original_doi} automatically.\n",
-                                "\nThis is an SSRN paper. Automated download failed (SSRN blocks bots).\n",
-                                "\n**To get this paper, ask the user to either:**\n",
-                                f"1. Download from https://papers.ssrn.com/sol3/papers.cfm?abstract_id={_ssrn_id}\n",
-                                "2. Save it to Zotero using the browser connector (which handles SSRN well)\n",
-                                "3. Attach the PDF directly to this conversation\n",
+                                f"Could not retrieve {_original_doi} automatically "
+                                "(SSRN blocks bots).\n\n",
+                                "**Surface this clickable link to the user so they can grab it themselves:**\n\n",
+                                f"  → {_ssrn_url}\n\n",
+                                "Recommended: open the link, then use the **Zotero browser connector** "
+                                "to save the PDF + metadata to their library. Once it's in Zotero, "
+                                "this MCP will find it automatically on future searches (search_papers "
+                                "checks Zotero first) — no DOI juggling needed next time.\n\n",
+                                "Alternatives: download the PDF and attach it directly to this "
+                                "conversation, or drop it into Zotero manually.\n",
                                 _pub_note,
-                                "\nOnce available, re-run this request.",
+                                "\nOnce the paper is available, re-run this request.",
                             ]
                         else:
                             sources_tried = [c["source"] for c in candidate_urls]
@@ -3281,6 +4017,18 @@ def _cache_pdf_and_return(
     When *pages_str* is set we return a partial extraction and skip caching
     (partial text is not useful for section-based access).
     """
+    def _append_import_hint(contents: list[TextContent]) -> list[TextContent]:
+        hint = zotero_import.get_auto_import_hint(doi)
+        if not hint:
+            return contents
+        out: list[TextContent] = []
+        for c in contents:
+            if c.type == "text" and hint not in c.text:
+                out.append(TextContent(type="text", text=c.text + "\n\n" + hint))
+            else:
+                out.append(c)
+        return out
+
     if pages_str:
         return _format_extracted_pdf(pdf_source, doi, source, pages_str)
 
@@ -3308,11 +4056,16 @@ def _cache_pdf_and_return(
 
     # Queue for background Zotero import (non-blocking; only when we have a file)
     if isinstance(pdf_source, Path):
-        from . import zotero_import
         zotero_import.enqueue_zotero_import(doi, pdf_source, cached_article)
+        # Surface startup/probe issues immediately on the same response.
+        hint = zotero_import.get_auto_import_hint(doi)
+        if hint:
+            logger.warning("Auto-import warning for %s: %s", doi, hint)
 
     if mode != "full":
-        return _apply_mode_filter(cached_article, mode, section_name, range_start, range_end)
+        return _append_import_hint(
+            _apply_mode_filter(cached_article, mode, section_name, range_start, range_end)
+        )
 
     # mode == "full" — format exactly as _format_extracted_pdf does
     header = (
@@ -3334,7 +4087,7 @@ def _cache_pdf_and_return(
     full_text = header + raw_text
     if len(full_text) > config.max_context_length:
         full_text = full_text[:config.max_context_length] + "\n\n[... TRUNCATED ...]"
-    return [TextContent(type="text", text=citation_header + full_text)]
+    return _append_import_hint([TextContent(type="text", text=citation_header + full_text)])
 
 
 def _reconstruct_abstract(inverted_index: dict | None) -> str:

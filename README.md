@@ -11,9 +11,13 @@ An MCP server that searches academic papers, fetches full text, and returns cont
 │  Tools:                                                          │
 │  ├── search_papers       (Zotero + S2 + OpenAlex + Primo)        │
 │  │     domain_hint: general | law  (law → Primo law review search)│
+│  │     include_scite: true  (Scite tallies + retraction signals)   │
+│  │     semantic: true       (blend semantic Zotero hits)            │
 │  ├── search_zotero       (search your Zotero library)            │
 │  ├── search_by_doi       (instant DOI lookup via SQLite)         │
 │  ├── get_paper           (metadata by DOI)                       │
+│  ├── scite_enrich        (citation tallies + retraction signal)  │
+│  ├── scite_check_retractions (library retraction scan)           │
 │  ├── fetch_fulltext      (multi-strategy HTML + PDF extraction)  │
 │  │     mode: full | sections | preview | section | range         │
 │  │     source: auto | html                                       │
@@ -22,6 +26,9 @@ An MCP server that searches academic papers, fetches full text, and returns cont
 │  ├── find_pdf_urls       (list available URLs)                   │
 │  ├── list_zotero_libraries (all libraries + item counts)         │
 │  └── refresh_zotero_index  (rebuild DOI cache + diagnostics)     │
+│  ├── semantic_search_zotero (vector search over Zotero index)     │
+│  ├── semantic_index_status / semantic_index_rebuild               │
+│  └── zotero_import_status (auto-import queue + error diagnostics) │
 │                                                                  │
 │  Content Retrieval Priority:                                     │
 │  ┌──────────────────────────────────────────────────────────┐    │
@@ -165,6 +172,13 @@ For optional stealth browser support:
 uv sync --extra stealth
 ```
 
+For optional semantic indexing support:
+```bash
+uv sync --extra semantic
+```
+
+Scite support uses existing core dependencies; no extra install is required.
+
 ## Configuration
 
 Copy `.env.example` to `.env` and configure:
@@ -207,6 +221,8 @@ cp .env.example .env
 | Variable | Default | Description |
 |---|---|---|
 | `AUTO_IMPORT_TO_ZOTERO` | `false` | Auto-import web-fetched PDFs into local Zotero library with full Crossref metadata. Requires Zotero desktop running. The `.article.json` text cache is always kept; only the PDF moves to Zotero. |
+
+If auto-import is enabled, use the `zotero_import_status` tool to diagnose queue state and write-permission failures (for Zotero 7/8, local API writes require `extensions.zotero.httpServer.localAPI.allowWriteAccess=true`).
 
 ### Zotero settings
 

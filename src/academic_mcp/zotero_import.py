@@ -12,6 +12,7 @@ Design principles:
 
 import asyncio
 import hashlib
+import json
 import logging
 import random
 import re
@@ -19,9 +20,10 @@ import shutil
 import string
 from collections import deque
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import aiosqlite
 import httpx
 
 from .config import config
@@ -30,6 +32,201 @@ from .zotero import zot_config, _local_api_get
 from . import zotero_sqlite
 
 logger = logging.getLogger(__name__)
+
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _iso_utc(dt: datetime | None = None) -> str:
+    return (dt or _utc_now()).isoformat()
+
+
+# ---------------------------------------------------------------------------
+# Runtime diagnostics (last N import attempts)
+# ---------------------------------------------------------------------------
+
+_MAX_IMPORT_ATTEMPTS = 50
+_import_attempts: deque[dict] = deque(maxlen=_MAX_IMPORT_ATTEMPTS)
+_latest_attempt_by_doi: dict[str, dict] = {}
+_latest_error_by_doi: dict[str, str] = {}
+
+
+def _record_attempt(
+    doi: str,
+    stage: str,
+    status: str,
+    error: str = "",
+    details: dict | None = None,
+) -> None:
+    entry = {
+        "timestamp": _iso_utc(),
+        "doi": doi,
+        "stage": stage,
+        "status": status,
+        "error": error,
+        "details": details or {},
+    }
+    _import_attempts.append(entry)
+    _latest_attempt_by_doi[doi] = entry
+    if status == "error" and error:
+        _latest_error_by_doi[doi] = error
+
+
+def _friendly_import_error(raw: str) -> str:
+    lower = (raw or "").lower()
+    if "403" in lower or "405" in lower:
+        return (
+            "403/405 write access denied - enable Zotero local API write access "
+            "in Zotero Settings > Advanced > Config Editor: "
+            "extensions.zotero.httpServer.localAPI.allowWriteAccess=true"
+        )
+    if "not reachable" in lower or "connect" in lower:
+        return "Zotero local API not reachable - ensure Zotero desktop is running"
+    if "local api disabled" in lower:
+        return "Zotero local API disabled"
+    return raw or "Unknown auto-import failure"
+
+
+async def get_import_status(limit: int = 20) -> dict:
+    """Return queue + diagnostics state for MCP status tooling."""
+    recent = list(_import_attempts)[-max(1, min(limit, _MAX_IMPORT_ATTEMPTS)) :]
+    queue_count = await _queue_count()
+    return {
+        "auto_import_enabled": config.auto_import_to_zotero,
+        "local_api_enabled": zot_config.local_enabled,
+        "write_probe": dict(_write_probe_result),
+        "queue_count": queue_count,
+        "recent_attempts": recent,
+    }
+
+
+def get_auto_import_hint(doi: str) -> str | None:
+    """Return a one-line hint when the most recent import state warrants surfacing."""
+    if not config.auto_import_to_zotero or not doi:
+        return None
+
+    if _write_probe_result.get("state") == "denied":
+        msg = _write_probe_result.get("message") or "write access not authorized"
+        return f"[auto-import blocked: {msg}]"
+
+    last = _latest_attempt_by_doi.get(doi)
+    if not last:
+        return None
+    if last.get("status") != "error":
+        return None
+
+    try:
+        ts = datetime.fromisoformat(last.get("timestamp", ""))
+        if _utc_now() - ts > timedelta(minutes=15):
+            return None
+    except Exception:
+        pass
+
+    return f"[auto-import failed: {_friendly_import_error(last.get('error', ''))}]"
+
+
+# ---------------------------------------------------------------------------
+# Startup write probe
+# ---------------------------------------------------------------------------
+
+# Probe outcome is tri-state:
+#   state = "denied"       -> writes are definitely not authorised
+#   state = "unreachable"  -> Zotero desktop / local API not running
+#   state = "unknown"      -> endpoint responded but we can't prove writes work
+#                             without creating an item (we refuse to do so)
+# `ok` is True only when we know writes are denied-free (currently always None
+# unless state == "unknown" and we treat it as don't-surface). Do not flag
+# failure in the LLM-facing footer unless state == "denied".
+_write_probe_result: dict = {
+    "checked_at": None,
+    "state": "unchecked",
+    "status_code": None,
+    "message": "not checked",
+}
+_write_probe_ran = False
+
+
+async def ensure_auto_import_initialized() -> None:
+    """Run startup checks once and ensure the persistent worker is running."""
+    global _write_probe_ran
+    if not config.auto_import_to_zotero:
+        return
+
+    if not _write_probe_ran:
+        _write_probe_ran = True
+        await _probe_local_write_access()
+
+    _ensure_worker_running()
+
+
+async def _probe_local_write_access() -> None:
+    """Probe whether local API writes are authorized, without creating any item.
+
+    We POST an intentionally empty batch (``[]``). Zotero returns:
+      * 403 / 405 when writes are forbidden -> state="denied" (actionable)
+      * any other status (400 / 200 / etc.) -> state="unknown" — the endpoint
+        is reachable but an empty batch can't *prove* writes are authorised.
+        We do not surface this as a failure; real POSTs will either succeed or
+        fall through to the standard per-request error handling.
+    """
+    _write_probe_result.update({
+        "checked_at": _iso_utc(),
+        "state": "unchecked",
+        "status_code": None,
+        "message": "not checked",
+    })
+
+    if not zot_config.local_enabled:
+        _write_probe_result.update({
+            "state": "denied",
+            "message": "local API disabled",
+        })
+        logger.warning("AUTO_IMPORT_TO_ZOTERO=true but local API is disabled")
+        return
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(
+                f"{zot_config.local_base}/items",
+                json=[],
+                headers={
+                    "Content-Type": "application/json",
+                    "Zotero-Allowed-Request": "1",
+                },
+            )
+        _write_probe_result["status_code"] = resp.status_code
+        if resp.status_code in (403, 405):
+            _write_probe_result.update({
+                "state": "denied",
+                "message": (
+                    "write access denied - enable Zotero local API write access "
+                    "(extensions.zotero.httpServer.localAPI.allowWriteAccess=true)"
+                ),
+            })
+            logger.warning(
+                "Zotero auto-import is enabled but local API writes are not authorized "
+                "(status %s). Enable extensions.zotero.httpServer.localAPI.allowWriteAccess=true",
+                resp.status_code,
+            )
+            return
+        _write_probe_result.update({
+            "state": "unknown",
+            "message": (
+                f"endpoint reachable (status {resp.status_code}) — authorisation state "
+                "cannot be proved without creating an item; will surface on first real import"
+            ),
+        })
+    except (httpx.ConnectError, httpx.ConnectTimeout):
+        _write_probe_result.update({
+            "state": "unreachable",
+            "message": "Zotero local API not reachable",
+        })
+    except Exception as e:
+        _write_probe_result.update({
+            "state": "unknown",
+            "message": f"write probe error: {e}",
+        })
 
 
 # ---------------------------------------------------------------------------
@@ -331,10 +528,13 @@ def _build_zotero_item(
 # Local API: create item and attach PDF
 # ---------------------------------------------------------------------------
 
-async def _create_zotero_item(item_data: dict) -> "str | None":
-    """Create a new item in Zotero via the local API. Returns the item key."""
+async def _create_zotero_item(item_data: dict) -> "tuple[str | None, str, int | None]":
+    """Create a new item in Zotero via the local API.
+
+    Returns ``(item_key, error_message, status_code)``.
+    """
     if not zot_config.local_enabled:
-        return None
+        return None, "local API disabled", None
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
             resp = await client.post(
@@ -349,19 +549,20 @@ async def _create_zotero_item(item_data: dict) -> "str | None":
                 result = resp.json()
                 successful = result.get("successful") or {}
                 if "0" in successful:
-                    return successful["0"].get("key")
+                    return successful["0"].get("key"), "", resp.status_code
                 if isinstance(result, list) and result:
-                    return result[0].get("key")
+                    return result[0].get("key"), "", resp.status_code
             else:
-                logger.warning(
-                    "Zotero item creation failed: %d %s",
-                    resp.status_code, resp.text[:200],
-                )
+                msg = f"{resp.status_code} {resp.text[:200]}"
+                logger.warning("Zotero item creation failed: %s", msg)
+                return None, msg, resp.status_code
     except (httpx.ConnectError, httpx.ConnectTimeout):
         logger.debug("Zotero local API not reachable for item creation")
+        return None, "Zotero local API not reachable", None
     except Exception as e:
         logger.warning("Unexpected error creating Zotero item: %s", e)
-    return None
+        return None, str(e), None
+    return None, "unknown item creation failure", None
 
 
 def _generate_zotero_key() -> str:
@@ -522,23 +723,30 @@ async def import_to_zotero(
     False on failure.
     """
     if not config.auto_import_to_zotero:
+        _record_attempt(doi, "guard", "skipped", "auto-import disabled")
         return False
 
     if not doi:
         logger.debug("Skipping Zotero import: no DOI")
+        _record_attempt(doi, "guard", "skipped", "no DOI")
         return False
 
     if not _is_web_fetched(cached_article.source):
         logger.debug("Skipping Zotero import for %s: source is Zotero", doi)
+        _record_attempt(doi, "guard", "skipped", "source is Zotero")
         return False
 
     if not zot_config.local_enabled:
         logger.debug("Skipping Zotero import: local API disabled")
+        _record_attempt(doi, "guard", "error", "local API disabled")
         return False
 
     if not pdf_path.exists():
         logger.debug("Skipping Zotero import for %s: PDF no longer on disk", doi)
+        _record_attempt(doi, "guard", "error", "PDF missing from cache")
         return False
+
+    _record_attempt(doi, "start", "queued", details={"pdf_path": str(pdf_path)})
 
     # Duplicate check
     existing = await _doi_exists_in_zotero(doi)
@@ -549,9 +757,11 @@ async def import_to_zotero(
                 logger.info("DOI %s in Zotero without PDF — attaching", doi)
                 success = await _attach_pdf_to_item(item_key, pdf_path)
                 if success:
+                    _record_attempt(doi, "attach_existing", "success")
                     _try_delete_cached_pdf(doi)
                 return success
         logger.debug("DOI %s already in Zotero with PDF — skipping", doi)
+        _record_attempt(doi, "duplicate", "skipped", "already in Zotero")
         return True
 
     # Fetch rich metadata from Crossref
@@ -574,9 +784,10 @@ async def import_to_zotero(
     )
 
     # Create the item via local API
-    item_key = await _create_zotero_item(item_data)
+    item_key, create_error, _ = await _create_zotero_item(item_data)
     if not item_key:
         logger.warning("Failed to create Zotero item for %s", doi)
+        _record_attempt(doi, "create_item", "error", create_error or "create item failed")
         return False
 
     # Attach the PDF
@@ -585,10 +796,17 @@ async def import_to_zotero(
 
     if success:
         logger.info("Imported %s into Zotero as %s (%s)", doi, item_key, item_type)
+        _record_attempt(doi, "attach_pdf", "success", details={"item_key": item_key})
         _try_delete_cached_pdf(doi)
     else:
         logger.warning(
             "Created Zotero item %s but PDF attachment failed for %s", item_key, doi
+        )
+        _record_attempt(
+            doi,
+            "attach_pdf",
+            "error",
+            f"Created item {item_key} but attachment failed",
         )
 
     return success
@@ -605,9 +823,112 @@ class _ImportJob:
     cached_article: CachedArticle
 
 
-_import_queue: deque[_ImportJob] = deque()
-_import_task: "asyncio.Task | None" = None
-_IMPORT_DELAY_SECONDS = 5  # debounce: wait this long after last enqueue
+_IMPORT_DELAY_SECONDS = 5
+_IMPORT_BACKOFF_BASE_SECONDS = 5
+_IMPORT_BACKOFF_MAX_SECONDS = 300
+_QUEUE_DB_PATH = config.pdf_cache_dir / "import_queue.sqlite"
+_worker_task: "asyncio.Task | None" = None
+_worker_wakeup: "asyncio.Event | None" = None
+
+
+async def _ensure_queue_db() -> None:
+    async with aiosqlite.connect(_QUEUE_DB_PATH) as db:
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS import_queue (
+                doi TEXT PRIMARY KEY,
+                pdf_path TEXT NOT NULL,
+                source TEXT NOT NULL,
+                metadata_json TEXT NOT NULL,
+                queued_at TEXT NOT NULL,
+                run_after TEXT NOT NULL,
+                attempts INTEGER NOT NULL DEFAULT 0,
+                last_error TEXT NOT NULL DEFAULT ''
+            )
+            """
+        )
+        await db.commit()
+
+
+async def _queue_count() -> int:
+    await _ensure_queue_db()
+    async with aiosqlite.connect(_QUEUE_DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute("SELECT COUNT(*) AS cnt FROM import_queue")
+        row = await cur.fetchone()
+        return int(row["cnt"] if row else 0)
+
+
+async def _enqueue_job(job: _ImportJob) -> None:
+    await _ensure_queue_db()
+    run_after = _utc_now() + timedelta(seconds=_IMPORT_DELAY_SECONDS)
+    async with aiosqlite.connect(_QUEUE_DB_PATH) as db:
+        await db.execute(
+            """
+            INSERT INTO import_queue
+                (doi, pdf_path, source, metadata_json, queued_at, run_after, attempts, last_error)
+            VALUES (?, ?, ?, ?, ?, ?, 0, '')
+            ON CONFLICT(doi) DO UPDATE SET
+                pdf_path=excluded.pdf_path,
+                source=excluded.source,
+                metadata_json=excluded.metadata_json,
+                queued_at=excluded.queued_at,
+                run_after=excluded.run_after
+            """,
+            (
+                job.doi,
+                str(job.pdf_path),
+                job.cached_article.source,
+                json.dumps(job.cached_article.metadata or {}),
+                _iso_utc(),
+                _iso_utc(run_after),
+            ),
+        )
+        await db.commit()
+
+
+async def _get_due_job() -> dict | None:
+    await _ensure_queue_db()
+    async with aiosqlite.connect(_QUEUE_DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            """
+            SELECT doi, pdf_path, source, metadata_json, queued_at, run_after, attempts, last_error
+            FROM import_queue
+            WHERE run_after <= ?
+            ORDER BY run_after ASC
+            LIMIT 1
+            """,
+            (_iso_utc(),),
+        )
+        row = await cur.fetchone()
+        return dict(row) if row else None
+
+
+async def _delete_job(doi: str) -> None:
+    async with aiosqlite.connect(_QUEUE_DB_PATH) as db:
+        await db.execute("DELETE FROM import_queue WHERE doi = ?", (doi,))
+        await db.commit()
+
+
+async def _reschedule_job(doi: str, attempts: int, last_error: str) -> None:
+    backoff = min(
+        _IMPORT_BACKOFF_MAX_SECONDS,
+        _IMPORT_BACKOFF_BASE_SECONDS * (2 ** min(attempts, 6)),
+    )
+    run_after = _utc_now() + timedelta(seconds=backoff)
+    async with aiosqlite.connect(_QUEUE_DB_PATH) as db:
+        await db.execute(
+            """
+            UPDATE import_queue
+            SET attempts = ?,
+                last_error = ?,
+                run_after = ?
+            WHERE doi = ?
+            """,
+            (attempts, last_error, _iso_utc(run_after), doi),
+        )
+        await db.commit()
 
 
 def enqueue_zotero_import(
@@ -628,31 +949,75 @@ def enqueue_zotero_import(
     if not pdf_path.exists():
         return
 
-    _import_queue.append(_ImportJob(doi=doi, pdf_path=pdf_path, cached_article=cached_article))
-    _schedule_drain()
-
-
-def _schedule_drain() -> None:
-    """Schedule (or reschedule) the background drain task."""
-    global _import_task
-
-    if _import_task and not _import_task.done():
-        _import_task.cancel()
+    job = _ImportJob(doi=doi, pdf_path=pdf_path, cached_article=cached_article)
+    _record_attempt(doi, "enqueue", "queued", details={"pdf_path": str(pdf_path)})
 
     try:
-        _import_task = asyncio.ensure_future(_drain_after_delay())
+        loop = asyncio.get_running_loop()
+        loop.create_task(_enqueue_job(job))
+        _ensure_worker_running()
+        if _worker_wakeup is not None:
+            _worker_wakeup.set()
     except RuntimeError:
-        # No running event loop (e.g. during testing) — skip
+        # No running event loop (e.g. some unit tests)
         pass
 
 
-async def _drain_after_delay() -> None:
-    """Wait for the debounce period, then process all queued imports."""
-    await asyncio.sleep(_IMPORT_DELAY_SECONDS)
+def _ensure_worker_running() -> None:
+    """Start the persistent queue worker once per process."""
+    global _worker_task, _worker_wakeup
 
-    while _import_queue:
-        job = _import_queue.popleft()
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return
+
+    if _worker_wakeup is None:
+        _worker_wakeup = asyncio.Event()
+
+    if _worker_task and not _worker_task.done():
+        return
+
+    _worker_task = asyncio.create_task(_worker_loop())
+
+
+async def _worker_loop() -> None:
+    """Process persistent import jobs with retry/backoff."""
+    await _ensure_queue_db()
+    while True:
         try:
-            await import_to_zotero(job.doi, job.pdf_path, job.cached_article)
+            job = await _get_due_job()
+            if not job:
+                if _worker_wakeup is None:
+                    await asyncio.sleep(2)
+                else:
+                    _worker_wakeup.clear()
+                    await asyncio.wait_for(_worker_wakeup.wait(), timeout=2.0)
+                continue
+
+            doi = job["doi"]
+            pdf_path = Path(job["pdf_path"])
+            metadata = json.loads(job.get("metadata_json") or "{}")
+            cached_article = CachedArticle(
+                doi=doi,
+                text="",
+                source=job.get("source") or "web",
+                sections=[],
+                section_detection="unknown",
+                word_count=0,
+                metadata=metadata,
+            )
+
+            ok = await import_to_zotero(doi, pdf_path, cached_article)
+            if ok:
+                await _delete_job(doi)
+                continue
+
+            attempts = int(job.get("attempts") or 0) + 1
+            last_error = _latest_error_by_doi.get(doi, "auto-import failed")
+            await _reschedule_job(doi, attempts, last_error)
+        except asyncio.TimeoutError:
+            continue
         except Exception as e:
-            logger.warning("Zotero auto-import failed for %s: %s", job.doi, e)
+            logger.warning("Zotero auto-import worker error: %s", e)
+            await asyncio.sleep(2)

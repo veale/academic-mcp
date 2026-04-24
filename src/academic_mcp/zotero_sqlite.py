@@ -946,6 +946,145 @@ async def build_doi_index() -> dict[str, dict]:
         await conn.close()
 
 
+async def list_items_with_doi(
+    limit: int = 200,
+    collection: str | None = None,
+) -> list[dict[str, str]]:
+    """List Zotero items that have a DOI, optionally filtered by collection.
+
+    ``collection`` accepts either a Zotero collection key or a collection name
+    fragment (case-insensitive).
+    """
+    if not sqlite_config.available:
+        return []
+
+    conn = await _get_connection()
+    try:
+        doi_fid = await _get_field_id(conn, "DOI")
+        title_fid = await _get_field_id(conn, "title")
+        if doi_fid is None:
+            return []
+
+        base = f"""
+            SELECT DISTINCT
+                i.key AS item_key,
+                TRIM(idv_doi.value) AS doi,
+                COALESCE(idv_title.value, '') AS title
+            FROM items i
+            JOIN itemTypes it ON i.itemTypeID = it.itemTypeID
+            JOIN itemData id_doi ON id_doi.itemID = i.itemID AND id_doi.fieldID = ?
+            JOIN itemDataValues idv_doi ON idv_doi.valueID = id_doi.valueID
+            LEFT JOIN itemData id_title ON id_title.itemID = i.itemID AND id_title.fieldID = ?
+            LEFT JOIN itemDataValues idv_title ON idv_title.valueID = id_title.valueID
+        """
+
+        params: list = [doi_fid, title_fid or -1]
+        where = [
+            "it.typeName NOT IN ('attachment', 'note', 'annotation')",
+            "TRIM(idv_doi.value) != ''",
+        ]
+
+        if collection:
+            base += """
+                JOIN collectionItems ci ON ci.itemID = i.itemID
+                JOIN collections c ON c.collectionID = ci.collectionID
+            """
+            where.append("(c.key = ? OR LOWER(c.collectionName) LIKE ?)")
+            params.extend([collection.strip(), f"%{collection.strip().lower()}%"])
+
+        query = (
+            base
+            + "\nWHERE "
+            + " AND ".join(where)
+            + "\nORDER BY i.dateModified DESC\nLIMIT ?"
+        )
+        params.append(max(1, min(int(limit), 2000)))
+
+        cur = await conn.execute(query, params)
+        rows = await cur.fetchall()
+        out: list[dict[str, str]] = []
+        for row in rows:
+            out.append({
+                "item_key": row["item_key"],
+                "doi": row["doi"],
+                "title": row["title"],
+            })
+        return out
+    except Exception as e:
+        logger.warning("SQLite DOI listing failed: %s", e)
+        return []
+    finally:
+        await conn.close()
+
+
+async def list_items_for_semantic_index() -> list[dict[str, str]]:
+    """Return metadata needed for semantic indexing from the SQLite shadow DB."""
+    if not sqlite_config.available:
+        return []
+
+    conn = await _get_connection()
+    try:
+        title_fid = await _get_field_id(conn, "title")
+        abs_fid = await _get_field_id(conn, "abstractNote")
+        doi_fid = await _get_field_id(conn, "DOI")
+
+        if title_fid is None and abs_fid is None:
+            return []
+
+        # Also pull the first PDF attachment's key so callers can read
+        # .zotero-ft-cache without a second round-trip per item.
+        query = """
+            SELECT
+                i.itemID,
+                i.key AS item_key,
+                i.dateModified,
+                MAX(CASE WHEN id.fieldID = ? THEN idv.value END) AS title,
+                MAX(CASE WHEN id.fieldID = ? THEN idv.value END) AS abstractNote,
+                MAX(CASE WHEN id.fieldID = ? THEN idv.value END) AS doi,
+                (
+                    SELECT ai.key FROM itemAttachments ia
+                    JOIN items ai ON ia.itemID = ai.itemID
+                    WHERE ia.parentItemID = i.itemID
+                      AND ia.contentType = 'application/pdf'
+                    ORDER BY ia.itemID LIMIT 1
+                ) AS attachment_key
+            FROM items i
+            JOIN itemTypes it ON i.itemTypeID = it.itemTypeID
+            LEFT JOIN itemData id ON id.itemID = i.itemID
+            LEFT JOIN itemDataValues idv ON idv.valueID = id.valueID
+            WHERE it.typeName NOT IN ('attachment', 'note', 'annotation')
+            GROUP BY i.itemID, i.key, i.dateModified
+            ORDER BY i.dateModified DESC
+        """
+
+        cur = await conn.execute(
+            query,
+            (title_fid or -1, abs_fid or -1, doi_fid or -1),
+        )
+        rows = await cur.fetchall()
+
+        out: list[dict[str, str]] = []
+        for row in rows:
+            title = (row["title"] or "").strip()
+            abstract = (row["abstractNote"] or "").strip()
+            if not title and not abstract:
+                continue
+            out.append({
+                "item_key": row["item_key"],
+                "title": title,
+                "abstract": abstract,
+                "doi": (row["doi"] or "").strip(),
+                "dateModified": (row["dateModified"] or ""),
+                "attachment_key": (row["attachment_key"] or ""),
+            })
+        return out
+    except Exception as e:
+        logger.warning("SQLite semantic source listing failed: %s", e)
+        return []
+    finally:
+        await conn.close()
+
+
 # ---------------------------------------------------------------------------
 # Diagnostics
 # ---------------------------------------------------------------------------
