@@ -132,7 +132,8 @@ TOOLS = [
             "Use author:LastName to search by author.\n\n"
             "NEXT STEP: Pass the DOIs from results to batch_sections to survey the "
             "structure of multiple papers at once, or fetch_fulltext(mode='sections') "
-            "for a single paper.\n\n"
+            "for a single paper. Results without a DOI show a url field — pass that "
+            "to fetch_fulltext(url=...) to retrieve theses, reports, and working papers.\n\n"
             "FOUND A KEY PAPER? Use get_citations(doi) to find papers that build on it, "
             "or get_references(doi) to find its foundations. This is often more productive "
             "than running more keyword searches — ESPECIALLY when the paper is more than a "
@@ -516,6 +517,11 @@ TOOLS = [
             "Get the full text of a paper for analysis. Checks Zotero first, "
             "then tries open-access sources, stealth browser, and institutional proxy. "
             "After the first fetch, text is cached locally — subsequent calls are instant.\n\n"
+            "Accepts any of: doi (preferred when available), zotero_key (for Zotero-only "
+            "items without a DOI), or url (for items visible on the web but without a DOI — "
+            "typical for theses, reports, working papers, institutional documents). "
+            "When multiple are provided, DOI wins. search_papers results now include a url "
+            "field when no DOI is available.\n\n"
             "DEFAULT WORKFLOW (mode='sections' — the default):\n"
             "1. Call with no mode argument — returns headings with TF-IDF keywords "
             "revealing what each section discusses.\n"
@@ -547,6 +553,17 @@ TOOLS = [
                     "description": (
                         "Zotero item key — fallback for Zotero-only items that have no DOI. "
                         "Use this when search_papers returns a result with '★ IN ZOTERO' but no DOI."
+                    ),
+                },
+                "url": {
+                    "type": "string",
+                    "description": (
+                        "Direct URL to the article or its landing page. Use this when "
+                        "the search result has no DOI but shows a URL field (common for "
+                        "theses, institutional reports, working papers, OECD/ICO guidance). "
+                        "The server will attempt a direct PDF download if the URL ends in "
+                        ".pdf, then fall back to stealth-browser landing-page extraction. "
+                        "Reuses the same HTML extraction pipeline as DOI landing pages."
                     ),
                 },
                 "use_proxy": {
@@ -1272,6 +1289,7 @@ async def _handle_search(args: dict) -> list[TextContent]:
                     "in_zotero": True,
                     "has_oa_pdf": True,
                     "s2_id": None,
+                    "url": (item.get("url") or "").strip() or None,
                 })
         except Exception:
             logger.exception("Zotero search failed")
@@ -1344,6 +1362,10 @@ async def _handle_search(args: dict) -> list[TextContent]:
                                 r["work_type"] = _t
                             if _t == "book-chapter" and not r.get("container_title"):
                                 r["container_title"] = ((work.get("primary_location") or {}).get("source") or {}).get("display_name")
+                            # Capture URL if the existing result doesn't have one.
+                            if not r.get("url"):
+                                _pl = work.get("primary_location") or {}
+                                r["url"] = _pl.get("pdf_url") or _pl.get("landing_page_url") or None
                             break
                     continue
                 if doi_norm:
@@ -1358,8 +1380,11 @@ async def _handle_search(args: dict) -> list[TextContent]:
                     if len(authors) >= 5:
                         break
                 in_zot = doi_norm in zot_index if doi_norm else False
-                _oa_source = (work.get("primary_location") or {}).get("source") or {}
+                _primary_loc = work.get("primary_location") or {}
+                _oa_source = _primary_loc.get("source") or {}
                 _oa_type = (work.get("type") or "").lower()
+                # Prefer direct PDF URL (faster); fall back to landing page for scraping.
+                _oa_url = _primary_loc.get("pdf_url") or _primary_loc.get("landing_page_url") or None
                 results.append({
                     "title": work.get("title") or "Untitled",
                     "authors": authors,
@@ -1374,6 +1399,7 @@ async def _handle_search(args: dict) -> list[TextContent]:
                     "s2_id": None,
                     "work_type": _oa_type or None,
                     "container_title": _oa_source.get("display_name") if _oa_type in ("book-chapter",) else None,
+                    "url": _oa_url,
                 })
         except Exception as e:
             logger.warning("OpenAlex search failed: %s", e)
@@ -1520,6 +1546,7 @@ async def _handle_search(args: dict) -> list[TextContent]:
                     "has_oa_pdf": True,
                     "s2_id": None,
                     "_semantic_zotero_score": hit.get("score"),
+                    "url": (item.url or "").strip() or None,
                 })
 
     # ── 6. Semantic re-ranking ─────────────────────────────────────
@@ -1686,6 +1713,11 @@ async def _handle_search(args: dict) -> list[TextContent]:
                 abstract = abstract[:400] + "..."
             text += f"\n    {abstract}\n"
 
+        # URL line — shown only for DOI-less items so the LLM can pass it to
+        # fetch_fulltext.  When a DOI is present it's already the canonical handle.
+        if r.get("url") and not r.get("doi"):
+            text += f"    URL: {r['url']}\n"
+
         # Follow-up action guidance
         text += "\n    → "
         if r.get("doi"):
@@ -1699,6 +1731,11 @@ async def _handle_search(args: dict) -> list[TextContent]:
                 text += f"Available via institutional access: {r['_primo_proxy_url']}"
             else:
                 text += f"May need proxy. Call fetch_fulltext(doi=\"{r['doi']}\", use_proxy=true, mode=\"sections\") to explore."
+        elif r.get("url"):
+            text += (
+                f"No DOI, but URL available. "
+                f"Call fetch_fulltext(url=\"{r['url']}\", mode=\"sections\") to explore."
+            )
         elif r.get("in_zotero") and r.get("zotero_key"):
             text += (
                 f"No DOI, but in Zotero. Call fetch_fulltext(zotero_key=\"{r['zotero_key']}\", "
@@ -2285,17 +2322,111 @@ async def _handle_get_book_chapters(args: dict) -> list[TextContent]:
     return [TextContent(type="text", text="\n".join(lines))]
 
 
+async def _extract_from_landing_page(
+    url: str,
+    use_proxy: bool,
+    expected_doi: str | None = None,
+) -> dict | None:
+    """Fetch a landing-page URL via stealth browser and extract content.
+
+    Shared by both the DOI landing-page tier (pass *expected_doi* for the
+    publisher-redirect mismatch guard) and the URL-driven tier (no expected_doi).
+
+    Returns a dict with keys ``text``, ``source``, ``pdf_path``,
+    ``sections``, ``section_detection``, ``word_count`` on success,
+    or ``None`` on failure.  Exactly one of *text* or *pdf_path* is non-None.
+    """
+    if not config.use_stealth_browser:
+        return None
+
+    scrapling_path, html, final_url = await pdf_fetcher.fetch_with_scrapling(url)
+    effective_url = final_url or url
+
+    if scrapling_path:
+        return {
+            "text": None, "source": "scrapling_direct_pdf",
+            "pdf_path": scrapling_path,
+            "sections": None, "section_detection": None, "word_count": None,
+        }
+
+    if not html:
+        return None
+
+    meta = content_extractor.extract_citation_meta(html, effective_url)
+
+    # DOI mismatch guard: some publisher resolvers redirect to a different
+    # article on lookup failure.  Only applied when caller supplies expected_doi.
+    if expected_doi:
+        citation_doi = meta.get("citation_doi", "")
+        if citation_doi and zotero._normalize_doi(citation_doi) != zotero._normalize_doi(expected_doi):
+            logger.warning(
+                "DOI mismatch: requested %s, page reports %s — discarding HTML",
+                expected_doi, citation_doi,
+            )
+            return None
+
+    citation_pdf = meta.get("citation_pdf_url", "")
+    if citation_pdf:
+        logger.info("Found citation_pdf_url: %s", citation_pdf)
+        path = await pdf_fetcher.fetch_direct(citation_pdf)
+        if not path and use_proxy:
+            path = await pdf_fetcher.fetch_proxied(citation_pdf)
+        if path:
+            return {
+                "text": None, "source": "citation_pdf_url (direct)",
+                "pdf_path": path,
+                "sections": None, "section_detection": None, "word_count": None,
+            }
+
+    # Trafilatura HTML extraction.
+    extraction = await content_extractor.extract_article_with_sections(html, effective_url)
+    if extraction:
+        raw_text = extraction["text"]
+        sections = extraction["sections"] or content_extractor.detect_sections_from_text(raw_text)
+        section_det = extraction["section_detection"] if extraction["sections"] else "text_heuristic"
+        return {
+            "text": raw_text,
+            "source": f"html_extraction ({extraction['source']})",
+            "pdf_path": None,
+            "sections": sections,
+            "section_detection": section_det,
+            "word_count": extraction["word_count"],
+        }
+
+    # Last-resort PDF link scan from HTML.
+    pdf_link = pdf_fetcher._extract_pdf_link_from_html(html, effective_url)
+    if pdf_link:
+        logger.info("Trying PDF link found in HTML: %s", pdf_link)
+        path = await pdf_fetcher.fetch_direct(pdf_link)
+        if not path and use_proxy:
+            path = await pdf_fetcher.fetch_proxied(pdf_link)
+        if path:
+            return {
+                "text": None, "source": "html_pdf_link",
+                "pdf_path": path,
+                "sections": None, "section_detection": None, "word_count": None,
+            }
+
+    return None
+
+
 async def _handle_fetch_pdf(args: dict) -> list[TextContent]:
     zotero_key = (args.get("zotero_key") or "").strip() or None
     doi = args.get("doi")
-    if not doi and not zotero_key:
+    url = (args.get("url") or "").strip() or None
+    if not doi and not zotero_key and not url:
         return [TextContent(
             type="text",
-            text="fetch_fulltext requires either 'doi' or 'zotero_key'.",
+            text="fetch_fulltext requires at least one of 'doi', 'zotero_key', or 'url'.",
         )]
     if zotero_key and not doi:
         # Synthesize a stable cache key so the article cache works uniformly.
         doi = f"zotero:{zotero_key}"
+    if not doi and url:
+        # URL-only: synthesize a stable cache key from the URL hash.
+        import hashlib as _hashlib
+        _url_hash = _hashlib.sha256(url.encode("utf-8")).hexdigest()[:16]
+        doi = f"url:{_url_hash}"
     use_proxy = args.get("use_proxy", False)
     pages_str = args.get("pages")
     mode = args.get("mode", "sections")
@@ -2462,24 +2593,133 @@ async def _handle_fetch_pdf(args: dict) -> list[TextContent]:
                         )
 
                 # For Zotero-only (no real DOI), the rest of the pipeline has
-                # nothing to work with — bail out with a clear message instead
-                # of trying to resolve a synthetic "zotero:KEY" against OA/proxy.
+                # nothing to work with unless the Zotero item has a `url` field.
+                # Check for that first; if found, promote it so the URL tier
+                # (below) can handle it.
                 if result is None and zotero_key:
-                    zot_source = (zot_result or {}).get("source") or "not found"
-                    meta = (zot_result or {}).get("metadata") or {}
-                    title = meta.get("title") or "(unknown title)"
-                    return [TextContent(
-                        type="text",
-                        text=(
-                            f"Zotero item {zotero_key} ({title}) has no indexed fulltext "
-                            f"or retrievable PDF (source: {zot_source}). No DOI is available "
-                            "to try open-access or proxy fallbacks. "
-                            "In Zotero, check that the item has a PDF attachment and that "
-                            "PDF indexing has run (Settings > Search)."
-                        ),
-                    )]
+                    if url is None:
+                        # Try to read the `url` field from the Zotero item.
+                        try:
+                            _zot_item = await zotero_sqlite.search_by_key(zotero_key)
+                            if _zot_item and (_zot_item.url or "").strip():
+                                url = _zot_item.url.strip()
+                                import hashlib as _hashlib2
+                                _url_hash2 = _hashlib2.sha256(url.encode("utf-8")).hexdigest()[:16]
+                                doi = f"url:{_url_hash2}"
+                                logger.info(
+                                    "zotero_key %s has no attachment but has url=%s; "
+                                    "delegating to URL tier.",
+                                    zotero_key, url,
+                                )
+                        except Exception as _e:
+                            logger.debug("Failed to look up Zotero url for %s: %s", zotero_key, _e)
+
+                    if result is None and url is None:
+                        zot_source = (zot_result or {}).get("source") or "not found"
+                        meta = (zot_result or {}).get("metadata") or {}
+                        title = meta.get("title") or "(unknown title)"
+                        return [TextContent(
+                            type="text",
+                            text=(
+                                f"Zotero item {zotero_key} ({title}) has no indexed fulltext "
+                                f"or retrievable PDF (source: {zot_source}). No DOI is available "
+                                "to try open-access or proxy fallbacks. "
+                                "In Zotero, check that the item has a PDF attachment and that "
+                                "PDF indexing has run (Settings > Search)."
+                            ),
+                        )]
 
                 if result is None:
+                    # ── Tier 0.5: URL-driven fetch ──────────────────────────────────
+                    # Fires when a URL is available (passed in directly, or promoted
+                    # from the Zotero item's url field above).  Runs before the
+                    # DOI-based tiers; those tiers are no-ops for synthetic url:* keys.
+                    if url:
+                        logger.info("Trying URL tier for %s", url)
+                        from urllib.parse import urlparse as _urlparse
+                        _parsed = _urlparse(url)
+                        _url_path_lower = (_parsed.path or "").lower()
+                        _url_pdf_path: "Path | None" = None
+
+                        # Fast path: URL ends in .pdf — try direct download first.
+                        if _url_path_lower.endswith(".pdf"):
+                            try:
+                                _url_pdf_path = await pdf_fetcher.fetch_direct(url)
+                            except Exception as _ue:
+                                logger.info("URL tier: direct PDF fetch failed for %s: %s", url, _ue)
+
+                        # Content-Type probe: some URLs serve PDFs without .pdf extension.
+                        if not _url_pdf_path and not _url_path_lower.endswith(".pdf"):
+                            try:
+                                async with httpx.AsyncClient(follow_redirects=True, timeout=15.0) as _hc:
+                                    _head = await _hc.head(url)
+                                    _ctype = (_head.headers.get("content-type") or "").lower()
+                                    if "application/pdf" in _ctype:
+                                        _url_pdf_path = await pdf_fetcher.fetch_direct(url)
+                            except Exception as _ue2:
+                                logger.debug("URL tier: HEAD probe failed for %s: %s", url, _ue2)
+
+                        if _url_pdf_path:
+                            result = _cache_pdf_and_return(
+                                _url_pdf_path, doi, "url_direct_pdf",
+                                pages_str, mode, section_name, range_start, range_end,
+                            )
+
+                        # Landing-page path: stealth browser + trafilatura pipeline.
+                        if result is None and config.use_stealth_browser:
+                            try:
+                                _lp = await _extract_from_landing_page(url, use_proxy)
+                                if _lp:
+                                    if _lp["pdf_path"]:
+                                        result = _cache_pdf_and_return(
+                                            _lp["pdf_path"], doi, _lp["source"],
+                                            pages_str, mode, section_name, range_start, range_end,
+                                        )
+                                    elif _lp["text"]:
+                                        _raw = _lp["text"]
+                                        _cached_lp = text_cache.put_cached(
+                                            doi, _raw, _lp["source"],
+                                            sections=_lp["sections"],
+                                            section_detection=_lp["section_detection"],
+                                            word_count=_lp["word_count"],
+                                            metadata={"url": url},
+                                        )
+                                        if mode != "full":
+                                            result = _apply_mode_filter(
+                                                _cached_lp, mode, section_name, range_start, range_end
+                                            )
+                                        else:
+                                            _text = (
+                                                f"Full text extracted from URL: {url}\n"
+                                                f"Source: {_lp['source']}\n"
+                                                f"Word count: {_lp['word_count']}\n"
+                                                f"{'=' * 60}\n\n" + _raw
+                                            )
+                                            if len(_text) > config.max_context_length:
+                                                _text = (
+                                                    _text[:config.max_context_length]
+                                                    + "\n\n[... TRUNCATED — full text exceeds context limit ...]"
+                                                )
+                                            result = [TextContent(type="text", text=_text)]
+                            except Exception as _ue3:
+                                logger.info("URL tier: landing-page extraction failed for %s: %s", url, _ue3)
+
+                        # If URL tier succeeded and doi is synthetic, return now.
+                        # If URL tier failed and doi is synthetic (url:*), bail out early
+                        # — there are no DOI-based tiers that can help.
+                        if doi.startswith("url:") and result is None:
+                            return [TextContent(
+                                type="text",
+                                text=(
+                                    f"Could not retrieve content from URL: {url}\n\n"
+                                    "Tried: direct PDF download"
+                                    + (", stealth browser + HTML extraction" if config.use_stealth_browser else "")
+                                    + ".\n"
+                                    "Check that the URL is publicly accessible, or save the "
+                                    "document to Zotero and retry with zotero_key."
+                                ),
+                            )]
+
                     # ── Step 0b: SSRN DOI remapping ─────────────────────────────────
                     # For SSRN preprints, try to find the published version's DOI and
                     # any OA PDF URLs before doing any network fetching.  We skip this
@@ -2669,47 +2909,59 @@ async def _handle_fetch_pdf(args: dict) -> list[TextContent]:
 
                     # ── Step 3: Scrapling fetch of DOI landing page ──────────────────
                     #
-                    # Makes a single stealth-browser call to the DOI URL.  The response is
-                    # typically a publisher HTML page (not a PDF), so we:
-                    #   3a. Extract citation_pdf_url meta tag (publisher's canonical PDF URL)
-                    #       and try a direct/proxied HTTP fetch of it.
-                    #   3b. Run trafilatura on the full HTML — if the article body is present
-                    #       and ≥1500 words, return the extracted text without touching a PDF.
-                    #   3c. Store the HTML for step 4 (PDF-link regex scanning).
-                    stored_html: str | None = None
-                    stored_html_url: str | None = None
-                    extra_pdf_candidates: list[dict[str, str]] = []  # URLs found in the HTML
+                    # For normal fetches: delegates to _extract_from_landing_page which
+                    # handles citation_pdf_url, trafilatura, and PDF link scanning.
+                    # For force_html: keeps inline for the specialised cache-refresh logic.
+                    if result is None and not force_html and not doi.startswith("url:"):
+                        doi_url = (
+                            f"https://doi.org/{doi}" if not doi.startswith("http") else doi
+                        )
+                        lp = await _extract_from_landing_page(doi_url, use_proxy, expected_doi=doi)
+                        if lp:
+                            if lp["pdf_path"]:
+                                result = _cache_pdf_and_return(
+                                    lp["pdf_path"], doi, lp["source"],
+                                    pages_str, mode, section_name, range_start, range_end,
+                                )
+                            elif lp["text"]:
+                                raw_text = lp["text"]
+                                cached_article = text_cache.put_cached(
+                                    doi, raw_text, lp["source"],
+                                    sections=lp["sections"],
+                                    section_detection=lp["section_detection"],
+                                    word_count=lp["word_count"],
+                                    metadata=cite_meta,
+                                )
+                                if mode != "full":
+                                    result = _apply_mode_filter(
+                                        cached_article, mode, section_name, range_start, range_end
+                                    )
+                                else:
+                                    text = (
+                                        f"Full text extracted from DOI: {doi}\n"
+                                        f"Source: {lp['source']}\n"
+                                        f"Word count: {lp['word_count']}\n"
+                                        f"{'=' * 60}\n\n" + raw_text
+                                    )
+                                    if len(text) > config.max_context_length:
+                                        text = (
+                                            text[:config.max_context_length]
+                                            + "\n\n[... TRUNCATED — full text exceeds context limit ...]"
+                                        )
+                                    citation_header = _format_citation_header(doi, cite_meta)
+                                    result = [TextContent(type="text", text=citation_header + text)]
 
-                    if (config.use_stealth_browser and result is None) or force_html:
+                    if force_html:
                         doi_url = (
                             f"https://doi.org/{doi}" if not doi.startswith("http") else doi
                         )
                         scrapling_path, html, final_url = await pdf_fetcher.fetch_with_scrapling(
                             doi_url
                         )
-                        # When force_html is set, ignore any PDF the stealth browser
-                        # may have directly downloaded — we want HTML extraction only.
-                        if force_html:
-                            scrapling_path = None
-
-                        if scrapling_path:
-                            # Rare: Scrapling received a PDF directly (no HTML page in the way)
-                            result = _cache_pdf_and_return(
-                                scrapling_path, doi, "doi_redirect (scrapling)",
-                                pages_str, mode, section_name, range_start, range_end,
-                            )
-
-                        if html and (result is None or force_html):
+                        # force_html: skip direct PDF, use HTML extraction only.
+                        if html:
                             effective_url = final_url or doi_url
-
-                            # ── 3a: citation_pdf_url meta tag ──────────────────────
                             meta = content_extractor.extract_citation_meta(html, effective_url)
-
-                            # Guard: some publisher DOI resolvers redirect to a journal
-                            # homepage or a different article on lookup failure (Elsevier does
-                            # this occasionally).  If the page's embedded DOI doesn't match
-                            # what we requested, discard everything — HTML and PDF URL — so we
-                            # don't return the wrong paper's content with false confidence.
                             citation_doi = meta.get("citation_doi", "")
                             if citation_doi and zotero._normalize_doi(citation_doi) != zotero._normalize_doi(doi):
                                 logger.warning(
@@ -2717,42 +2969,19 @@ async def _handle_fetch_pdf(args: dict) -> list[TextContent]:
                                     doi, citation_doi,
                                 )
                                 html = None
-
-                            citation_pdf = meta.get("citation_pdf_url", "") if html else ""
-                            if citation_pdf:
-                                logger.info("Found citation_pdf_url: %s", citation_pdf)
-                                path = await pdf_fetcher.fetch_direct(citation_pdf)
-                                if not path and use_proxy:
-                                    path = await pdf_fetcher.fetch_proxied(citation_pdf)
-                                if path:
-                                    result = _cache_pdf_and_return(
-                                        path, doi, "citation_pdf_url (direct)",
-                                        pages_str, mode, section_name, range_start, range_end,
-                                    )
-                                # Fetch failed — keep as a candidate for later retry
-                                extra_pdf_candidates.append(
-                                    {"url": citation_pdf, "source": "citation_pdf_url"}
-                                )
-
-                            # ── 3b: trafilatura HTML extraction ────────────────────
-                            # Also runs in force_html mode even when result != None
-                            if html and (result is None or force_html):
+                            if html:
                                 extraction = await content_extractor.extract_article_with_sections(
                                     html, effective_url
                                 )
                                 if extraction:
                                     raw_text = extraction["text"]
-                                    # If no h2/h3 markers survived trafilatura, fall back to
-                                    # the conservative text heuristic for the section index.
                                     sections = extraction["sections"] or content_extractor.detect_sections_from_text(raw_text)
                                     section_det = extraction["section_detection"] if extraction["sections"] else "text_heuristic"
                                     html_source = f"html_extraction ({extraction['source']})"
-                                    # In force_html mode, only update the cache when the HTML
-                                    # result is substantially better (>1500 words, ≥3 sections).
                                     html_words = extraction["word_count"]
                                     html_sections = len(sections)
                                     html_is_good = html_words > 1500 and html_sections >= 3
-                                    if not force_html or html_is_good:
+                                    if html_is_good:
                                         cached_article = text_cache.put_cached(
                                             doi, raw_text, html_source,
                                             sections=sections,
@@ -2778,26 +3007,19 @@ async def _handle_fetch_pdf(args: dict) -> list[TextContent]:
                                             f"Full text extracted from DOI: {doi}\n"
                                             f"Source: {html_source}\n"
                                             f"Word count: {extraction['word_count']}\n"
-                                            f"{'=' * 60}\n\n"
-                                            + raw_text
+                                            f"{'=' * 60}\n\n" + raw_text
                                         )
                                         if len(text) > config.max_context_length:
                                             text = (
-                                                text[: config.max_context_length]
+                                                text[:config.max_context_length]
                                                 + "\n\n[... TRUNCATED — full text exceeds context limit ...]"
                                             )
-                                        # Add citation header
                                         citation_header = _format_citation_header(doi, cite_meta)
                                         result = [TextContent(type="text", text=citation_header + text)]
 
-                                # ── 3c: Store HTML for PDF-link scanning in step 4 ────
-                                if extraction is None and html:
-                                    stored_html = html
-                                    stored_html_url = effective_url
-
                     # ── Step 4: Proxied fetch on candidates (institutional access) ───
                     if result is None and use_proxy and config.gost_proxy_url:
-                        for candidate in candidate_urls + extra_pdf_candidates:
+                        for candidate in candidate_urls:
                             path = await pdf_fetcher.fetch_proxied(candidate["url"])
                             if path:
                                 result = _cache_pdf_and_return(
@@ -2806,7 +3028,7 @@ async def _handle_fetch_pdf(args: dict) -> list[TextContent]:
                                 )
                                 if result:
                                     break
-                        if result is None:
+                        if result is None and not doi.startswith("url:"):
                             doi_url = (
                                 f"https://doi.org/{doi}" if not doi.startswith("http") else doi
                             )
@@ -2817,27 +3039,10 @@ async def _handle_fetch_pdf(args: dict) -> list[TextContent]:
                                     pages_str, mode, section_name, range_start, range_end,
                                 )
 
-                    # ── Step 5: PDF link extraction from stored HTML ─────────────────
-                    if result is None and stored_html and stored_html_url:
-                        pdf_link = pdf_fetcher._extract_pdf_link_from_html(
-                            stored_html, stored_html_url
-                        )
-                        if pdf_link:
-                            logger.info("Trying PDF link found in Scrapling HTML: %s", pdf_link)
-                            path = await pdf_fetcher.fetch_direct(pdf_link)
-                            if not path and use_proxy:
-                                path = await pdf_fetcher.fetch_proxied(pdf_link)
-                            if path:
-                                result = _cache_pdf_and_return(
-                                    path, doi, "html_pdf_link",
-                                    pages_str, mode, section_name, range_start, range_end,
-                                )
-
-                    # ── Step 6: Scrapling on candidate URLs (last resort) ────────────
+                    # ── Step 5: Scrapling on candidate URLs (last resort) ────────────
                     if result is None and config.use_stealth_browser:
-                        all_candidates = candidate_urls + extra_pdf_candidates
-                        for candidate in all_candidates:
-                            scrap_path, _html, _url = await pdf_fetcher.fetch_with_scrapling(
+                        for candidate in candidate_urls:
+                            scrap_path, _html, _scrap_url = await pdf_fetcher.fetch_with_scrapling(
                                 candidate["url"]
                             )
                             if scrap_path:
@@ -2848,7 +3053,7 @@ async def _handle_fetch_pdf(args: dict) -> list[TextContent]:
                                 if result:
                                     break
 
-                    # ── Step 7: HeinOnline (law review + institutional proxy) ────────
+                    # ── Step 6: HeinOnline (law review + institutional proxy) ────────
                     if result is None and web_search._looks_like_law_review(cite_meta):
                         _hein_title = cite_meta.get("title") or (_ssrn_remap or {}).get("title")
                         if _hein_title:

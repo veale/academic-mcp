@@ -848,7 +848,7 @@ async def search_zotero(
             logger.debug("Group search failed: %s", e)
     return [
         {k: item.get("data", {}).get(k, "") for k in
-         ("key", "title", "creators", "DOI", "date", "abstractNote",
+         ("key", "title", "creators", "DOI", "url", "date", "abstractNote",
           "publicationTitle", "itemType")}
         for item in items
     ]

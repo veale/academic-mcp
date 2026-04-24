@@ -42,6 +42,13 @@ An MCP server that searches academic papers, fetches full text, and returns cont
 │  │    c) Local WebDAV dir   (skip HTTP, read zip from disk) │    │
 │  │    d) WebDAV over HTTP   (stream zip → extract to cache) │    │
 │  │    e) Zotero Web/local API fallback                      │    │
+│  │    • zotero_key with no attachment → promotes item url   │    │
+│  ├──────────────────────────────────────────────────────────┤    │
+│  │ 0.5 URL TIER  (doi-less items — theses, reports, etc.)   │    │
+│  │    a) .pdf extension → direct HTTP fetch                 │    │
+│  │    b) HEAD probe for application/pdf content-type        │    │
+│  │    c) Stealth browser → landing page extraction          │    │
+│  │       Stable cache key: url:<sha256-16>                  │    │
 │  ├──────────────────────────────────────────────────────────┤    │
 │  │ 1. SSRN DOI REMAP  (if doi starts with 10.2139/ssrn.)   │    │
 │  │    a) OpenAlex → published DOI + OA PDF URLs             │    │
@@ -88,6 +95,8 @@ An MCP server that searches academic papers, fetches full text, and returns cont
 ## Key Design Decisions
 
 **Zero-RAM PDF pipeline.** Every PDF fetcher (HTTP, WebDAV, Scrapling) streams directly to `PDF_CACHE_DIR` and returns a file `Path` — never a `bytes` object. PyMuPDF reads from disk via `fitz.open(filename=...)`. A 50 MB PDF uses ~64 KB of RAM (one chunk buffer) regardless of size.
+
+**Three-way identifier support.** `fetch_fulltext` accepts `doi`, `zotero_key`, *or* `url`. When only a URL is supplied (typical for theses, reports, and working papers without a DOI), a stable cache key `url:<sha256-16>` is synthesised so the article cache still works across sessions. When a `zotero_key` has no local attachment, the item's `url` field is automatically promoted and routed through the URL tier.
 
 **Native async SQLite.** All database access uses `aiosqlite` for non-blocking queries on the main event loop. No `asyncio.to_thread()` overhead on every DOI lookup or keyword search.
 

@@ -44,3 +44,4 @@ htmlcov/
 .DS_Store
 
 .claude
+.personal_deploy/

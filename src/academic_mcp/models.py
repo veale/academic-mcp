@@ -57,6 +57,7 @@ class ZoteroItem:
                 for c in self.creators
             ],
             "DOI": self.DOI,
+            "url": self.url or "",
             "date": self.date,
             "abstractNote": self.abstractNote,
             "publicationTitle": self.publicationTitle,
