@@ -371,6 +371,68 @@ async def crossref_work(doi: str) -> dict | None:
         return resp.json().get("message")
 
 
+def _normalize_isbn(isbn: str) -> str:
+    """Strip dashes/spaces/URL prefixes so ISBN queries match Crossref's canonical form."""
+    return "".join(c for c in (isbn or "") if c.isalnum())
+
+
+async def crossref_book_chapters(
+    isbn: str | None = None,
+    container_title: str | None = None,
+    keywords: str | None = None,
+    limit: int = 50,
+) -> list[dict]:
+    """List book-chapter works that share an ISBN or container-title.
+
+    Preferred keyed on ISBN (reliable); falls back to exact container-title
+    search when only the book title is known.
+    """
+    if not isbn and not container_title:
+        return []
+
+    filters = ["type:book-chapter"]
+    if isbn:
+        filters.append(f"isbn:{_normalize_isbn(isbn)}")
+
+    params: dict[str, Any] = {
+        "filter": ",".join(filters),
+        "rows": min(max(limit, 1), 100),
+        "select": (
+            "DOI,title,author,page,container-title,ISBN,published-print,"
+            "published-online,type,publisher,editor,volume"
+        ),
+    }
+    if container_title and not isbn:
+        # container-title.search isn't a supported filter; use query.container-title
+        params["query.container-title"] = container_title
+    if keywords:
+        params["query.bibliographic"] = keywords
+
+    async with _client() as client:
+        resp = await _request_with_retry(
+            client, "GET", "https://api.crossref.org/works",
+            params=params,
+            headers={
+                "User-Agent": f"AcademicMCP/0.1 (mailto:{config.unpaywall_email or 'user@example.com'})",
+            },
+        )
+        if resp.status_code == 404:
+            return []
+        resp.raise_for_status()
+        items = resp.json().get("message", {}).get("items", []) or []
+
+    # When only container-title was used (no ISBN), Crossref returns fuzzy
+    # matches — keep only items whose container-title actually matches.
+    if container_title and not isbn:
+        want = container_title.strip().lower()
+        items = [
+            it for it in items
+            if any(want == (ct or "").strip().lower()
+                   for ct in (it.get("container-title") or []))
+        ]
+    return items
+
+
 # ---------------------------------------------------------------------------
 # Ex Libris Primo
 # ---------------------------------------------------------------------------
