@@ -202,6 +202,16 @@ cp .env.example .env
 | `MAX_CONTEXT_LENGTH` | `100000` | Max characters returned to the LLM |
 | `USE_PYMUPDF4LLM` | `true` | Use pymupdf4llm for Markdown PDF extraction (tables, multi-column, bold/italic). Falls back to the legacy pipeline on failure. |
 
+### SSE server settings (network deployment)
+
+These are only relevant when running `--transport sse`. Ignored in stdio mode.
+
+| Variable | Default | Description |
+|---|---|---|
+| `MCP_HOST` | `0.0.0.0` | Bind address for the SSE server. Set to `127.0.0.1` to restrict to localhost. |
+| `MCP_PORT` | *(CLI `--port`)* | Port override. Takes priority over the `--port` argument. Docker image defaults to `8765`. |
+| `MCP_API_KEY` | *(empty)* | When set, every request must carry `Authorization: Bearer <key>`. Leave empty for Tailscale-only deployments. Use `openssl rand -hex 32` to generate. |
+
 ### OA aggregator and web search fallback
 
 | Variable | Default | Description |
@@ -341,11 +351,18 @@ If auto-import is enabled, use the `zotero_import_status` tool to diagnose queue
 # stdio mode (for Claude Desktop, Cursor, etc.)
 uv run python -m academic_mcp
 
-# SSE mode (for remote/web connections)
+# SSE mode (local, for testing or LAN access)
 uv run python -m academic_mcp --transport sse --port 8080
+
+# SSE mode with env var overrides (port and bind address take priority over --port)
+MCP_HOST=0.0.0.0 MCP_PORT=8765 uv run python -m academic_mcp --transport sse
 ```
 
+The SSE server always exposes a `/healthz` endpoint that returns `ok` and bypasses any API-key auth. This is used by the Docker HEALTHCHECK and can be used by any external probe.
+
 ### Claude Desktop config
+
+**Local stdio mode** (MacBook, no network service):
 
 The `--directory` flag is the key detail — it tells `uv` where to find `pyproject.toml` so it activates the right venv regardless of the working directory Claude Desktop launches from.
 
@@ -365,6 +382,37 @@ The `--directory` flag is the key detail — it tells `uv` where to find `pyproj
   }
 }
 ```
+
+**Remote SSE mode** (network service via Tailscale):
+
+```json
+{
+  "mcpServers": {
+    "academic": {
+      "url": "https://mcp.YOUR-TAILNET.ts.net/sse",
+      "transport": "sse"
+    }
+  }
+}
+```
+
+With public hostname + API key:
+
+```json
+{
+  "mcpServers": {
+    "academic": {
+      "url": "https://mcp.YOUR-PUBLIC-DOMAIN.tld/sse",
+      "transport": "sse",
+      "headers": {
+        "Authorization": "Bearer sk-your-mcp-api-key"
+      }
+    }
+  }
+}
+```
+
+See the [Running as a network service](#running-as-a-network-service) section for the full deployment guide.
 
 ### Adding dependencies
 
@@ -759,18 +807,22 @@ Then set `GOST_PROXY_URL=socks5://localhost:1080` in your `.env`.
 
 ## Remote Zotero Access
 
-**Option A: SQLite + rsync (recommended for headless servers):**
+**Option A: Managed rsync via launchd** (recommended — see [Running as a network service](#running-as-a-network-service)):
+
+Use the scripts in `deploy/macbook/`. The launchd agent runs an event-driven sync: it fires whenever any file in `~/Zotero/` changes (via `WatchPaths`), debounced to at most once per 60 seconds, plus a 30-minute fallback timer. Each sync produces a consistent SQLite snapshot via `sqlite3 .backup` and transfers it atomically (rsync to `.new`, then `ssh` rename). A `.last-sync` watermark is written to the server on success and surfaced in `semantic_index_status` as `mirror_age_seconds`.
+
+**Option B: Manual rsync (quick one-off):**
 ```bash
-rsync -az user@zotero-machine:~/Zotero/zotero.sqlite ~/Zotero/
-rsync -az user@zotero-machine:~/Zotero/storage/ ~/Zotero/storage/
+rsync -az --partial user@zotero-machine:~/Zotero/zotero.sqlite ~/Zotero/
+rsync -az --partial user@zotero-machine:~/Zotero/storage/ ~/Zotero/storage/
 ```
 
-**Option B: SSH tunnel:**
+**Option C: SSH tunnel to local API:**
 ```bash
 autossh -M 0 -N -L 23119:localhost:23119 user@your-zotero-machine
 ```
 
-**Option C: Web API only:**
+**Option D: Web API only:**
 ```bash
 ZOTERO_LOCAL_ENABLED=false
 ZOTERO_API_KEY=your_key
@@ -1158,4 +1210,131 @@ print(r[0].text)
 "
 ```
 
-Log lines show the retrieval path taken (SQLite → direct HTTP → Scrapling → proxy), shadow copy fallback when Zotero is open, BM25 index builds, and section detection results.
+---
+
+## Running as a network service
+
+This section covers deploying academic-mcp as a persistent server on a Linux
+box (ARM64 recommended) so that multiple devices (MacBook, phone) share one
+always-on instance over Tailscale, with an optional public endpoint for Claude
+mobile when not on the tailnet.
+
+### When to use this mode
+
+- **Multi-device access** — Claude Desktop on MacBook and Claude mobile on phone both connect to the same server without each spawning their own subprocess.
+- **Zombie elimination** — Claude Desktop's stdio transport spawns a new `uv run` process on every conversation. The SSE transport connects to a URL; zero local subprocesses.
+- **Always-on availability** — the Linux server stays up while the MacBook sleeps. The semantic index, PDF cache, and Zotero mirror are always warm.
+
+### Three-container architecture
+
+```
+Linux server — Docker network: YOUR-DOCKER-NETWORK
+├─ llama_embed        already running — serves embedding API
+├─ scrapling_mcp      optional stealth browser sidecar
+└─ academic_mcp       this service — port 8765
+       │
+       ├─ Tailscale ──► mcp.YOUR-TAILNET.ts.net/sse
+       └─ Reverse proxy ──► mcp.YOUR-PUBLIC-DOMAIN.tld/sse  (optional)
+```
+
+`academic_mcp` reads from a bind-mounted Zotero mirror (read-only) and writes
+only to its own cache volume.
+
+### Zotero data mirroring
+
+Zotero stays on the MacBook. Only its data is mirrored.
+
+**Mode A — Full folder mirror** (default): a launchd agent on the MacBook syncs `~/Zotero/` to the Linux server. The sync is event-driven via `WatchPaths` (fires when any Zotero file changes), debounced to at most once per 60 seconds, with a 30-minute fallback timer. Each sync takes a consistent SQLite snapshot via `sqlite3 .backup`, rsyncs everything except the live database file in phase 1, then transfers the snapshot atomically as `zotero.sqlite.new` and renames it into place via an SSH rename command. A `.last-sync` watermark is written on success.
+
+**Mode B — Nextcloud WebDAV**: attachments sync through Nextcloud on the server.
+Only `zotero.sqlite` is rsynced. Set `SYNC_MODE=B` in the plist and
+`ZOTERO_WEBDAV_LOCAL_PATH` in the container env. Modes A and B can coexist.
+
+The MCP's existing SQLite shadow-copy mechanism (see `zotero_sqlite.py`)
+handles the case where rsync runs while Zotero is open — it reads the last
+clean copy transparently until the next successful sync.
+
+**Mirror freshness:** `semantic_index_status` includes `mirror_last_sync_utc` and `mirror_age_seconds` when running against a mirrored Zotero directory. These fields are absent in local (non-mirrored) deployments.
+
+### Authentication model
+
+| Deployment mode | `MCP_API_KEY` | Who authenticates |
+|---|---|---|
+| Tailscale-only | empty | Tailscale network reachability |
+| Public internet | non-empty string | `Authorization: Bearer <key>` on every request |
+
+The auth logic lives in `src/academic_mcp/auth.py`.  When `MCP_API_KEY` is
+unset, `wrap_app()` is a no-op.  When set, every HTTP request (SSE connect and
+message POST) must carry a matching Bearer token.  Constant-time comparison
+prevents timing side-channels.  The `/healthz` endpoint always bypasses auth
+(Docker HEALTHCHECK needs it).
+
+### Quick start
+
+Prerequisites on the MacBook:
+- Passwordless SSH key installed on the server (`ssh-copy-id`)
+- Homebrew `rsync` (`brew install rsync`)
+
+On the Linux server:
+```bash
+# 1. Prep directories
+mkdir -p /home/YOURUSER/{zotero-mirror,academic-mcp-config,academic-mcp-cache}
+
+# 2. Create /home/YOURUSER/academic-mcp-config/.env  (see deploy/docker-run-mcp.sh)
+
+# 3. Build image (ARM64 only)
+cd /opt/academic-mcp
+docker build -f docker/Dockerfile -t academic-mcp:latest .
+
+# 4. Run
+bash deploy/docker-run-mcp.sh
+
+# 5. Verify
+docker exec academic_mcp curl -s http://127.0.0.1:8765/healthz
+```
+
+On the MacBook:
+```bash
+# Install rsync script and launchd agent
+cp deploy/macbook/zotero-sync.sh ~/Library/Scripts/zotero-sync.sh
+chmod +x ~/Library/Scripts/zotero-sync.sh
+# Edit deploy/macbook/com.example.zotero-sync.plist (set YOURUSER, YOURSERVER)
+cp deploy/macbook/com.example.zotero-sync.plist ~/Library/LaunchAgents/
+launchctl load ~/Library/LaunchAgents/com.example.zotero-sync.plist
+```
+
+See `deploy/README.md` for the full step-by-step bootstrap sequence.
+
+### Client configuration
+
+**Claude Desktop** — replace the stdio entry with an SSE URL:
+
+```json
+{
+  "mcpServers": {
+    "academic": {
+      "url": "https://mcp.YOUR-TAILNET.ts.net/sse",
+      "transport": "sse"
+    }
+  }
+}
+```
+
+**Claude mobile** — Settings → MCP Connectors → Add remote server. Paste the
+Tailscale URL. Add Bearer token if using the public hostname.
+
+### Files added by this feature
+
+| File | Purpose |
+|---|---|
+| `src/academic_mcp/auth.py` | API-key middleware |
+| `docker/Dockerfile` | ARM64 image definition |
+| `docker/entrypoint.sh` | Container startup script |
+| `docker/healthcheck.py` | Docker HEALTHCHECK probe |
+| `docker/README.md` | Container operational notes |
+| `deploy/docker-run-mcp.sh` | Canonical `docker run` for MCP container |
+| `deploy/docker-run-scrapling.sh` | Canonical `docker run` for Scrapling sidecar |
+| `deploy/cosmos-routes.md` → `deploy/reverse-proxy.md` | Reverse-proxy config (generic + Cosmos example) |
+| `deploy/macbook/zotero-sync.sh` | rsync script invoked by launchd (debounce + SQLite snapshot + atomic transfer + watermark) |
+| `deploy/macbook/com.example.zotero-sync.plist` | launchd agent (WatchPaths event-driven + 30-min fallback) |
+| `deploy/README.md` | Full deployment walkthrough |

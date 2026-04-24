@@ -48,10 +48,17 @@ async def _run_stdio():
 
 
 def _run_sse(port: int):
+    import os
     from mcp.server.sse import SseServerTransport
     from starlette.applications import Starlette
     from starlette.routing import Route, Mount
+    from starlette.responses import PlainTextResponse
     import uvicorn
+
+    try:
+        from .auth import wrap_app
+    except ImportError:
+        from academic_mcp.auth import wrap_app
 
     sse = SseServerTransport("/messages/")
 
@@ -65,13 +72,21 @@ def _run_sse(port: int):
                 server.create_initialization_options(),
             )
 
+    async def handle_healthz(request):
+        return PlainTextResponse("ok")
+
     app = Starlette(
         routes=[
             Route("/sse", endpoint=handle_sse),
+            Route("/healthz", endpoint=handle_healthz),
             Mount("/messages/", app=sse.handle_post_message),
         ],
     )
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    app = wrap_app(app)
+
+    host = os.getenv("MCP_HOST", "0.0.0.0")
+    port = int(os.getenv("MCP_PORT", str(port)))
+    uvicorn.run(app, host=host, port=port)
 
 
 if __name__ == "__main__":

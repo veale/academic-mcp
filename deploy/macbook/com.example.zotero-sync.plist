@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <key>Label</key>
+    <string>com.example.zotero-sync</string>
+
+    <key>ProgramArguments</key>
+    <array>
+      <string>/Users/YOURUSER/Library/Scripts/zotero-sync.sh</string>
+    </array>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+      <key>PATH</key>
+      <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+      <key>REMOTE_HOST</key>
+      <string>YOURSERVER.YOUR-TAILNET.ts.net</string>
+      <key>REMOTE_USER</key>
+      <string>YOURUSER</string>
+      <key>REMOTE_DIR</key>
+      <string>/home/YOURUSER/zotero-mirror</string>
+      <key>ZOTERO_SRC</key>
+      <string>/Users/YOURUSER/Zotero</string>
+      <!-- Set SYNC_MODE=B here when using Nextcloud WebDAV for attachments -->
+      <!-- <key>SYNC_MODE</key> -->
+      <!-- <string>B</string> -->
+
+      <!-- Minimum seconds between syncs, regardless of how many WatchPaths
+           triggers fire.  60 s = at most one full sync per minute. -->
+      <key>DEBOUNCE_SECONDS</key>
+      <string>60</string>
+    </dict>
+
+    <!-- Fire whenever any file in ~/Zotero changes (Zotero writes, Spotlight
+         indexing, etc.).  The script-level debounce absorbs the spam. -->
+    <key>WatchPaths</key>
+    <array>
+      <string>/Users/YOURUSER/Zotero</string>
+    </array>
+
+    <!-- Fallback periodic trigger in case WatchPaths misses an event
+         (e.g. network reconnect after sleep).  30 min is conservative. -->
+    <key>StartInterval</key>
+    <integer>1800</integer>
+
+    <!-- Also run at load time so the first sync happens on login. -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/YOURUSER/Library/Logs/zotero-sync.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/YOURUSER/Library/Logs/zotero-sync.err</string>
+  </dict>
+</plist>

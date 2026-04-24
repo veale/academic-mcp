@@ -1180,6 +1180,18 @@ async def _handle_semantic_index_status(args: dict) -> list[TextContent]:
     except SemanticIndexUnavailable as e:
         return [TextContent(type="text", text=str(e))]
 
+    # Mirror freshness watermark — written by zotero-sync.sh after each
+    # successful rsync.  Present only in the networked Asahi deployment.
+    try:
+        import time as _time
+        from pathlib import Path as _Path
+        watermark = _Path(zotero_sqlite.sqlite_config.db_path).parent / ".last-sync"
+        if watermark.exists():
+            status["mirror_last_sync_utc"] = watermark.read_text().strip()
+            status["mirror_age_seconds"] = int(_time.time() - watermark.stat().st_mtime)
+    except Exception:
+        pass
+
     return [TextContent(type="text", text=json.dumps(status, indent=2))]
 
 
