@@ -21,7 +21,7 @@ env/
 
 # uv
 .uv/
-uv.lock
+# uv.lock is intentionally tracked — needed for reproducible Docker builds
 
 # Cache
 .cache/
