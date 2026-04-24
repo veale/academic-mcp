@@ -694,6 +694,81 @@ async def get_paper_from_zotero(doi: str) -> dict | None:
     return result
 
 
+async def get_paper_from_zotero_by_key(key: str) -> dict | None:
+    """Retrieve a paper by its Zotero item key (not DOI).
+
+    Mirrors ``get_paper_from_zotero`` but skips the DOI index — used as a
+    fallback for Zotero-only items that have no DOI.
+    """
+    if zotero_sqlite.sqlite_config.available:
+        try:
+            sqlite_item = await zotero_sqlite.search_by_key(key)
+            if sqlite_item:
+                content = await zotero_sqlite.get_paper_content(sqlite_item)
+                if not content.has_content:
+                    content.source = content.source or "sqlite_metadata_only"
+                return content.to_zotero_result()
+        except Exception as e:
+            logger.debug("SQLite by-key retrieval failed, falling back to API: %s", e)
+
+    # API fallback — synthesize an index entry for the existing helpers
+    item = await _get_item(key)
+    if not item:
+        return None
+
+    item_data = item.get("data", {})
+    result = {
+        "found": True, "item_key": key,
+        "metadata": {k: item_data.get(k, "") for k in
+                     ("title", "creators", "DOI", "date", "abstractNote",
+                      "publicationTitle", "itemType", "url")},
+        "text": None, "pdf_path": None, "source": None,
+        "truncated": False, "indexed_pages": None, "total_pages": None,
+    }
+
+    entry = {"item_key": key, "attachment_key": None, "has_pdf": False}
+    await _resolve_attachment(entry)
+    att_key = entry.get("attachment_key")
+    if not att_key:
+        result["source"] = "zotero_metadata_only"
+        return result
+
+    ft = await get_fulltext(att_key)
+    if ft and ft.get("content"):
+        result["text"] = ft["content"]
+        result["source"] = "zotero_fulltext"
+        result["indexed_pages"] = ft.get("indexedPages")
+        result["total_pages"] = ft.get("totalPages")
+        ip = ft.get("indexedPages")
+        tp = ft.get("totalPages")
+        ic = ft.get("indexedChars")
+        tc = ft.get("totalChars")
+        if (ip and tp and ip < tp) or (ic and tc and ic < tc):
+            result["truncated"] = True
+        return result
+
+    pdf = await get_pdf_from_local_storage(att_key)
+    if pdf:
+        result["pdf_path"] = pdf
+        result["source"] = "zotero_local_pdf"
+        return result
+
+    pdf = await get_pdf_from_web_api(att_key)
+    if pdf:
+        result["pdf_path"] = pdf
+        result["source"] = "zotero_web_pdf"
+        return result
+
+    pdf = await get_pdf_from_webdav(att_key)
+    if pdf:
+        result["pdf_path"] = pdf
+        result["source"] = "zotero_webdav_pdf"
+        return result
+
+    result["source"] = "zotero_metadata_only"
+    return result
+
+
 # ---------------------------------------------------------------------------
 # Library search — SQLite first (covers ALL libraries), then API fallback
 # ---------------------------------------------------------------------------

@@ -94,7 +94,15 @@ TOOLS = [
             "for a single paper.\n\n"
             "FOUND A KEY PAPER? Use get_citations(doi) to find papers that build on it, "
             "or get_references(doi) to find its foundations. This is often more productive "
-            "than running more keyword searches.\n\n"
+            "than running more keyword searches — ESPECIALLY when the paper is more than a "
+            "year old, since any follow-on work will already cite it. Two strong patterns: "
+            "(1) call get_citations(doi) with no keywords to see everything that built on it, "
+            "or (2) call get_citations(doi, keywords='...') with BROADER/less-specific terms "
+            "than your original query — this uses the seed paper as a topical scope and often "
+            "surfaces adjacent work that keyword search missed.\n\n"
+            "WIDENING A SEARCH: When the keyword results feel saturated, pick the most "
+            "relevant seed(s) and call get_citations with exclude_dois=[all DOIs from this "
+            "result set, plus the seed itself] so every returned paper is FRESH.\n\n"
             "Use domain_hint='law' when the query involves legal scholarship, law "
             "review articles, or legal academic research. This triggers a specialised "
             "Primo search constrained to law journals, which covers HeinOnline and "
@@ -197,7 +205,14 @@ TOOLS = [
             "'children'). Use this to trace how a paper's ideas have been developed, "
             "applied, critiqued, or extended by later research.\n\n"
             "⭐ EXPANSION TOOL: When you find a highly relevant paper via search_papers "
-            "or get_paper, call this to discover the research that built on it. "
+            "or get_paper — especially one more than a year old — call this to discover "
+            "the research that built on it. This is usually MORE productive than re-running "
+            "keyword search, because citing papers are topically anchored to the seed.\n\n"
+            "TIP: When filtering with keywords here, use BROADER/less-specific terms than "
+            "your original search query. The seed paper already scopes the topic, so you "
+            "want the filter to widen — not narrow — what you find (e.g. if the original "
+            "search was 'transformer attention long-context retrieval', filter citations "
+            "with just 'retrieval' or 'long context' to surface adjacent work).\n\n"
             "Combined with get_references, this lets you map the full citation "
             "neighbourhood of a key paper.\n\n"
             "Optional keyword filtering narrows large citation lists to a subtopic "
@@ -241,6 +256,17 @@ TOOLS = [
                         "skips the DOI-to-ID resolution step (faster). You can find this "
                         "in OpenAlex search results or prior citation tool output. "
                         "If omitted, the DOI is resolved automatically."
+                    ),
+                },
+                "exclude_dois": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "Optional list of DOIs to filter out of the results. Use this when "
+                        "widening a search via citations — pass the DOIs you've already seen "
+                        "(from your earlier search_papers results, and ideally the seed DOI "
+                        "itself) so every result here is FRESH. Matching is case-insensitive "
+                        "and tolerates 'https://doi.org/' prefixes."
                     ),
                 },
             },
@@ -298,6 +324,14 @@ TOOLS = [
                         "DOI is resolved automatically."
                     ),
                 },
+                "exclude_dois": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "Optional list of DOIs to filter out of the results — useful for "
+                        "skipping papers you've already seen when widening a search."
+                    ),
+                },
             },
             "required": ["doi"],
         },
@@ -350,6 +384,14 @@ TOOLS = [
                         "providing it avoids the resolution being done twice."
                     ),
                 },
+                "exclude_dois": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "Optional list of DOIs to filter out of BOTH directions — useful for "
+                        "skipping papers you've already seen when widening a search."
+                    ),
+                },
             },
             "required": ["doi"],
         },
@@ -385,6 +427,13 @@ TOOLS = [
                 "doi": {
                     "type": "string",
                     "description": "DOI of the paper (from search_papers results)",
+                },
+                "zotero_key": {
+                    "type": "string",
+                    "description": (
+                        "Zotero item key — fallback for Zotero-only items that have no DOI. "
+                        "Use this when search_papers returns a result with '★ IN ZOTERO' but no DOI."
+                    ),
                 },
                 "use_proxy": {
                     "type": "boolean",
@@ -438,7 +487,6 @@ TOOLS = [
                     "default": "auto",
                 },
             },
-            "required": ["doi"],
         },
     ),
     Tool(
@@ -749,6 +797,7 @@ async def _handle_search(args: dict) -> list[TextContent]:
                     "authors": author_names,
                     "year": (item.get("date") or "")[:4] or None,
                     "doi": doi or None,
+                    "zotero_key": item.get("key") or None,
                     "abstract": (item.get("abstractNote") or "").strip() or None,
                     "citations": None,
                     "venue": item.get("publicationTitle") or None,
@@ -957,6 +1006,9 @@ async def _handle_search(args: dict) -> list[TextContent]:
     text = f"Found {len(results)} papers for '{query}':\n"
     text += "=" * 60 + "\n\n"
 
+    from datetime import datetime as _dt
+    _current_year = _dt.now().year
+
     for i, r in enumerate(results):
         # Header line with index, title, and availability badges
         badges = []
@@ -1004,9 +1056,38 @@ async def _handle_search(args: dict) -> list[TextContent]:
                 text += f"Available via institutional access: {r['_primo_proxy_url']}"
             else:
                 text += f"May need proxy. Call fetch_fulltext(doi=\"{r['doi']}\", use_proxy=true, mode=\"sections\") to explore."
+        elif r.get("in_zotero") and r.get("zotero_key"):
+            text += (
+                f"No DOI, but in Zotero. Call fetch_fulltext(zotero_key=\"{r['zotero_key']}\", "
+                "mode=\"sections\") to explore."
+            )
         else:
             text += "No DOI — full text retrieval not available for this result."
+
+        # Expansion hint: for promising older papers, nudge toward citation-graph
+        # exploration — often more productive than another keyword search.
+        try:
+            _yr = int(r.get("year")) if r.get("year") else None
+        except (TypeError, ValueError):
+            _yr = None
+        _sim = r.get("_semantic_similarity")
+        _cites = r.get("citations") or 0
+        _looks_strong = (i == 0) or (isinstance(_sim, (int, float)) and _sim >= 0.3) or _cites >= 20
+        if r.get("doi") and _yr and _yr <= _current_year - 1 and _looks_strong:
+            text += (
+                f"\n    ⇢ Promising + {_current_year - _yr}yr old: consider "
+                f"get_citations(doi=\"{r['doi']}\") to see what built on it. "
+                "Pass exclude_dois=[the DOIs below] to skip results you've already seen, "
+                "and use BROADER keywords than this query to pull in adjacent work."
+            )
         text += "\n\n"
+
+    # Footer: ready-to-paste exclude_dois list for citation-based widening.
+    _result_dois = [r["doi"] for r in results if r.get("doi")]
+    if _result_dois:
+        text += "─" * 60 + "\n"
+        text += "To widen via citations without repeats, copy this list as exclude_dois:\n"
+        text += json.dumps(_result_dois) + "\n"
 
     return [TextContent(type="text", text=text)]
 
@@ -1094,6 +1175,30 @@ async def _handle_get_paper(args: dict) -> list[TextContent]:
 # ---------------------------------------------------------------------------
 # Citation graph tool helpers & handlers
 # ---------------------------------------------------------------------------
+
+def _normalize_exclude_dois(exclude_dois: list[str] | None) -> set[str]:
+    """Normalize user-supplied DOIs for filtering (lowercase, strip prefixes)."""
+    if not exclude_dois:
+        return set()
+    return {zotero._normalize_doi(d) for d in exclude_dois if d}
+
+
+def _filter_excluded_works(
+    works: list[dict], exclude_norm: set[str],
+) -> tuple[list[dict], int]:
+    """Drop works whose DOI (normalized) is in exclude_norm. Returns (kept, dropped_count)."""
+    if not exclude_norm:
+        return works, 0
+    kept: list[dict] = []
+    dropped = 0
+    for w in works:
+        w_doi = (w.get("doi") or "").replace("https://doi.org/", "")
+        if w_doi and zotero._normalize_doi(w_doi) in exclude_norm:
+            dropped += 1
+            continue
+        kept.append(w)
+    return kept, dropped
+
 
 def _format_citation_results(
     results: list[dict],
@@ -1198,11 +1303,13 @@ async def _handle_get_citations(args: dict) -> list[TextContent]:
     start_year = args.get("start_year")
     end_year = args.get("end_year")
     openalex_id = args.get("openalex_id")
+    exclude_norm = _normalize_exclude_dois(args.get("exclude_dois"))
+    fetch_limit = min(limit + len(exclude_norm), 200) if exclude_norm else limit
 
     try:
         data, zot_index = await asyncio.gather(
             apis.openalex_citations(
-                doi, search=keywords, limit=limit,
+                doi, search=keywords, limit=fetch_limit,
                 start_year=start_year, end_year=end_year,
                 openalex_id=openalex_id,
             ),
@@ -1218,8 +1325,12 @@ async def _handle_get_citations(args: dict) -> list[TextContent]:
         zot_index = set()
 
     results = data.get("results", [])
+    results, dropped = _filter_excluded_works(results, exclude_norm)
+    results = results[:limit]
     total = data.get("meta", {}).get("count", len(results))
     text = _format_citation_results(results, doi, "citations", total, zot_index)
+    if dropped:
+        text += f"\n\n(Filtered out {dropped} result(s) matching exclude_dois.)"
     return [TextContent(type="text", text=text)]
 
 
@@ -1231,11 +1342,13 @@ async def _handle_get_references(args: dict) -> list[TextContent]:
     start_year = args.get("start_year")
     end_year = args.get("end_year")
     openalex_id = args.get("openalex_id")
+    exclude_norm = _normalize_exclude_dois(args.get("exclude_dois"))
+    fetch_limit = min(limit + len(exclude_norm), 200) if exclude_norm else limit
 
     try:
         data, zot_index = await asyncio.gather(
             apis.openalex_references(
-                doi, search=keywords, limit=limit,
+                doi, search=keywords, limit=fetch_limit,
                 start_year=start_year, end_year=end_year,
                 openalex_id=openalex_id,
             ),
@@ -1251,8 +1364,12 @@ async def _handle_get_references(args: dict) -> list[TextContent]:
         zot_index = set()
 
     results = data.get("results", [])
+    results, dropped = _filter_excluded_works(results, exclude_norm)
+    results = results[:limit]
     total = data.get("meta", {}).get("count", len(results))
     text = _format_citation_results(results, doi, "references", total, zot_index)
+    if dropped:
+        text += f"\n\n(Filtered out {dropped} result(s) matching exclude_dois.)"
     return [TextContent(type="text", text=text)]
 
 
@@ -1275,14 +1392,17 @@ async def _handle_get_citation_tree(args: dict) -> list[TextContent]:
     else:
         resolved_id = openalex_id
 
+    exclude_norm = _normalize_exclude_dois(args.get("exclude_dois"))
+    fetch_limit = min(limit + len(exclude_norm), 200) if exclude_norm else limit
+
     cit_data, ref_data, zot_index = await asyncio.gather(
         apis.openalex_citations(
-            doi, search=keywords, limit=limit,
+            doi, search=keywords, limit=fetch_limit,
             start_year=start_year, end_year=end_year,
             openalex_id=resolved_id,
         ),
         apis.openalex_references(
-            doi, search=keywords, limit=limit,
+            doi, search=keywords, limit=fetch_limit,
             start_year=start_year, end_year=end_year,
             openalex_id=resolved_id,
         ),
@@ -1299,8 +1419,12 @@ async def _handle_get_citation_tree(args: dict) -> list[TextContent]:
         parts.append(f"⚠ Citations lookup failed: {cit_data}")
     else:
         results = cit_data.get("results", [])
+        results, cit_dropped = _filter_excluded_works(results, exclude_norm)
+        results = results[:limit]
         total = cit_data.get("meta", {}).get("count", len(results))
         parts.append(_format_citation_results(results, doi, "citations", total, zot_index))
+        if cit_dropped:
+            parts.append(f"(Filtered out {cit_dropped} citation(s) matching exclude_dois.)")
 
     parts.append("\n" + "═" * 60 + "\n")
 
@@ -1308,14 +1432,27 @@ async def _handle_get_citation_tree(args: dict) -> list[TextContent]:
         parts.append(f"⚠ References lookup failed: {ref_data}")
     else:
         results = ref_data.get("results", [])
+        results, ref_dropped = _filter_excluded_works(results, exclude_norm)
+        results = results[:limit]
         total = ref_data.get("meta", {}).get("count", len(results))
         parts.append(_format_citation_results(results, doi, "references", total, zot_index))
+        if ref_dropped:
+            parts.append(f"(Filtered out {ref_dropped} reference(s) matching exclude_dois.)")
 
     return [TextContent(type="text", text="\n".join(parts))]
 
 
 async def _handle_fetch_pdf(args: dict) -> list[TextContent]:
-    doi = args["doi"]
+    zotero_key = (args.get("zotero_key") or "").strip() or None
+    doi = args.get("doi")
+    if not doi and not zotero_key:
+        return [TextContent(
+            type="text",
+            text="fetch_fulltext requires either 'doi' or 'zotero_key'.",
+        )]
+    if zotero_key and not doi:
+        # Synthesize a stable cache key so the article cache works uniformly.
+        doi = f"zotero:{zotero_key}"
     use_proxy = args.get("use_proxy", False)
     pages_str = args.get("pages")
     mode = args.get("mode", "sections")
@@ -1421,7 +1558,10 @@ async def _handle_fetch_pdf(args: dict) -> list[TextContent]:
                 )
             else:
                 # ── Step 0: Check Zotero FIRST ──────────────────────────────────
-                zot_result = await zotero.get_paper_from_zotero(doi)
+                if zotero_key:
+                    zot_result = await zotero.get_paper_from_zotero_by_key(zotero_key)
+                else:
+                    zot_result = await zotero.get_paper_from_zotero(doi)
                 if zot_result and zot_result.get("found"):
                     # Got fulltext directly (already extracted by Zotero — best case!)
                     if zot_result.get("text"):
@@ -1477,6 +1617,24 @@ async def _handle_fetch_pdf(args: dict) -> list[TextContent]:
                             zot_result["pdf_path"], doi, zot_result["source"],
                             pages_str, mode, section_name, range_start, range_end,
                         )
+
+                # For Zotero-only (no real DOI), the rest of the pipeline has
+                # nothing to work with — bail out with a clear message instead
+                # of trying to resolve a synthetic "zotero:KEY" against OA/proxy.
+                if result is None and zotero_key:
+                    zot_source = (zot_result or {}).get("source") or "not found"
+                    meta = (zot_result or {}).get("metadata") or {}
+                    title = meta.get("title") or "(unknown title)"
+                    return [TextContent(
+                        type="text",
+                        text=(
+                            f"Zotero item {zotero_key} ({title}) has no indexed fulltext "
+                            f"or retrievable PDF (source: {zot_source}). No DOI is available "
+                            "to try open-access or proxy fallbacks. "
+                            "In Zotero, check that the item has a PDF attachment and that "
+                            "PDF indexing has run (Settings > Search)."
+                        ),
+                    )]
 
                 if result is None:
                     # ── Step 0b: SSRN DOI remapping ─────────────────────────────────

@@ -590,6 +590,33 @@ async def search_by_doi(doi: str) -> Optional[ZoteroItem]:
 
 
 # ---------------------------------------------------------------------------
+# Search: by item key
+# ---------------------------------------------------------------------------
+
+async def search_by_key(key: str) -> Optional[ZoteroItem]:
+    """Look up an item by its 8-char Zotero key — pure async, no thread pool."""
+    if not sqlite_config.available:
+        return None
+    key_clean = key.strip()
+    if not key_clean:
+        return None
+    conn = await _get_connection()
+    try:
+        cursor = await conn.execute(
+            "SELECT itemID FROM items WHERE key = ? LIMIT 1", (key_clean,)
+        )
+        row = await cursor.fetchone()
+        if not row:
+            return None
+        return await _build_item(conn, row["itemID"])
+    except Exception as e:
+        logger.warning("SQLite key lookup failed: %s", e)
+        return None
+    finally:
+        await conn.close()
+
+
+# ---------------------------------------------------------------------------
 # Search: keyword
 # ---------------------------------------------------------------------------
 
