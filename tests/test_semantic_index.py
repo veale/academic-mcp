@@ -1,7 +1,11 @@
-"""Smoke tests for the semantic index — incremental sync and deletion.
+"""Tests for the semantic index — incremental sync and deletion.
 
 Uses a fake Chroma collection (no chromadb import) and a stub SQLite listing,
 so the sync logic can be exercised deterministically without ML deps.
+
+Chunk-level design: each Zotero item is split by :mod:`chunking` into one or
+more text windows. Chroma records use composite IDs of the form
+``item_key:chunk_idx``.
 """
 
 from __future__ import annotations
@@ -9,24 +13,31 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock
 
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from academic_mcp import semantic_index  # noqa: E402
+from academic_mcp.semantic_index import _make_chunk_id, _item_key_from_chunk_id  # noqa: E402
 
+
+# ---------------------------------------------------------------------------
+# FakeCollection
+# ---------------------------------------------------------------------------
 
 class FakeCollection:
+    """Minimal Chroma collection stand-in for sync/search tests."""
+
     def __init__(self) -> None:
-        # item_key -> {doc, metadata}
+        # chunk_id -> {doc, metadata}
         self._store: dict[str, dict] = {}
 
     def get(self, include=None):
         ids = list(self._store.keys())
-        docs = [self._store[i]["doc"] for i in ids]
         metas = [self._store[i]["metadata"] for i in ids]
+        docs = [self._store[i]["doc"] for i in ids]
         return {"ids": ids, "documents": docs, "metadatas": metas}
 
     def upsert(self, ids, documents, embeddings, metadatas):
@@ -50,6 +61,26 @@ class FakeCollection:
         }
 
 
+# ---------------------------------------------------------------------------
+# FakeEmbedder
+# ---------------------------------------------------------------------------
+
+class FakeEmbedder:
+    provider = "local"
+    model = "fake"
+    dim = 4
+
+    def encode(self, texts):
+        return [[float(len(t) % 7)] * self.dim for t in texts]
+
+    def encode_query(self, texts):
+        return self.encode(texts)
+
+
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
+
 @pytest.fixture
 def fake_index(tmp_path, monkeypatch):
     # sqlite_config.available is a property — swap the whole object for a stub.
@@ -67,36 +98,66 @@ def fake_index(tmp_path, monkeypatch):
     col = FakeCollection()
     monkeypatch.setattr(idx, "_get_chroma_collection", lambda: col)
 
-    # Embedding stub: deterministic fake vector, no ML load.
-    monkeypatch.setattr(idx, "_embed", lambda texts: [[float(len(t) % 7)] * 4 for t in texts])
+    # Patch the embedder resolver so no ML libraries are loaded.
+    fake_emb = FakeEmbedder()
+    monkeypatch.setattr(idx, "_get_embedder", lambda *a, **kw: fake_emb)
+    # Keep _embed in sync for any legacy callers.
+    monkeypatch.setattr(idx, "_embed", lambda texts: fake_emb.encode(texts))
 
+    # Prevent chunking from hitting the filesystem; items in these tests
+    # have no attachment_key so chunk_item falls back to abstract-only path.
     return idx, col
 
+
+# ---------------------------------------------------------------------------
+# Helper
+# ---------------------------------------------------------------------------
+
+def _make_item(key, title="", abstract="", doi="", date="2025-01-01"):
+    return {
+        "item_key": key,
+        "title": title,
+        "abstract": abstract,
+        "doi": doi,
+        "dateModified": date,
+        "attachment_key": "",
+    }
+
+
+# ---------------------------------------------------------------------------
+# Tests
+# ---------------------------------------------------------------------------
 
 async def test_initial_sync_embeds_all_items(fake_index, monkeypatch):
     idx, col = fake_index
 
     items = [
-        {"item_key": "A", "title": "Paper A", "abstract": "abs A", "doi": "10.1/a", "dateModified": "2025-01-01", "attachment_key": ""},
-        {"item_key": "B", "title": "Paper B", "abstract": "",      "doi": "10.1/b", "dateModified": "2025-01-02", "attachment_key": ""},
-        {"item_key": "C", "title": "",        "abstract": "",      "doi": "",       "dateModified": "2025-01-03", "attachment_key": ""},
+        _make_item("A", title="Paper A", abstract="abs A"),
+        _make_item("B", title="Paper B"),
+        _make_item("C"),  # no title, no abstract — should be skipped
     ]
 
     async def _list(): return items
     monkeypatch.setattr(semantic_index.zotero_sqlite, "list_items_for_semantic_index", _list)
 
     status = await idx.sync()
-    assert status["upserted"] == 2  # C skipped (no title or abstract)
+    # C skipped (no title or abstract); A and B each produce 1 chunk.
+    assert status["upserted"] == 2
     assert status["deleted"] == 0
     assert col.count() == 2
+
+    # Verify composite chunk IDs.
+    stored_ids = set(col._store.keys())
+    assert "A:0" in stored_ids
+    assert "B:0" in stored_ids
 
 
 async def test_incremental_sync_skips_unchanged(fake_index, monkeypatch):
     idx, col = fake_index
 
     items_v1 = [
-        {"item_key": "A", "title": "A", "abstract": "x", "doi": "", "dateModified": "2025-01-01", "attachment_key": ""},
-        {"item_key": "B", "title": "B", "abstract": "y", "doi": "", "dateModified": "2025-01-01", "attachment_key": ""},
+        _make_item("A", title="A", abstract="x"),
+        _make_item("B", title="B", abstract="y"),
     ]
 
     async def _list_v1(): return items_v1
@@ -110,12 +171,13 @@ async def test_incremental_sync_skips_unchanged(fake_index, monkeypatch):
 
     # Bump dateModified on A only.
     items_v2 = [
-        {"item_key": "A", "title": "A", "abstract": "x", "doi": "", "dateModified": "2025-02-01", "attachment_key": ""},
-        {"item_key": "B", "title": "B", "abstract": "y", "doi": "", "dateModified": "2025-01-01", "attachment_key": ""},
+        _make_item("A", title="A", abstract="x", date="2025-02-01"),
+        _make_item("B", title="B", abstract="y"),
     ]
     async def _list_v2(): return items_v2
     monkeypatch.setattr(semantic_index.zotero_sqlite, "list_items_for_semantic_index", _list_v2)
     status = await idx.sync()
+    # 1 item changed; it has 1 abstract-only chunk.
     assert status["upserted"] == 1
 
 
@@ -123,8 +185,8 @@ async def test_deletion_removes_orphans(fake_index, monkeypatch):
     idx, col = fake_index
 
     items_full = [
-        {"item_key": "A", "title": "A", "abstract": "", "doi": "", "dateModified": "2025-01-01", "attachment_key": ""},
-        {"item_key": "B", "title": "B", "abstract": "", "doi": "", "dateModified": "2025-01-01", "attachment_key": ""},
+        _make_item("A", title="A"),
+        _make_item("B", title="B"),
     ]
 
     async def _list_full(): return items_full
@@ -135,39 +197,16 @@ async def test_deletion_removes_orphans(fake_index, monkeypatch):
     async def _list_a_only(): return [items_full[0]]
     monkeypatch.setattr(semantic_index.zotero_sqlite, "list_items_for_semantic_index", _list_a_only)
     status = await idx.sync()
+    # B's 1 chunk should be deleted.
     assert status["deleted"] == 1
     assert col.count() == 1
-
-
-async def test_fulltext_flip_triggers_reembed(fake_index, monkeypatch, tmp_path):
-    idx, col = fake_index
-
-    # Stub ft-cache reader so include_fulltext=True has something to append.
-    monkeypatch.setattr(semantic_index.SemanticIndex, "_maybe_ft_cache", staticmethod(lambda k: "fulltext body for " + k))
-
-    items = [
-        {"item_key": "A", "title": "A", "abstract": "abs", "doi": "", "dateModified": "2025-01-01", "attachment_key": "ATT1"},
-    ]
-
-    async def _list(): return items
-    monkeypatch.setattr(semantic_index.zotero_sqlite, "list_items_for_semantic_index", _list)
-
-    await idx.sync(include_fulltext=False)
-    doc_before = col._store["A"]["doc"]
-
-    status = await idx.sync(include_fulltext=True)
-    assert status["upserted"] == 1
-    doc_after = col._store["A"]["doc"]
-    assert "fulltext body" in doc_after
-    assert doc_after != doc_before
+    assert "B:0" not in col._store
 
 
 async def test_force_rebuild_wipes_and_reembeds(fake_index, monkeypatch):
     idx, col = fake_index
 
-    async def _list(): return [
-        {"item_key": "A", "title": "A", "abstract": "", "doi": "", "dateModified": "2025-01-01", "attachment_key": ""},
-    ]
+    async def _list(): return [_make_item("A", title="A")]
     monkeypatch.setattr(semantic_index.zotero_sqlite, "list_items_for_semantic_index", _list)
 
     await idx.sync()
@@ -176,3 +215,99 @@ async def test_force_rebuild_wipes_and_reembeds(fake_index, monkeypatch):
     status = await idx.sync(force_rebuild=True)
     assert status["upserted"] == 1  # re-embedded after wipe
     assert col.count() == 1
+
+
+async def test_include_fulltext_emits_deprecation_warning(fake_index, monkeypatch):
+    idx, col = fake_index
+
+    async def _list(): return [_make_item("A", title="A")]
+    monkeypatch.setattr(semantic_index.zotero_sqlite, "list_items_for_semantic_index", _list)
+
+    with pytest.warns(DeprecationWarning, match="include_fulltext is deprecated"):
+        await idx.sync(include_fulltext=True)
+
+
+async def test_migration_guard_triggers_rebuild(fake_index, monkeypatch):
+    """If the collection has old single-vector records (no chunk_idx), rebuild."""
+    idx, col = fake_index
+
+    # Pre-populate with old-style records (no chunk_idx in metadata).
+    col._store["A"] = {"doc": "old doc", "metadata": {"item_key": "A", "dateModified": "2025-01-01"}}
+    col._store["B"] = {"doc": "old doc b", "metadata": {"item_key": "B", "dateModified": "2025-01-01"}}
+
+    items = [
+        _make_item("A", title="A"),
+        _make_item("B", title="B"),
+    ]
+    async def _list(): return items
+    monkeypatch.setattr(semantic_index.zotero_sqlite, "list_items_for_semantic_index", _list)
+
+    # Sync should detect the old format, wipe, and re-embed.
+    status = await idx.sync()
+    assert status["upserted"] == 2
+
+    # Old-style bare IDs should be gone; new composite IDs present.
+    assert "A" not in col._store
+    assert "B" not in col._store
+    assert "A:0" in col._store
+    assert "B:0" in col._store
+
+
+async def test_chunk_metadata_contains_char_offsets(fake_index, monkeypatch):
+    """Chunk metadata must include char_start, char_end, chunk_idx, chunk_source."""
+    idx, col = fake_index
+
+    items = [_make_item("A", title="Title", abstract="Abstract text")]
+    async def _list(): return items
+    monkeypatch.setattr(semantic_index.zotero_sqlite, "list_items_for_semantic_index", _list)
+
+    await idx.sync()
+
+    md = col._store["A:0"]["metadata"]
+    assert "char_start" in md
+    assert "char_end" in md
+    assert "chunk_idx" in md
+    assert "chunk_source" in md
+    assert md["chunk_idx"] == 0
+    assert md["chunk_source"] == "abstract"
+
+
+async def test_search_returns_chunk_level_fields(fake_index, monkeypatch):
+    """search() results should include chunk-level fields."""
+    idx, col = fake_index
+
+    items = [_make_item("A", title="Attention is all you need", abstract="Transformer architecture.")]
+    async def _list(): return items
+    monkeypatch.setattr(semantic_index.zotero_sqlite, "list_items_for_semantic_index", _list)
+
+    # Disable compatibility guard so we can search without a prior sync status.
+    monkeypatch.setattr(idx, "_assert_compatible", lambda e: None)
+
+    await idx.sync()
+    results = await idx.search("transformer model", k=5)
+
+    assert len(results) >= 1
+    r = results[0]
+    assert "item_key" in r
+    assert "char_start" in r
+    assert "char_end" in r
+    assert "chunk_idx" in r
+    assert "chunk_source" in r
+    assert "score" in r
+    assert "snippet" in r
+
+
+# ---------------------------------------------------------------------------
+# Unit: composite ID helpers
+# ---------------------------------------------------------------------------
+
+def test_make_chunk_id():
+    assert _make_chunk_id("ABCD1234", 0) == "ABCD1234:0"
+    assert _make_chunk_id("ABCD1234", 7) == "ABCD1234:7"
+
+
+def test_item_key_from_chunk_id():
+    assert _item_key_from_chunk_id("ABCD1234:0") == "ABCD1234"
+    assert _item_key_from_chunk_id("ABCD1234:7") == "ABCD1234"
+    # Keys themselves should not contain the separator.
+    assert _item_key_from_chunk_id("COMPLEX:KEY:0") == "COMPLEX:KEY"

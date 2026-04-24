@@ -1,8 +1,15 @@
 """Semantic index over Zotero metadata using ChromaDB.
 
-Default embedding backend is sentence-transformers all-MiniLM-L6-v2, loaded
-via :mod:`reranker` so the same in-memory model instance is shared with the
-search-result re-ranker.
+The embedding backend is pluggable via :mod:`embeddings` — local
+sentence-transformers by default, with optional OpenAI or Gemini
+providers. Regardless of provider, the vector store is local (Chroma)
+and ANN search runs on the user's machine.
+
+Cross-provider safety: each upsert records ``provider``/``model``/``dim``
+in Chroma metadata, and the collection-level status stores the same. A
+sync or search that disagrees with the collection's provider triple is
+refused with an actionable error — mixing vector spaces silently would
+break cosine similarity.
 
 This module is optional at runtime: if chromadb is not installed, semantic
 tools return actionable guidance instead of crashing core search flows.
@@ -10,12 +17,18 @@ tools return actionable guidance instead of crashing core search flows.
 Sync semantics:
   * **Incremental by default.** Each upsert records the item's ``dateModified``
     in Chroma metadata. A subsequent ``sync()`` only re-embeds items whose
-    ``dateModified`` is newer than the stored value (or missing entirely).
+    ``dateModified`` is newer than the stored value or is missing entirely.
   * **Deletion detection.** Item keys present in Chroma but absent from the
     current Zotero scan are removed.
-  * **Fulltext mode** (``include_fulltext=True``) appends up to
-    ``_FULLTEXT_CHARS`` of ``.zotero-ft-cache`` text to the embedded document,
-    for items that have a PDF attachment with a cached extraction on disk.
+  * **Chunk-level storage.** Each item is split into one or more overlapping
+    text windows by :mod:`chunking`. Chunk IDs have the form ``item_key:N``
+    where N is a zero-based integer. Each chunk stores ``char_start``,
+    ``char_end``, and ``chunk_source`` metadata so callers can pass exact
+    byte ranges to ``fetch_fulltext(mode="range")``.
+  * **Migration guard.** If the stored collection lacks ``chunk_idx`` metadata
+    (old single-vector format), :meth:`sync` forces a rebuild automatically.
+  * **include_fulltext** is accepted for backward compatibility but is a
+    silent no-op — chunking already reads the ft-cache unconditionally.
 """
 
 from __future__ import annotations
@@ -23,20 +36,34 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import warnings
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from . import zotero_sqlite
+from .chunking import chunk_item
+from .config import config
+from .embeddings import Embedder, EmbedderUnavailable, resolve_embedder
 
 logger = logging.getLogger(__name__)
-
-_FULLTEXT_CHARS = 8000
-_EMBED_BATCH = 64
 
 
 class SemanticIndexUnavailable(RuntimeError):
     pass
+
+
+# Separator between item_key and chunk index in composite Chroma IDs.
+_CHUNK_ID_SEP = ":"
+
+
+def _make_chunk_id(item_key: str, idx: int) -> str:
+    return f"{item_key}{_CHUNK_ID_SEP}{idx}"
+
+
+def _item_key_from_chunk_id(chunk_id: str) -> str:
+    """Return the item_key portion of a composite chunk ID."""
+    return chunk_id.rsplit(_CHUNK_ID_SEP, 1)[0]
 
 
 class SemanticIndex:
@@ -45,7 +72,9 @@ class SemanticIndex:
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.status_path = self.cache_dir / "status.json"
         self.collection_name = "zotero_items"
-        self.model_name = "all-MiniLM-L6-v2"
+        # Active embedder is resolved lazily via _get_embedder() so missing
+        # cloud keys don't blow up at import time.
+        self._embedder: Embedder | None = None
 
     # -- status file -----------------------------------------------------
 
@@ -74,82 +103,139 @@ class SemanticIndex:
         client = chromadb.PersistentClient(path=str(self.cache_dir))
         return client.get_or_create_collection(name=self.collection_name)
 
-    def _get_model(self):
-        # Share the sentence-transformers model with reranker.py — there is
-        # exactly one instance per process.
-        from .reranker import _load_model
+    def _get_embedder(self, provider: str | None = None, model: str | None = None) -> Embedder:
+        """Resolve and cache the active embedder.
 
-        model = _load_model()
-        if model is None:
-            raise SemanticIndexUnavailable(
-                "sentence-transformers model failed to load (see logs). "
-                "The core package ships it as a required dependency; this "
-                "usually indicates an OOM or a broken install."
-            )
-        return model
+        Explicit provider/model args override configuration for this call.
+        Changing provider or model invalidates the cached instance so the
+        new one loads on the next encode.
+        """
+        if (
+            self._embedder is not None
+            and (provider is None or self._embedder.provider == provider.lower())
+            and (model is None or self._embedder.model == model)
+        ):
+            return self._embedder
+        try:
+            self._embedder = resolve_embedder(provider=provider, model=model)
+        except EmbedderUnavailable as e:
+            raise SemanticIndexUnavailable(str(e)) from e
+        return self._embedder
 
     def _embed(self, texts: list[str]) -> list[list[float]]:
-        model = self._get_model()
-        out: list[list[float]] = []
-        for i in range(0, len(texts), _EMBED_BATCH):
-            batch = texts[i : i + _EMBED_BATCH]
-            embs = model.encode(batch, normalize_embeddings=True)
-            out.extend(e.tolist() for e in embs)
-        return out
+        return self._get_embedder().encode(texts)
 
-    # -- fulltext helper -------------------------------------------------
+    @property
+    def model_name(self) -> str:
+        # Backwards-compat surface for tests and status output.
+        if self._embedder is not None:
+            return self._embedder.model
+        status = self._load_status()
+        return status.get("model") or "all-MiniLM-L6-v2"
+
+    # -- provider-consistency guard --------------------------------------
+
+    def _assert_compatible(self, embedder: Embedder) -> None:
+        """Refuse to mix vectors from different providers/models.
+
+        The collection's provider triple is recorded in status.json on each
+        successful sync. A mismatch is surfaced with a clear fix, not a
+        silent corruption.
+        """
+        status = self._load_status()
+        stored_provider = status.get("provider")
+        stored_model = status.get("model")
+        if stored_provider and stored_model and (
+            stored_provider != embedder.provider or stored_model != embedder.model
+        ):
+            raise SemanticIndexUnavailable(
+                f"Index was built with {stored_provider}/{stored_model} but "
+                f"current provider is {embedder.provider}/{embedder.model}. "
+                "Run semantic_index_rebuild(force=True) to rebuild with the "
+                "new provider (vectors from different models are not "
+                "comparable)."
+            )
+
+    # -- migration guard -------------------------------------------------
 
     @staticmethod
-    def _maybe_ft_cache(attachment_key: str) -> str:
-        """Return up to _FULLTEXT_CHARS from an attachment's .zotero-ft-cache, or ''."""
-        if not attachment_key:
-            return ""
-        try:
-            base = Path(zotero_sqlite.sqlite_config.storage_path or "")
-            if not base:
-                return ""
-            path = base / attachment_key / ".zotero-ft-cache"
-            if not path.exists():
-                return ""
-            with open(path, "r", encoding="utf-8", errors="replace") as f:
-                return f.read(_FULLTEXT_CHARS)
-        except Exception as e:
-            logger.debug("ft-cache read failed for %s: %s", attachment_key, e)
-            return ""
+    def _needs_migration(existing: dict) -> bool:
+        """Return True if the collection uses the old single-vector format.
+
+        The new format stores ``chunk_idx`` in every metadata dict.  If the
+        first non-empty metadata record doesn't have it, a rebuild is needed.
+        """
+        metas = existing.get("metadatas") or []
+        for md in metas:
+            if md is not None:
+                return "chunk_idx" not in md
+        return False  # empty collection — no migration required
 
     # -- sync ------------------------------------------------------------
 
     async def sync(
         self,
         force_rebuild: bool = False,
-        include_fulltext: bool = False,
+        include_fulltext: bool = False,  # no-op; kept for backward compat
+        provider: str | None = None,
+        model: str | None = None,
     ) -> dict[str, Any]:
+        if include_fulltext:
+            warnings.warn(
+                "include_fulltext is deprecated and has no effect. "
+                "Chunking reads ft-cache unconditionally.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+
         if not zotero_sqlite.sqlite_config.available:
             raise SemanticIndexUnavailable("Zotero SQLite backend is not available")
+
+        embedder = self._get_embedder(provider=provider, model=model)
+        if not force_rebuild:
+            # Bail out before doing any work if an existing index disagrees.
+            self._assert_compatible(embedder)
 
         items = await zotero_sqlite.list_items_for_semantic_index()
 
         def _sync_blocking() -> dict[str, Any]:
             col = self._get_chroma_collection()
 
-            # Snapshot of what's currently indexed, keyed by item_key.
-            #   prior[key] = {"dateModified": str, "include_fulltext": bool}
-            prior: dict[str, dict[str, Any]] = {}
-            if force_rebuild:
-                existing_ids = col.get(include=[]).get("ids", []) or []
-                if existing_ids:
-                    col.delete(ids=existing_ids)
-            else:
-                existing = col.get(include=["metadatas"])
-                for iid, md in zip(existing.get("ids", []) or [], existing.get("metadatas", []) or []):
+            # Snapshot of what's currently indexed.
+            #   prior_items[item_key] = {"dateModified": str, "chunk_ids": [str, ...]}
+            existing = col.get(include=["metadatas"])
+            all_ids: list[str] = existing.get("ids", []) or []
+            all_metas: list[dict] = existing.get("metadatas", []) or []
+
+            # Detect old single-vector format and force rebuild if needed.
+            if not force_rebuild and self._needs_migration(existing):
+                logger.info(
+                    "semantic_index: detected old single-vector format — "
+                    "running automatic rebuild to migrate to chunk-level storage."
+                )
+                if all_ids:
+                    col.delete(ids=all_ids)
+                all_ids = []
+                all_metas = []
+                # Treat as force_rebuild for purposes of building prior.
+
+            prior_items: dict[str, dict[str, Any]] = {}
+            if not force_rebuild and all_ids:
+                for cid, md in zip(all_ids, all_metas):
                     md = md or {}
-                    prior[iid] = {
-                        "dateModified": md.get("dateModified") or "",
-                        "include_fulltext": bool(md.get("include_fulltext")),
-                    }
+                    ik = _item_key_from_chunk_id(cid)
+                    entry = prior_items.setdefault(
+                        ik, {"dateModified": md.get("dateModified") or "", "chunk_ids": []}
+                    )
+                    entry["chunk_ids"].append(cid)
+            elif force_rebuild and all_ids:
+                col.delete(ids=all_ids)
 
             seen_keys: set[str] = set()
-            to_upsert: list[tuple[str, str, dict]] = []
+            to_upsert_ids: list[str] = []
+            to_upsert_docs: list[str] = []
+            to_upsert_metas: list[dict] = []
+            to_delete_ids: list[str] = []
 
             for it in items:
                 item_key = it.get("item_key") or ""
@@ -157,61 +243,72 @@ class SemanticIndex:
                     continue
                 seen_keys.add(item_key)
 
-                title = (it.get("title") or "").strip()
-                abstract = (it.get("abstract") or "").strip()
-                if not (title or abstract):
-                    continue
-
                 date_mod = it.get("dateModified") or ""
-                prev = prior.get(item_key)
-                # Re-embed when: new, dateModified changed, or fulltext-mode flipped.
-                if (
-                    prev is not None
-                    and prev["dateModified"] == date_mod
-                    and prev["include_fulltext"] == bool(include_fulltext)
-                ):
+                prev = prior_items.get(item_key)
+
+                # Skip unchanged items.
+                if prev is not None and prev["dateModified"] == date_mod:
                     continue
 
-                text = title
-                if abstract:
-                    text += "\n\n" + abstract
-                if include_fulltext:
-                    ft = self._maybe_ft_cache(it.get("attachment_key") or "")
-                    if ft:
-                        text += "\n\n" + ft
+                # If the item changed, mark its old chunks for deletion.
+                if prev is not None:
+                    to_delete_ids.extend(prev["chunk_ids"])
 
-                meta = {
-                    "item_key": item_key,
-                    "doi": (it.get("doi") or "").strip(),
-                    "title": title[:400],
-                    "dateModified": date_mod,
-                    "include_fulltext": bool(include_fulltext),
-                }
-                to_upsert.append((item_key, text[: _FULLTEXT_CHARS + 4000], meta))
+                chunks = chunk_item(it)
+                if not chunks:
+                    continue
 
-            # Delete items that left Zotero since the last sync.
-            stale = [iid for iid in prior.keys() if iid not in seen_keys]
-            if stale and not force_rebuild:
-                col.delete(ids=stale)
+                title = (it.get("title") or "").strip()
+                doi = (it.get("doi") or "").strip()
+
+                for idx, chunk in enumerate(chunks):
+                    chunk_id = _make_chunk_id(item_key, idx)
+                    meta = {
+                        "item_key": item_key,
+                        "doi": doi,
+                        "title": title[:400],
+                        "dateModified": date_mod,
+                        "chunk_idx": idx,
+                        "chunk_count": len(chunks),
+                        "char_start": chunk.char_start,
+                        "char_end": chunk.char_end,
+                        "chunk_source": chunk.source,
+                        "provider": embedder.provider,
+                        "model": embedder.model,
+                    }
+                    to_upsert_ids.append(chunk_id)
+                    to_upsert_docs.append(chunk.text)
+                    to_upsert_metas.append(meta)
+
+            # Delete item chunks that are no longer present in Zotero.
+            stale_item_keys = [ik for ik in prior_items if ik not in seen_keys]
+            for ik in stale_item_keys:
+                to_delete_ids.extend(prior_items[ik]["chunk_ids"])
+
+            if to_delete_ids and not force_rebuild:
+                col.delete(ids=to_delete_ids)
 
             upserted = 0
-            if to_upsert:
-                ids = [x[0] for x in to_upsert]
-                docs = [x[1] for x in to_upsert]
-                metas = [x[2] for x in to_upsert]
-                embs = self._embed(docs)
-                col.upsert(ids=ids, documents=docs, embeddings=embs, metadatas=metas)
-                upserted = len(ids)
+            if to_upsert_ids:
+                embs = embedder.encode(to_upsert_docs)
+                col.upsert(
+                    ids=to_upsert_ids,
+                    documents=to_upsert_docs,
+                    embeddings=embs,
+                    metadatas=to_upsert_metas,
+                )
+                upserted = len(to_upsert_ids)
 
             total = col.count()
             status = {
                 "last_sync": datetime.now(timezone.utc).isoformat(),
                 "count": total,
-                "model": self.model_name,
-                "include_fulltext": bool(include_fulltext),
+                "provider": embedder.provider,
+                "model": embedder.model,
+                "dim": embedder.dim,
                 "sqlite_items_seen": len(items),
                 "upserted": upserted,
-                "deleted": len(stale) if not force_rebuild else len(prior),
+                "deleted": len(to_delete_ids) if not force_rebuild else len(all_ids),
             }
             self._save_status(status)
             return status
@@ -221,10 +318,21 @@ class SemanticIndex:
     # -- search ----------------------------------------------------------
 
     async def search(self, query: str, k: int = 10) -> list[dict[str, Any]]:
+        """Return chunk-level search results for *query*.
+
+        Each result dict includes:
+          item_key, doi, title, score, snippet, char_start, char_end,
+          chunk_source, chunk_idx, chunk_count.
+        Callers (e.g. the server handler) can pass char_start/char_end to
+        ``fetch_fulltext(mode="range", ...)`` for precise passage retrieval.
+        """
+        embedder = self._get_embedder()
+        self._assert_compatible(embedder)
+
         def _search_blocking() -> list[dict[str, Any]]:
             col = self._get_chroma_collection()
-            emb = self._embed([query])[0]
-            res = col.query(query_embeddings=[emb], n_results=max(1, min(k, 50)))
+            emb = embedder.encode_query([query])[0]
+            res = col.query(query_embeddings=[emb], n_results=max(1, min(k, 200)))
 
             ids = (res.get("ids") or [[]])[0]
             dists = (res.get("distances") or [[]])[0]
@@ -232,18 +340,24 @@ class SemanticIndex:
             docs = (res.get("documents") or [[]])[0]
 
             out: list[dict[str, Any]] = []
-            for idx, item_key in enumerate(ids):
+            for idx, chunk_id in enumerate(ids):
                 md = metas[idx] if idx < len(metas) else {}
                 doc = docs[idx] if idx < len(docs) else ""
                 dist = dists[idx] if idx < len(dists) else 1.0
                 score = 1.0 - float(dist)
                 out.append(
                     {
-                        "item_key": item_key,
+                        "item_key": md.get("item_key") or _item_key_from_chunk_id(chunk_id),
+                        "chunk_id": chunk_id,
                         "doi": md.get("doi") or "",
                         "title": md.get("title") or "",
                         "score": round(score, 4),
                         "snippet": doc[:300],
+                        "char_start": int(md.get("char_start") or 0),
+                        "char_end": int(md.get("char_end") or 0),
+                        "chunk_source": md.get("chunk_source") or "unknown",
+                        "chunk_idx": int(md.get("chunk_idx") or 0),
+                        "chunk_count": int(md.get("chunk_count") or 1),
                     }
                 )
             return out
@@ -266,9 +380,18 @@ class SemanticIndex:
         except Exception:
             indexed = int(status.get("count") or 0)
 
+        status.setdefault("provider", config.semantic_provider or "local")
         status.setdefault("model", self.model_name)
         status["indexed_count"] = indexed
         status["cache_dir"] = str(self.cache_dir)
+        # Expose the currently configured provider for drift detection.
+        status["configured_provider"] = config.semantic_provider or "local"
+        status["configured_model"] = (
+            config.semantic_model
+            or {"local": "all-MiniLM-L6-v2", "openai": "text-embedding-3-small", "gemini": "gemini-embedding-001"}.get(
+                config.semantic_provider or "local", "all-MiniLM-L6-v2"
+            )
+        )
         return status
 
 

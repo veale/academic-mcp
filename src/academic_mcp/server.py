@@ -758,7 +758,16 @@ TOOLS = [
     Tool(
         name="semantic_search_zotero",
         description=(
-            "Semantic search over your Zotero library using the ChromaDB embedding index."
+            "Semantic search over your Zotero library using the ChromaDB embedding index.\n\n"
+            "Returns chunk-level hits (up to *k* unique items after reranking). "
+            "Each result includes:\n"
+            "  • item_key, doi, title, score, rerank_score, snippet\n"
+            "  • char_start / char_end: character offsets into the PDF text cache;\n"
+            "    pass these to fetch_fulltext(mode='range', ...) to read the exact passage.\n"
+            "  • chunk_source: 'ft_cache' (PDF fulltext) or 'abstract'\n\n"
+            "A cross-encoder reranker (BAAI/bge-reranker-v2-m3) rescores the candidate "
+            "pool before returning results. If the model is not loaded yet, "
+            "bi-encoder ranking is used as a fallback."
         ),
         inputSchema={
             "type": "object",
@@ -766,7 +775,7 @@ TOOLS = [
                 "query": {"type": "string", "description": "Natural language query."},
                 "k": {
                     "type": "integer",
-                    "description": "Number of hits to return (default 10, max 50).",
+                    "description": "Number of unique items to return (default 10, max 50).",
                     "default": 10,
                 },
             },
@@ -781,16 +790,34 @@ TOOLS = [
     Tool(
         name="semantic_index_rebuild",
         description=(
-            "Force a semantic index rebuild. Optional fulltext flag is accepted for "
-            "forward compatibility and future richer indexing."
+            "Force a semantic index rebuild (wipes and re-embeds the collection).\n\n"
+            "**fulltext** parameter is deprecated and has no effect. "
+            "The index now uses chunk-level embeddings that read the "
+            ".zotero-ft-cache unconditionally for all items that have one.\n\n"
+            "Optional `provider` and `model` override the defaults from "
+            "SEMANTIC_PROVIDER / SEMANTIC_MODEL for this run. Switching provider "
+            "ALWAYS requires force_rebuild — vectors from different embedding "
+            "models cannot be compared.\n\n"
+            "Providers: local (sentence-transformers, any model id), openai "
+            "(needs OPENAI_API_KEY; set OPENAI_BASE_URL for a local llama-server), "
+            "gemini (needs GEMINI_API_KEY). Vectors are always stored locally; "
+            "cloud/local providers only compute the embeddings."
         ),
         inputSchema={
             "type": "object",
             "properties": {
                 "fulltext": {
                     "type": "boolean",
-                    "description": "Attempt richer text indexing where available.",
+                    "description": "Deprecated — has no effect. Chunk-level sync always reads ft-cache.",
                     "default": False,
+                },
+                "provider": {
+                    "type": "string",
+                    "description": "Embedding provider: local | openai | gemini. Defaults to SEMANTIC_PROVIDER.",
+                },
+                "model": {
+                    "type": "string",
+                    "description": "Arbitrary model id for the chosen provider. Defaults to SEMANTIC_MODEL.",
                 },
             },
         },
@@ -1085,25 +1112,57 @@ async def _handle_semantic_search_zotero(args: dict) -> list[TextContent]:
 
     try:
         from .semantic_index import SemanticIndexUnavailable, get_semantic_index
+        from .cross_reranker import rerank
+        from .config import config as _config
     except ImportError:
         from academic_mcp.semantic_index import SemanticIndexUnavailable, get_semantic_index
+        from academic_mcp.cross_reranker import rerank
+        from academic_mcp.config import config as _config
 
     try:
         _ensure_semantic_background_sync()
         idx = get_semantic_index()
-        hits = await idx.search(query, k=k)
+        # Over-fetch by cross_reranker_fetch candidates for the reranker.
+        fetch_n = max(k, _config.cross_reranker_fetch or 50)
+        chunks = await idx.search(query, k=fetch_n)
     except SemanticIndexUnavailable as e:
         return [TextContent(type="text", text=str(e))]
 
-    if not hits:
+    if not chunks:
         return [TextContent(type="text", text="No semantic hits found. Build the index with semantic_index_rebuild first.")]
 
+    # Rerank the candidate pool and keep top-k unique items.
+    reranked = await rerank(query, chunks, top_k=len(chunks))
+
+    # Deduplicate by item_key, keeping highest-scoring chunk per item.
+    seen_keys: set[str] = set()
+    unique_hits: list[dict] = []
+    for h in reranked:
+        ik = h.get("item_key") or ""
+        if ik not in seen_keys:
+            seen_keys.add(ik)
+            unique_hits.append(h)
+        if len(unique_hits) >= k:
+            break
+
     lines = [f"Semantic Zotero hits for: {query}", "=" * 50]
-    for i, h in enumerate(hits, start=1):
+    for i, h in enumerate(unique_hits, start=1):
         lines.append(f"[{i}] {h.get('title') or '(untitled)'}")
-        lines.append(f"    key={h.get('item_key')} | score={h.get('score')}")
+        score_str = f"score={h.get('score', 0):.4f}"
+        if "rerank_score" in h:
+            score_str += f" | rerank={h['rerank_score']:.4f}"
+        lines.append(f"    key={h.get('item_key')} | {score_str}")
         if h.get("doi"):
             lines.append(f"    DOI: {h['doi']}")
+        if h.get("chunk_source") == "ft_cache":
+            lines.append(
+                f"    chunk: chars {h.get('char_start', 0)}–{h.get('char_end', 0)} "
+                f"(chunk {h.get('chunk_idx', 0)+1}/{h.get('chunk_count', 1)})"
+            )
+            lines.append(
+                f"    → fetch_fulltext(doi='{h.get('doi', '')}', mode='range', "
+                f"start={h.get('char_start', 0)}, end={h.get('char_end', 0)})"
+            )
         if h.get("snippet"):
             lines.append(f"    {h['snippet'][:220]}")
         lines.append("")
@@ -1126,13 +1185,20 @@ async def _handle_semantic_index_status(args: dict) -> list[TextContent]:
 
 async def _handle_semantic_index_rebuild(args: dict) -> list[TextContent]:
     fulltext = bool(args.get("fulltext", False))
+    provider = args.get("provider") or None
+    model = args.get("model") or None
     try:
         from .semantic_index import SemanticIndexUnavailable, get_semantic_index
     except ImportError:
         from academic_mcp.semantic_index import SemanticIndexUnavailable, get_semantic_index
 
     try:
-        status = await get_semantic_index().sync(force_rebuild=True, include_fulltext=fulltext)
+        status = await get_semantic_index().sync(
+            force_rebuild=True,
+            include_fulltext=fulltext,
+            provider=provider,
+            model=model,
+        )
     except SemanticIndexUnavailable as e:
         return [TextContent(type="text", text=str(e))]
 
@@ -1511,6 +1577,41 @@ async def _handle_search(args: dict) -> list[TextContent]:
         return [TextContent(type="text", text=f"No papers found for '{query}'.")]
 
     text = f"Found {len(results)} papers for '{query}':\n"
+
+    # Enrichment status block — shown when caller requested scite or semantic.
+    if include_scite or use_semantic:
+        _status_parts: list[str] = []
+        if include_scite:
+            _with_doi = sum(1 for r in results if r.get("doi"))
+            _enriched = sum(1 for r in results if r.get("scite"))
+            _status_parts.append(f"scite: {_enriched}/{_with_doi} enriched")
+        if use_semantic:
+            try:
+                from .semantic_index import get_semantic_index
+            except ImportError:
+                from academic_mcp.semantic_index import get_semantic_index
+            try:
+                _sem_st = get_semantic_index()._load_status()
+                _sem_count = int(_sem_st.get("count") or 0)
+                _last_sync = _sem_st.get("last_sync") or ""
+                if _last_sync:
+                    from datetime import datetime as _dt2, timezone as _tz2
+                    _delta = _dt2.now(_tz2.utc) - _dt2.fromisoformat(_last_sync)
+                    _h = int(_delta.total_seconds() // 3600)
+                    if _h < 1:
+                        _age = f"synced {int(_delta.total_seconds() // 60)}m ago"
+                    elif _h < 24:
+                        _age = f"synced {_h}h ago"
+                    else:
+                        _age = f"synced {int(_h // 24)}d ago"
+                else:
+                    _age = "not synced yet — run semantic_index_rebuild"
+                _status_parts.append(f"semantic: {_sem_count:,} items, {_age}")
+            except Exception:
+                _status_parts.append("semantic: unavailable")
+        if _status_parts:
+            text += f"[{' | '.join(_status_parts)}]\n"
+
     text += "=" * 60 + "\n\n"
 
     from datetime import datetime as _dt

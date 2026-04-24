@@ -216,6 +216,85 @@ cp .env.example .env
 |---|---|---|
 | `SSRN_COOKIES` | *(empty)* | JSON cookie array for authenticated SSRN access (see below). |
 
+### Semantic search
+
+#### Prerequisite: raise Zotero’s fulltext indexing limits
+
+Zotero’s default PDF indexing caps at **100 pages / 500,000 characters** per
+attachment. For a paper-heavy library this is fine, but books and long reports
+get truncated — the embedder only sees what Zotero actually cached.
+
+Before the first rebuild, do this once in Zotero desktop:
+
+1. Open **Settings → Search** (older versions: **Preferences → Search**).
+2. Under “PDF Indexing”, set:
+   - **Maximum characters to index per file** → `2000000`
+   - **Maximum pages to index per file** → `500`
+3. Click **Rebuild index** in the same pane.
+   On a 13k-item library expect **3–8 hours**; run it overnight.
+4. Wait for the `X / Y indexed` counter in the Search pane to stabilise.
+
+If you skip this, the semantic index is correct but incomplete: long
+documents are represented only by their first ~100 pages.
+
+---
+
+### Semantic index provider
+
+The semantic index uses pluggable embedding backends. Vectors are **always stored locally** in a Chroma database; cloud providers only compute the embedding for the text being indexed or the query string. ANN search runs on your machine regardless of provider.
+
+| Variable | Default | Description |
+|---|---|---|
+| `SEMANTIC_PROVIDER` | `local` | Embedding backend: `local`, `openai`, or `gemini` |
+| `SEMANTIC_MODEL` | *(provider default)* | Any model name the provider accepts (see table below) |
+| `OPENAI_API_KEY` | *(empty)* | Required when `SEMANTIC_PROVIDER=openai` |
+| `GEMINI_API_KEY` | *(empty)* | Required when `SEMANTIC_PROVIDER=gemini` |
+
+**Recommended models** (from best trade-off to most powerful):
+
+| Model | Provider | Dims | Quality | Privacy | Notes |
+|---|---|---|---|---|---|
+| `all-MiniLM-L6-v2` | `local` | 384 | Good | Fully local | **Default** — fast, ~90 MB RAM |
+| `BAAI/bge-small-en-v1.5` | `local` | 384 | Better | Fully local | Near-free quality bump; same loader |
+| `BAAI/bge-large-en-v1.5` | `local` | 1024 | Very strong | Fully local | ~1.3 GB RAM; ~3× slower than MiniLM |
+| `nomic-ai/nomic-embed-text-v1.5` | `local` | 768 | Strong, 8K ctx | Fully local | Best local pick for fulltext mode |
+| `text-embedding-3-small` | `openai` | 1536 | Strong | Text leaves machine | ~$0.01 abstract-only for 13k items |
+| `text-embedding-3-large` | `openai` | 3072 | Best class | Text leaves machine | ~$0.07 abstract-only — overkill |
+| `gemini-embedding-001` | `gemini` | variable | Comparable to OpenAI | Text leaves machine | — |
+
+You can pass any model string these providers accept — the table above is recommendations, not a fixed list.
+
+**Cloud-embed + local-query pattern.** With `openai` or `gemini` providers, each paper's text is sent to the API once during `semantic_index_rebuild`. The returned vectors are stored in the local Chroma index. After that, queries never send your full library to the cloud — only the query string is embedded (one HTTPS call, ~150 ms) and ANN search runs locally. This gives hosted-quality results at query time with a one-off per-paper cost (cents for a 13k library).
+
+**Provider switching.** Vectors from different models cannot be compared. If you change `SEMANTIC_PROVIDER` or `SEMANTIC_MODEL`, run `semantic_index_rebuild` to wipe and rebuild the collection with the new embedder. The server detects provider mismatches and refuses to run cross-provider queries with an actionable error.
+
+**Practical recommendation:** Start with the default `local` / `all-MiniLM-L6-v2`. Swap to `BAAI/bge-small-en-v1.5` when the provider switch lands — it's a near-free quality bump. Consider `nomic-ai/nomic-embed-text-v1.5` if you enable fulltext mode, since its 8K context actually exploits the `.zotero-ft-cache` you have.
+
+```bash
+# Use a better local model
+SEMANTIC_PROVIDER=local
+SEMANTIC_MODEL=BAAI/bge-small-en-v1.5
+
+# Use OpenAI (text leaves machine at index/query time)
+SEMANTIC_PROVIDER=openai
+SEMANTIC_MODEL=text-embedding-3-small
+OPENAI_API_KEY=sk-...
+
+# Use Gemini
+SEMANTIC_PROVIDER=gemini
+SEMANTIC_MODEL=gemini-embedding-001
+GEMINI_API_KEY=...
+```
+
+After changing provider or model, rebuild the index:
+```bash
+# Via MCP tool call
+semantic_index_rebuild(provider="openai", model="text-embedding-3-small")
+
+# Or let it pick from env vars
+semantic_index_rebuild()
+```
+
 ### Zotero auto-import
 
 | Variable | Default | Description |

@@ -27,6 +27,7 @@ stealth = [
 ]
 semantic = [
     "chromadb>=0.5.0",
+    "einops>=0.7.0",       # required by nomic-embed-text-v1.5
 ]
 # Hosted embedding providers (optional — not used by the default local
 # all-MiniLM-L6-v2 backend). Install one of these alongside [semantic] to

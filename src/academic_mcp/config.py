@@ -107,6 +107,53 @@ class Config:
         default_factory=lambda: os.getenv("SSRN_COOKIES", "")
     )
 
+    # ── Semantic index provider ──────────────────────────────────────
+    # Controls which embedder is used to build and query the Zotero
+    # semantic index. In every case, vectors are stored locally (Chroma)
+    # and query-time ANN runs locally — cloud providers only compute the
+    # embedding for the text being indexed or for the query string.
+    #
+    #   SEMANTIC_PROVIDER   local | openai | gemini   (default: local)
+    #   SEMANTIC_MODEL      provider-specific model name; any string the
+    #                       provider accepts (see README for suggestions).
+    #                       Defaults:
+    #                         local  -> all-MiniLM-L6-v2
+    #                         openai -> text-embedding-3-small
+    #                         gemini -> gemini-embedding-001
+    semantic_provider: str = field(
+        default_factory=lambda: os.getenv("SEMANTIC_PROVIDER", "local").lower()
+    )
+    semantic_model: str = field(
+        default_factory=lambda: os.getenv("SEMANTIC_MODEL", "").strip()
+    )
+    openai_api_key: str = field(
+        default_factory=lambda: os.getenv("OPENAI_API_KEY", "")
+    )
+    gemini_api_key: str = field(
+        default_factory=lambda: os.getenv("GEMINI_API_KEY", "")
+    )
+
+    # ── Local llama-server (OpenAI-compatible) ───────────────────────
+    # When SEMANTIC_PROVIDER=openai and OPENAI_BASE_URL is set, the embedding
+    # client talks to a local llama-server instead of api.openai.com.
+    # No API key validation is enforced when the base URL is localhost.
+    openai_base_url: str = field(
+        default_factory=lambda: os.getenv("OPENAI_BASE_URL", "").strip()
+    )
+
+    # ── Cross-encoder reranker (applied to semantic_search_zotero) ────
+    # Model ID for sentence-transformers CrossEncoder. Empty string disables
+    # reranking entirely (retrieval order returned unchanged).
+    cross_reranker_model: str = field(
+        default_factory=lambda: os.getenv("CROSS_RERANKER_MODEL", "BAAI/bge-reranker-v2-m3")
+    )
+    # Number of chunks to retrieve from Chroma BEFORE reranking.
+    # semantic_search_zotero(k=10) fetches cross_reranker_fetch=50 chunks,
+    # reranks them with the cross-encoder, and returns the top 10.
+    cross_reranker_fetch: int = field(
+        default_factory=lambda: int(os.getenv("CROSS_RERANKER_FETCH", "50"))
+    )
+
     # ── PDF extraction backend ───────────────────────────────────────
     # When true, use pymupdf4llm for Markdown extraction (tables, multi-column,
     # bold/italic). Falls back to extract_text_with_sections on failure or if
