@@ -84,7 +84,12 @@ def _item_key_from_chunk_id(chunk_id: str) -> str:
 
 class SemanticIndex:
     def __init__(self) -> None:
-        self.cache_dir = Path.home() / ".cache" / "academic-mcp" / "chroma"
+        import os
+        env_dir = os.getenv("SEMANTIC_CACHE_DIR")
+        if env_dir:
+            self.cache_dir = Path(env_dir).expanduser()
+        else:
+            self.cache_dir = Path.home() / ".cache" / "academic-mcp" / "chroma"
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.status_path = self.cache_dir / "status.json"
         self.collection_name = "zotero_items"

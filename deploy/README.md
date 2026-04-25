@@ -35,7 +35,8 @@ bind-mounted Zotero mirror and writes only to its own cache volume.
 ssh YOURUSER@YOURSERVER.YOUR-TAILNET.ts.net
 
 # Create directories
-mkdir -p /home/YOURUSER/zotero-mirror
+mkdir -p /home/YOURUSER/zotero-mirror          # receives zotero.sqlite from Mac
+mkdir -p /home/YOURUSER/ft-cache              # receives .zotero-ft-cache files from Mac
 mkdir -p /home/YOURUSER/academic-mcp-config
 mkdir -p /home/YOURUSER/academic-mcp-cache
 
@@ -84,8 +85,8 @@ docker exec llama_embed curl -s http://localhost:8080/health || \
 ## Phase 2 — MacBook SSH and rsync bootstrap
 
 ```bash
-# On MacBook: install Homebrew rsync (macOS ships with rsync 2.6.9 — too old)
-brew install rsync
+# On MacBook: install Homebrew rsync and sqlite3 (macOS ships with rsync 2.6.9 — too old)
+brew install rsync sqlite
 
 # Generate an SSH key if you don't have one
 ssh-keygen -t ed25519 -C "zotero-sync"
@@ -94,40 +95,60 @@ ssh-keygen -t ed25519 -C "zotero-sync"
 ssh-copy-id YOURUSER@YOURSERVER.YOUR-TAILNET.ts.net
 
 # Verify passwordless login works
-ssh YOURSERVER.YOUR-TAILNET.ts.net ls /home/YOURUSER/zotero-mirror
+ssh YOURSERVER.YOUR-TAILNET.ts.net echo ok
 
 # Install the sync script
 cp deploy/macbook/zotero-sync.sh ~/Library/Scripts/zotero-sync.sh
 chmod +x ~/Library/Scripts/zotero-sync.sh
 
-# Edit deploy/macbook/com.example.zotero-sync.plist:
-#   - Replace YOURUSER with your macOS and server username
-#   - Replace YOURSERVER.YOUR-TAILNET.ts.net with your Tailscale hostname
+# Copy the plist template and fill in your values:
+#   YOURUSER          → your macOS username and server username
+#   TAILSCALE_HOSTNAME → Tailscale MagicDNS name of the server
+#   com.YOURNAME      → your own bundle prefix (not com.example)
 # Then install and load:
-cp deploy/macbook/com.example.zotero-sync.plist ~/Library/LaunchAgents/
-launchctl load ~/Library/LaunchAgents/com.example.zotero-sync.plist
+cp deploy/macbook/com.example.zotero-sync.plist \
+   ~/Library/LaunchAgents/com.YOURNAME.zotero-sync.plist
+# (edit the copy — do NOT commit the filled-in version)
+launchctl load ~/Library/LaunchAgents/com.YOURNAME.zotero-sync.plist
 
 # Run an immediate first sync (close Zotero first for a clean sqlite copy)
 # This can take 15–60 min depending on library size — run in a terminal
 REMOTE_HOST=YOURSERVER.YOUR-TAILNET.ts.net \
 REMOTE_USER=YOURUSER \
 REMOTE_DIR=/home/YOURUSER/zotero-mirror \
+REMOTE_FT=/home/YOURUSER/ft-cache \
 ~/Library/Scripts/zotero-sync.sh
 
 # Verify from the server
-ssh YOURUSER@YOURSERVER.YOUR-TAILNET.ts.net ls -la /home/YOURUSER/zotero-mirror/zotero.sqlite
+ssh YOURUSER@YOURSERVER.YOUR-TAILNET.ts.net \
+  "ls -la /home/YOURUSER/zotero-mirror/zotero.sqlite && \
+   find /home/YOURUSER/ft-cache -name .zotero-ft-cache | wc -l"
 
 # Check the launchd agent is scheduled
-launchctl list com.example.zotero-sync
+launchctl list | grep zotero-sync
 ```
+
+### What the sync script does
+
+The script performs three jobs on each run:
+
+1. **SQLite snapshot** — uses `sqlite3 .backup` (safe while Zotero is open, uses
+   read locks only). If the backup API fails the script exits non-zero and ships
+   nothing — it never falls back to `cp`, which would capture an inconsistent
+   mid-transaction state.
+2. **Ship the snapshot** as `zotero.sqlite.new` then atomically `mv` it into
+   place server-side, so the container never reads a half-written file.
+3. **Ship `.zotero-ft-cache` files** — rsyncs only the plain-text extracts
+   that Zotero's full-text indexer generates in `~/Zotero/storage/<key>/`.
+   No PDFs or other attachments are transferred. These files feed the MCP
+   server's semantic index, enabling chunk-level full-text search instead of
+   abstract-only.
 
 ### SQLite lock note
 
-Zotero holds an exclusive SQLite lock while open.  If rsync runs while
-Zotero is open, rsync will fail on `zotero.sqlite` but succeed on
-everything else.  The MCP container's shadow-copy mechanism handles this
-transparently: it reads the previous clean copy until the next successful
-sync.
+Zotero holds an exclusive SQLite write lock while running but the `.backup` API
+uses read locks and succeeds concurrently. On the rare failure (mid-transaction),
+the script exits 3 and leaves the previous good copy in place server-side.
 
 ---
 
@@ -149,9 +170,21 @@ docker build -f docker/Dockerfile -t academic-mcp:latest .
 
 ## Phase 4 — Start the MCP container
 
+The container requires three host bind mounts:
+
+| Host path | Container path | Notes |
+|---|---|---|
+| `/home/YOURUSER/zotero-mirror` | `/zotero` | SQLite mirror; read-only |
+| `/home/YOURUSER/ft-cache` | `/zotero/storage` | ft-cache extracts; read-only |
+| `/home/YOURUSER/academic-mcp-cache` | `/var/cache/academic-mcp` | Chroma index + PDF cache; writable |
+
+The ft-cache bind (`/zotero/storage`) is what `ZOTERO_LOCAL_STORAGE` points to
+inside the container.  It must be populated by the Mac-side sync (Phase 2)
+before a semantic index rebuild will include full-text chunks.
+
 ```bash
-# Edit deploy/docker-run-mcp.sh: set ZOTERO_MIRROR, CONFIG_DIR, CACHE_DIR
-# to your actual paths, then:
+# Edit deploy/docker-run-mcp.sh: set ZOTERO_MIRROR, FT_CACHE_DIR, CONFIG_DIR,
+# CACHE_DIR to your actual paths, then:
 bash deploy/docker-run-mcp.sh
 
 # Check it started
@@ -284,18 +317,24 @@ docker exec academic_mcp watch -n 5 \
 - [ ] `curl -sH "Authorization: Bearer $MCP_API_KEY" https://mcp.YOUR-PUBLIC/sse` returns SSE stream (or 401 without header when auth is on)
 - [ ] Claude Desktop on MacBook can run `list_zotero_libraries` and get a real response
 - [ ] Claude Desktop can run `semantic_index_status` and see the expected provider/model/count
-- [ ] launchd sync ran at least once: `ls -la /home/YOURUSER/zotero-mirror/zotero.sqlite` shows recent mtime
+- [ ] launchd sync ran at least once: `.last-sync` timestamp in zotero-mirror is recent
+- [ ] ft-cache files landed: `find /home/YOURUSER/ft-cache -name .zotero-ft-cache | wc -l` > 0
+- [ ] `docker exec academic_mcp ls /zotero/storage/ | head` shows `<item_key>` directories
 - [ ] `semantic_index_rebuild(force=True)` completes successfully
+- [ ] Chroma index lives on the host: `du -sh /home/YOURUSER/academic-mcp-cache/chroma` is non-trivial
 - [ ] `ps aux | grep academic_mcp` on MacBook shows **zero** local MCP processes
 
 ---
 
 ## Zotero mirror modes
 
-### Mode A — Full folder mirror (rsync everything)
+### Mode A — ft-cache only (default)
 
-Default. The launchd agent rsyncs all of `~/Zotero/` including `storage/`.
-Both `ZOTERO_SQLITE_PATH` and `ZOTERO_LOCAL_STORAGE` point into `/zotero`.
+The sync script ships `zotero.sqlite` (via SQLite `.backup`) and just the
+`.zotero-ft-cache` plain-text extracts from `~/Zotero/storage/`. PDFs are not
+transferred. The ft-cache files are mounted into the container at
+`/zotero/storage` (separate bind from the sqlite mirror). This is the
+default and recommended mode.
 
 ### Mode B — Nextcloud WebDAV for attachments
 
@@ -338,5 +377,11 @@ docker stop academic_mcp && docker rm academic_mcp
 bash deploy/docker-run-mcp.sh
 ```
 
-Chroma index and PDF cache survive updates (they are on the cache volume).
-No index rebuild required unless the embedding model changed.
+The Chroma index and PDF cache survive updates (they are on the persistent
+cache volume at `/var/cache/academic-mcp`). No index rebuild is required
+unless the embedding model or provider changed.
+
+> **Note:** The Chroma index is written to `SEMANTIC_CACHE_DIR`, which the
+> Dockerfile sets to `/var/cache/academic-mcp/chroma`. Ensure that path is
+> on the persistent volume bind (not the container overlay layer) or the
+> index will be lost on every container recreate.

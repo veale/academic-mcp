@@ -24,7 +24,8 @@ docker run -d \
   --restart always \
   --network YOUR-DOCKER-NETWORK \
   -v /home/YOURUSER/zotero-mirror:/zotero:ro \
-  -v /home/YOURUSER/academic-mcp-config:/config \
+  -v /home/YOURUSER/ft-cache:/zotero/storage:ro \
+  -v /home/YOURUSER/academic-mcp-config:/config:ro \
   -v /home/YOURUSER/academic-mcp-cache:/var/cache/academic-mcp \
   academic-mcp:latest
 ```
@@ -71,9 +72,19 @@ so they survive image updates.
 
 | Container path | Purpose | Writable? |
 |---|---|---|
-| `/zotero` | Zotero mirror (sqlite + storage/) | No (`:ro`) |
+| `/zotero` | Zotero sqlite mirror (`zotero.sqlite`) | No (`:ro`) |
+| `/zotero/storage` | ft-cache extracts (`.zotero-ft-cache` files, separate bind) | No (`:ro`) |
 | `/config` | `.env` secrets file | No (`:ro`) |
 | `/var/cache/academic-mcp` | Chroma index, PDF cache, article cache | Yes |
+
+The Chroma index is stored at `$SEMANTIC_CACHE_DIR` (default
+`/var/cache/academic-mcp/chroma`). This must be on the persistent volume
+bind — not the container overlay — or the index is lost on every recreate.
+
+The `/zotero/storage` bind is separate from `/zotero` so that the sqlite
+mirror and the ft-cache can live in different host directories (and the
+ft-cache can be updated independently by rsync without touching the sqlite
+directory).
 
 ## Networking
 

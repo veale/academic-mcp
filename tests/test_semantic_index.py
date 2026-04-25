@@ -275,6 +275,22 @@ async def test_chunk_metadata_contains_char_offsets(fake_index, monkeypatch):
     assert md["chunk_source"] == "abstract"
 
 
+def test_cache_dir_honours_env(monkeypatch, tmp_path):
+    """SEMANTIC_CACHE_DIR env var must override the default cache dir."""
+    target = tmp_path / "custom-chroma"
+    monkeypatch.setenv("SEMANTIC_CACHE_DIR", str(target))
+    idx = semantic_index.SemanticIndex()
+    assert idx.cache_dir == target
+    assert target.is_dir()
+
+
+def test_cache_dir_default_when_env_missing(monkeypatch):
+    """When the env var is unset, fall back to ~/.cache/academic-mcp/chroma."""
+    monkeypatch.delenv("SEMANTIC_CACHE_DIR", raising=False)
+    idx = semantic_index.SemanticIndex()
+    assert idx.cache_dir == Path.home() / ".cache" / "academic-mcp" / "chroma"
+
+
 async def test_search_returns_chunk_level_fields(fake_index, monkeypatch):
     """search() results should include chunk-level fields."""
     idx, col = fake_index

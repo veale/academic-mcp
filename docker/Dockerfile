@@ -10,7 +10,7 @@ FROM python:3.12-slim-bookworm
 #   - tini: proper PID 1 for clean shutdown on docker stop
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        curl ca-certificates libmagic1 tini \
+        curl ca-certificates libmagic1 sqlite3 tini \
     && rm -rf /var/lib/apt/lists/*
 
 # uv (repo-standard package manager)

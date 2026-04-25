@@ -3,8 +3,10 @@
   "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
   <dict>
+    <!-- Rename to com.YOURNAME.zotero-sync.plist and replace all YOURUSER /
+         TAILSCALE_HOSTNAME placeholders before installing. -->
     <key>Label</key>
-    <string>com.example.zotero-sync</string>
+    <string>com.YOURNAME.zotero-sync</string>
 
     <key>ProgramArguments</key>
     <array>
@@ -16,36 +18,33 @@
       <key>PATH</key>
       <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
       <key>REMOTE_HOST</key>
-      <string>YOURSERVER.YOUR-TAILNET.ts.net</string>
+      <string>TAILSCALE_HOSTNAME</string>
       <key>REMOTE_USER</key>
       <string>YOURUSER</string>
       <key>REMOTE_DIR</key>
-      <string>/home/YOURUSER/zotero-mirror</string>
+      <string>/home/YOURUSER/docker-binds/academic-mcp/zotero-mirror</string>
+      <key>REMOTE_FT</key>
+      <string>/home/YOURUSER/docker-binds/academic-mcp/ft-cache</string>
       <key>ZOTERO_SRC</key>
       <string>/Users/YOURUSER/Zotero</string>
-      <!-- Set SYNC_MODE=B here when using Nextcloud WebDAV for attachments -->
-      <!-- <key>SYNC_MODE</key> -->
-      <!-- <string>B</string> -->
-
-      <!-- Minimum seconds between syncs, regardless of how many WatchPaths
-           triggers fire.  60 s = at most one full sync per minute. -->
+      <!-- Minimum seconds between syncs regardless of WatchPaths trigger rate. -->
       <key>DEBOUNCE_SECONDS</key>
       <string>60</string>
     </dict>
 
-    <!-- Fire whenever any file in ~/Zotero changes (Zotero writes, Spotlight
-         indexing, etc.).  The script-level debounce absorbs the spam. -->
+    <!-- Watch the WAL/journal companion only, not the whole ~/Zotero dir.
+         These files mtime-bump on real DB writes, not on Spotlight churn.
+         Watch storage/ for new ft-cache files added by Zotero's indexer. -->
     <key>WatchPaths</key>
     <array>
-      <string>/Users/YOURUSER/Zotero</string>
+      <string>/Users/YOURUSER/Zotero/zotero.sqlite-journal</string>
+      <string>/Users/YOURUSER/Zotero/storage</string>
     </array>
 
-    <!-- Fallback periodic trigger in case WatchPaths misses an event
-         (e.g. network reconnect after sleep).  30 min is conservative. -->
+    <!-- 30-min fallback; covers wake-from-sleep / network reconnect. -->
     <key>StartInterval</key>
     <integer>1800</integer>
 
-    <!-- Also run at load time so the first sync happens on login. -->
     <key>RunAtLoad</key>
     <true/>
 
