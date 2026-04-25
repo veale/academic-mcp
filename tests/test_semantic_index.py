@@ -256,6 +256,28 @@ async def test_migration_guard_triggers_rebuild(fake_index, monkeypatch):
     assert "B:0" in col._store
 
 
+async def test_migration_guard_triggers_rebuild_for_format1(fake_index, monkeypatch):
+    """If the collection has text_format=1 records (pre-context-header), rebuild."""
+    idx, col = fake_index
+
+    # Pre-populate with format-1 records (chunk_idx present but text_format absent/1).
+    col._store["A:0"] = {
+        "doc": "old text",
+        "metadata": {"item_key": "A", "chunk_idx": 0, "dateModified": "2025-01-01"},
+    }
+
+    items = [_make_item("A", title="A")]
+    async def _list(): return items
+    monkeypatch.setattr(semantic_index.zotero_sqlite, "list_items_for_semantic_index", _list)
+
+    status = await idx.sync()
+    assert status["upserted"] == 1
+
+    # The new record should carry text_format=2.
+    meta = col._store["A:0"]["metadata"]
+    assert meta.get("text_format") == 2
+
+
 async def test_chunk_metadata_contains_char_offsets(fake_index, monkeypatch):
     """Chunk metadata must include char_start, char_end, chunk_idx, chunk_source."""
     idx, col = fake_index
@@ -437,3 +459,18 @@ async def test_env_override_batch_size_respected(fake_index, monkeypatch):
 
     for call in col.upsert_calls:
         assert len(call["ids"]) <= 8
+
+
+async def test_sync_writes_text_format_2_in_metadata(fake_index, monkeypatch):
+    """Each upserted chunk must carry text_format=2 so future migrations detect stale data."""
+    idx, col = fake_index
+
+    items = [_make_item("K1", title="Some Paper", abstract="Some abstract.")]
+    async def _list(): return items
+    monkeypatch.setattr(semantic_index.zotero_sqlite, "list_items_for_semantic_index", _list)
+
+    await idx.sync()
+
+    assert "K1:0" in col._store
+    meta = col._store["K1:0"]["metadata"]
+    assert meta.get("text_format") == 2

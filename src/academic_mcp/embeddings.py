@@ -29,6 +29,7 @@ Design rules:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from dataclasses import dataclass
@@ -266,32 +267,72 @@ def _openai_encoder(
         # the server's ``-np`` setting.
         default_batch = 96 if is_openai_cloud else 16
         batch = int(os.getenv("OPENAI_EMBED_BATCH", str(default_batch)))
+        # Concurrent in-flight requests. Default 1 for cloud (cloud already
+        # parallelises internally), 4 for self-hosted (matches typical -np 4).
+        # Pair with OPENAI_EMBED_BATCH and server -np setting for best throughput.
+        default_concurrency = 1 if is_openai_cloud else 4
+        concurrency = int(os.getenv("OPENAI_EMBED_CONCURRENCY", str(default_concurrency)))
 
-        out: list[list[float]] = []
+        # Slice into ordered request groups so we can stitch results back in order.
+        groups: list[tuple[int, list[str]]] = [
+            (i, texts[i : i + batch]) for i in range(0, len(texts), batch)
+        ]
+
         # Connect fast, read patiently.  180s read timeout covers a batch
         # stuck behind other load on a constrained self-hosted server.
         timeout = httpx.Timeout(connect=10.0, read=180.0, write=30.0, pool=10.0)
-        with httpx.Client(timeout=timeout) as client:
-            for i in range(0, len(texts), batch):
-                chunk = texts[i : i + batch]
-                resp = client.post(
-                    endpoint,
-                    headers={
-                        "Authorization": f"Bearer {api_key}",
-                        "Content-Type": "application/json",
-                    },
-                    json={"model": model_name, "input": chunk},
+        limits = httpx.Limits(
+            max_connections=concurrency, max_keepalive_connections=concurrency
+        )
+
+        async def _run() -> list[tuple[int, list[list[float]]]]:
+            sem = asyncio.Semaphore(concurrency)
+            async with httpx.AsyncClient(timeout=timeout, limits=limits) as client:
+                async def _one(
+                    start: int, chunk: list[str]
+                ) -> tuple[int, list[list[float]]]:
+                    async with sem:
+                        resp = await client.post(
+                            endpoint,
+                            headers={
+                                "Authorization": f"Bearer {api_key}",
+                                "Content-Type": "application/json",
+                            },
+                            json={"model": model_name, "input": chunk},
+                        )
+                        if resp.status_code != 200:
+                            raise EmbedderUnavailable(
+                                f"OpenAI embedding request failed: {resp.status_code} "
+                                f"{resp.text[:200]}"
+                            )
+                        data = resp.json()
+                        vecs = [item["embedding"] for item in data.get("data", [])]
+                        if is_qwen3:
+                            vecs = _l2_normalize(vecs)
+                        return (start, vecs)
+
+                return await asyncio.gather(*[_one(s, c) for s, c in groups])
+
+        # asyncio.run() works here because _encode_batch is called from
+        # _sync_blocking which runs in asyncio.to_thread — a worker thread
+        # with no running event loop. Guard against the rare case where a
+        # caller invokes this from inside a live event loop.
+        try:
+            asyncio.get_running_loop()
+            # Running inside a loop — execute on a fresh thread instead.
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+                results: list[tuple[int, list[list[float]]]] = list(
+                    ex.submit(asyncio.run, _run()).result()
                 )
-                if resp.status_code != 200:
-                    raise EmbedderUnavailable(
-                        f"OpenAI embedding request failed: {resp.status_code} "
-                        f"{resp.text[:200]}"
-                    )
-                data = resp.json()
-                vecs = [item["embedding"] for item in data.get("data", [])]
-                if is_qwen3:
-                    vecs = _l2_normalize(vecs)
-                out.extend(vecs)
+        except RuntimeError:
+            results = list(asyncio.run(_run()))
+
+        # Re-stitch in original order.
+        results.sort(key=lambda x: x[0])
+        out: list[list[float]] = []
+        for _, vecs in results:
+            out.extend(vecs)
         return out
 
     def _doc_encoder(texts: list[str]) -> list[list[float]]:

@@ -222,11 +222,13 @@ def _make_mock_sentence_transformer():
 class TestOpenAIEncoderQwen3:
     """Tests for Qwen3-specific and custom-base-URL behaviour in _openai_encoder."""
 
-    def _fake_post(self, vecs):
-        """Return a factory that creates a fake httpx.Client.post patching the class."""
-        import json as _json
-        from unittest.mock import MagicMock
+    def _fake_async_post(self, vecs):
+        """Return a factory that creates a fake httpx.AsyncClient patching the class.
 
+        The encoder now uses AsyncClient internally (requests are issued
+        concurrently via asyncio.gather).  EOS tokens are appended server-side
+        by llama.cpp's tokenizer config; the client does NOT add them.
+        """
         captured = {}
 
         class _FakeResp:
@@ -234,22 +236,22 @@ class TestOpenAIEncoderQwen3:
             def json(self_inner):
                 return {"data": [{"embedding": v} for v in vecs]}
 
-        class _FakeClient:
+        class _FakeAsyncClient:
             def __init__(self, **kwargs): pass
-            def __enter__(self): return self
-            def __exit__(self, *a): pass
-            def post(self, url, *, headers, json):
+            async def __aenter__(self): return self
+            async def __aexit__(self, *a): pass
+            async def post(self, url, *, headers, json):
                 captured["url"] = url
                 captured["inputs"] = json.get("input", [])
                 return _FakeResp()
 
-        return _FakeClient, captured
+        return _FakeAsyncClient, captured
 
     def test_openai_encoder_uses_custom_base_url(self, monkeypatch):
         """When OPENAI_BASE_URL is set, the endpoint should use that base."""
         import academic_mcp.embeddings as emb_mod
 
-        fake_client, captured = self._fake_post([[0.1] * 1024])
+        fake_client, captured = self._fake_async_post([[0.1] * 1024])
 
         monkeypatch.setattr(
             "academic_mcp.embeddings.config",
@@ -260,7 +262,7 @@ class TestOpenAIEncoderQwen3:
                 openai_base_url="http://127.0.0.1:8080/v1",
             ),
         )
-        monkeypatch.setattr(emb_mod.httpx, "Client", fake_client)
+        monkeypatch.setattr(emb_mod.httpx, "AsyncClient", fake_client)
 
         doc_enc, _ = emb_mod._openai_encoder("qwen3-embedding-0.6b")
         doc_enc(["hello"])
@@ -271,7 +273,7 @@ class TestOpenAIEncoderQwen3:
         """When base URL is localhost and key is absent, sk-noop should be used."""
         import academic_mcp.embeddings as emb_mod
 
-        fake_client, _ = self._fake_post([[0.1] * 1024])
+        fake_client, _ = self._fake_async_post([[0.1] * 1024])
 
         monkeypatch.setattr(
             "academic_mcp.embeddings.config",
@@ -282,17 +284,22 @@ class TestOpenAIEncoderQwen3:
                 openai_base_url="http://127.0.0.1:8080/v1",
             ),
         )
-        monkeypatch.setattr(emb_mod.httpx, "Client", fake_client)
+        monkeypatch.setattr(emb_mod.httpx, "AsyncClient", fake_client)
 
         # Should not raise EmbedderUnavailable
         doc_enc, _ = emb_mod._openai_encoder("text-embedding")
         doc_enc(["test"])  # should not raise
 
-    def test_qwen3_appends_endoftext(self, monkeypatch):
-        """Document inputs for Qwen3 models should have <|endoftext|> appended."""
+    def test_qwen3_doc_inputs_passed_verbatim(self, monkeypatch):
+        """Document inputs for Qwen3 should be sent as-is.
+
+        EOS token is appended server-side by llama.cpp's tokenizer config;
+        the client must NOT add <|endoftext|> (double-EOS produces warnings
+        and slightly off-distribution inputs).
+        """
         import academic_mcp.embeddings as emb_mod
 
-        fake_client, captured = self._fake_post([[0.1, 0.2, 0.3]])
+        fake_client, captured = self._fake_async_post([[0.1, 0.2, 0.3]])
 
         monkeypatch.setattr(
             "academic_mcp.embeddings.config",
@@ -303,18 +310,21 @@ class TestOpenAIEncoderQwen3:
                 openai_base_url="http://127.0.0.1:8080/v1",
             ),
         )
-        monkeypatch.setattr(emb_mod.httpx, "Client", fake_client)
+        monkeypatch.setattr(emb_mod.httpx, "AsyncClient", fake_client)
 
         doc_enc, _ = emb_mod._openai_encoder("qwen3-embedding-0.6b")
         doc_enc(["hello world"])
 
-        assert captured["inputs"] == ["hello world<|endoftext|>"]
+        assert captured["inputs"] == ["hello world"]
 
     def test_qwen3_query_has_instruction_prefix(self, monkeypatch):
-        """Query inputs for Qwen3 models should be wrapped with the instruction."""
+        """Query inputs for Qwen3 models should be wrapped with the instruction prefix.
+
+        EOS is still handled server-side; we only check the Instruct: prefix.
+        """
         import academic_mcp.embeddings as emb_mod
 
-        fake_client, captured = self._fake_post([[0.1, 0.2, 0.3]])
+        fake_client, captured = self._fake_async_post([[0.1, 0.2, 0.3]])
 
         monkeypatch.setattr(
             "academic_mcp.embeddings.config",
@@ -325,7 +335,7 @@ class TestOpenAIEncoderQwen3:
                 openai_base_url="http://127.0.0.1:8080/v1",
             ),
         )
-        monkeypatch.setattr(emb_mod.httpx, "Client", fake_client)
+        monkeypatch.setattr(emb_mod.httpx, "AsyncClient", fake_client)
 
         _, query_enc = emb_mod._openai_encoder("qwen3-embedding-0.6b")
         assert query_enc is not None
@@ -334,14 +344,14 @@ class TestOpenAIEncoderQwen3:
         sent = captured["inputs"][0]
         assert "Instruct:" in sent
         assert "algorithmic bias" in sent
-        assert sent.endswith("<|endoftext|>")
+        assert "<|endoftext|>" not in sent  # server appends EOS, not the client
 
     def test_qwen3_vectors_are_normalized(self, monkeypatch):
         """Raw response vectors for Qwen3 should be L2-normalised."""
         import academic_mcp.embeddings as emb_mod
 
         # [3.0, 4.0] has L2 norm = 5.0 → normalised = [0.6, 0.8]
-        fake_client, _ = self._fake_post([[3.0, 4.0]])
+        fake_client, _ = self._fake_async_post([[3.0, 4.0]])
 
         monkeypatch.setattr(
             "academic_mcp.embeddings.config",
@@ -352,7 +362,7 @@ class TestOpenAIEncoderQwen3:
                 openai_base_url="http://127.0.0.1:8080/v1",
             ),
         )
-        monkeypatch.setattr(emb_mod.httpx, "Client", fake_client)
+        monkeypatch.setattr(emb_mod.httpx, "AsyncClient", fake_client)
 
         doc_enc, _ = emb_mod._openai_encoder("qwen3-embedding-0.6b")
         vecs = doc_enc(["test"])
@@ -366,7 +376,7 @@ class TestOpenAIEncoderQwen3:
         """Standard OpenAI models should NOT get Qwen3 wrappers."""
         import academic_mcp.embeddings as emb_mod
 
-        fake_client, captured = self._fake_post([[0.1] * 1536])
+        fake_client, captured = self._fake_async_post([[0.1] * 1536])
 
         monkeypatch.setattr(
             "academic_mcp.embeddings.config",
@@ -376,7 +386,7 @@ class TestOpenAIEncoderQwen3:
                 openai_key="sk-test",
             ),
         )
-        monkeypatch.setattr(emb_mod.httpx, "Client", fake_client)
+        monkeypatch.setattr(emb_mod.httpx, "AsyncClient", fake_client)
 
         doc_enc, query_enc = emb_mod._openai_encoder("text-embedding-3-small")
         doc_enc(["hello world"])

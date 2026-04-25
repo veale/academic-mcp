@@ -105,18 +105,43 @@ def _sliding_chunks(text: str) -> list[Chunk]:
     return chunks
 
 
+def _build_context_header(item: dict) -> str:
+    """Compact paper-level context prepended to every chunk.
+
+    ~50–150 chars that anchor 'what paper is this from' for embedding models
+    that benefit from per-chunk context (Qwen3-Embedding, nomic, etc.).
+    """
+    title = (item.get("title") or "").strip()
+    venue = (item.get("bookTitle") or item.get("publicationTitle") or "").strip()
+    authors: list[str] = item.get("authors") or []
+    pub = (item.get("publisher") or "").strip()
+
+    parts = [title] if title else []
+    if venue:
+        parts.append(f"In: {venue}")
+    if authors:
+        # Cap at 3 to avoid bloat for large edited volumes.
+        a = ", ".join(authors[:3])
+        if len(authors) > 3:
+            a += " et al."
+        parts.append(f"Authors: {a}")
+    if pub and not venue:
+        # Only show publisher when there is no venue — avoids redundancy.
+        parts.append(f"Publisher: {pub}")
+    return "\n".join(parts)
+
+
 def chunk_item(item: dict) -> list[Chunk]:
     """Chunk one item returned by list_items_for_semantic_index().
 
     Contract:
       * Returns at least one chunk when the item has title or abstract.
       * Returns [] when the item has neither (caller should skip).
-      * For ft-cache chunks, prepends the item's title (not abstract —
-        we want the chunk to be semantically mostly about the body text,
-        with a short paper-level anchor). Title prefix is retained in
-        the embedded text but offsets refer to the ft-cache content.
+      * For ft-cache chunks, prepends a rich context header (title + venue +
+        authors) so every chunk is independently retrievable. Offsets refer
+        to the ft-cache content, not the header.
     """
-    title = (item.get("title") or "").strip()
+    header = _build_context_header(item)
     abstract = (item.get("abstract") or "").strip()
     attachment_key = item.get("attachment_key") or ""
 
@@ -124,12 +149,10 @@ def chunk_item(item: dict) -> list[Chunk]:
 
     if ft_text:
         raw_chunks = _sliding_chunks(ft_text)
-        title_prefix = f"{title}\n\n" if title else ""
-        # Bake the title into the embedded text so each chunk carries
-        # paper-level context. Offsets still point at the ft-cache.
+        prefix = f"{header}\n\n" if header else ""
         return [
             Chunk(
-                text=title_prefix + c.text,
+                text=prefix + c.text,
                 char_start=c.char_start,
                 char_end=c.char_end,
                 source="ft_cache",
@@ -138,12 +161,7 @@ def chunk_item(item: dict) -> list[Chunk]:
         ]
 
     # Abstract-only path.
-    parts = []
-    if title:
-        parts.append(title)
-    if abstract:
-        parts.append(abstract)
-    if not parts:
+    if not header and not abstract:
         return []
-    text = "\n\n".join(parts)
+    text = f"{header}\n\n{abstract}".strip() if abstract else header
     return [Chunk(text=text, char_start=0, char_end=len(text), source="abstract")]

@@ -784,7 +784,11 @@ TOOLS = [
             "  • chunk_source: 'ft_cache' (PDF fulltext) or 'abstract'\n\n"
             "A cross-encoder reranker (BAAI/bge-reranker-v2-m3) rescores the candidate "
             "pool before returning results. If the model is not loaded yet, "
-            "bi-encoder ranking is used as a fallback."
+            "bi-encoder ranking is used as a fallback.\n\n"
+            "IMPORTANT: If semantic_index_status reports in_progress=true, the index "
+            "is still being built and recall is partial — items not yet embedded will "
+            "not appear in results. Fall back to search_zotero for known-item lookups "
+            "during a build."
         ),
         inputSchema={
             "type": "object",
@@ -1632,19 +1636,29 @@ async def _handle_search(args: dict) -> list[TextContent]:
             try:
                 _sem_st = get_semantic_index()._load_status()
                 _sem_count = int(_sem_st.get("count") or 0)
-                _last_sync = _sem_st.get("last_sync") or ""
-                if _last_sync:
-                    from datetime import datetime as _dt2, timezone as _tz2
-                    _delta = _dt2.now(_tz2.utc) - _dt2.fromisoformat(_last_sync)
-                    _h = int(_delta.total_seconds() // 3600)
-                    if _h < 1:
-                        _age = f"synced {int(_delta.total_seconds() // 60)}m ago"
-                    elif _h < 24:
-                        _age = f"synced {_h}h ago"
-                    else:
-                        _age = f"synced {int(_h // 24)}d ago"
+                if _sem_st.get("in_progress"):
+                    _upserted = int(_sem_st.get("upserted") or 0)
+                    _pending = int(_sem_st.get("pending") or 0)
+                    _total = _upserted + _pending
+                    _pct = (100 * _upserted / _total) if _total else 0
+                    _age = (
+                        f"build in progress — "
+                        f"{_upserted:,}/{_total:,} chunks ({_pct:.1f}%) embedded"
+                    )
                 else:
-                    _age = "not synced yet — run semantic_index_rebuild"
+                    _last_sync = _sem_st.get("last_sync") or ""
+                    if _last_sync:
+                        from datetime import datetime as _dt2, timezone as _tz2
+                        _delta = _dt2.now(_tz2.utc) - _dt2.fromisoformat(_last_sync)
+                        _h = int(_delta.total_seconds() // 3600)
+                        if _h < 1:
+                            _age = f"synced {int(_delta.total_seconds() // 60)}m ago"
+                        elif _h < 24:
+                            _age = f"synced {_h}h ago"
+                        else:
+                            _age = f"synced {int(_h // 24)}d ago"
+                    else:
+                        _age = "not synced yet — run semantic_index_rebuild"
                 _status_parts.append(f"semantic: {_sem_count:,} items, {_age}")
             except Exception:
                 _status_parts.append("semantic: unavailable")
@@ -4508,6 +4522,32 @@ async def _handle_search_zotero(args: dict) -> list[TextContent]:
         if r.get("DOI"):
             text += f"    → fetch_fulltext(doi=\"{r['DOI']}\") to read\n"
         text += "\n"
+
+    # Opportunistic embedding: during an active index build, pre-warm items
+    # the user is actively looking at so they appear in semantic_search_zotero
+    # without waiting for the background sync to reach them.
+    try:
+        from .semantic_index import get_semantic_index
+    except ImportError:
+        from academic_mcp.semantic_index import get_semantic_index
+    try:
+        _idx = get_semantic_index()
+        _sem_st = _idx._load_status()
+        if _sem_st.get("in_progress"):
+            _col = _idx._get_chroma_collection()
+            for r in results[:5]:  # cap to avoid runaway latency
+                _key = r.get("key") or ""
+                if not _key:
+                    continue
+                _ex = _col.get(where={"item_key": _key}, include=[])
+                if not _ex.get("ids"):
+                    try:
+                        await _idx.embed_item_now(_key)
+                        logger.debug("hot-path embed completed for %s", _key)
+                    except Exception as _e:
+                        logger.debug("hot-path embed failed for %s: %s", _key, _e)
+    except Exception:
+        pass  # never let opportunistic embedding break the search response
 
     return [TextContent(type="text", text=text)]
 

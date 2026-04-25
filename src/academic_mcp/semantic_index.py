@@ -181,15 +181,19 @@ class SemanticIndex:
 
     @staticmethod
     def _needs_migration(existing: dict) -> bool:
-        """Return True if the collection uses the old single-vector format.
+        """Return True if the collection uses an outdated format that requires rebuild.
 
-        The new format stores ``chunk_idx`` in every metadata dict.  If the
-        first non-empty metadata record doesn't have it, a rebuild is needed.
+        Format 1: stores ``chunk_idx`` but lacks the context-header enrichment
+                  (``text_format`` key absent or < 2).
+        Format 0: the old single-vector format (no ``chunk_idx`` at all).
         """
         metas = existing.get("metadatas") or []
         for md in metas:
             if md is not None:
-                return "chunk_idx" not in md
+                if "chunk_idx" not in md:
+                    return True  # format 0: old single-vector layout
+                if int(md.get("text_format") or 1) < 2:
+                    return True  # format 1: pre-context-header layout
         return False  # empty collection — no migration required
 
     # -- sync ------------------------------------------------------------
@@ -296,6 +300,7 @@ class SemanticIndex:
                         "chunk_source": chunk.source,
                         "provider": embedder.provider,
                         "model": embedder.model,
+                        "text_format": 2,
                     }
                     to_upsert_ids.append(chunk_id)
                     to_upsert_docs.append(chunk.text)
@@ -436,6 +441,65 @@ class SemanticIndex:
             return out
 
         return await asyncio.to_thread(_search_blocking)
+
+    # -- hot-path embed --------------------------------------------------
+
+    async def embed_item_now(self, item_key: str) -> int:
+        """Chunk and embed a single item immediately. Returns number of chunks written.
+
+        Used as a hot-path fallback when the user looks up an item that hasn't
+        been reached by the background sync yet. Safe to call concurrently with
+        the background sync — Chroma serialises writers at the SQLite layer.
+        """
+        items = await zotero_sqlite.list_items_for_semantic_index()
+        target = next((it for it in items if it.get("item_key") == item_key), None)
+        if target is None:
+            return 0
+
+        chunks = chunk_item(target)
+        if not chunks:
+            return 0
+
+        embedder = self._get_embedder()
+        self._assert_compatible(embedder)
+
+        def _do() -> int:
+            col = self._get_chroma_collection()
+            # Remove any stale chunks for this key first (e.g. from a
+            # previous partial upsert).
+            prior = col.get(where={"item_key": item_key}, include=[])
+            if prior.get("ids"):
+                col.delete(ids=prior["ids"])
+
+            ids, docs, metas = [], [], []
+            for idx, c in enumerate(chunks):
+                ids.append(_make_chunk_id(item_key, idx))
+                docs.append(c.text)
+                metas.append({
+                    "item_key": item_key,
+                    "doi": (target.get("doi") or "").strip(),
+                    "title": (target.get("title") or "")[:400],
+                    "dateModified": target.get("dateModified") or "",
+                    "chunk_idx": idx,
+                    "chunk_count": len(chunks),
+                    "char_start": c.char_start,
+                    "char_end": c.char_end,
+                    "chunk_source": c.source,
+                    "provider": embedder.provider,
+                    "model": embedder.model,
+                    "text_format": 2,
+                })
+            embs = embedder.encode(docs)
+            if len(embs) != len(docs):
+                logger.warning(
+                    "embed_item_now: embedder returned %d vectors for %d docs, skipping %s",
+                    len(embs), len(docs), item_key,
+                )
+                return 0
+            col.upsert(ids=ids, documents=docs, embeddings=embs, metadatas=metas)
+            return len(ids)
+
+        return await asyncio.to_thread(_do)
 
     # -- status ----------------------------------------------------------
 

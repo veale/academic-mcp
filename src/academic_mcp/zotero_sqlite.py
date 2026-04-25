@@ -1027,6 +1027,9 @@ async def list_items_for_semantic_index() -> list[dict[str, str]]:
         title_fid = await _get_field_id(conn, "title")
         abs_fid = await _get_field_id(conn, "abstractNote")
         doi_fid = await _get_field_id(conn, "DOI")
+        book_title_fid = await _get_field_id(conn, "bookTitle")
+        pub_title_fid = await _get_field_id(conn, "publicationTitle")
+        publisher_fid = await _get_field_id(conn, "publisher")
 
         if title_fid is None and abs_fid is None:
             return []
@@ -1041,6 +1044,9 @@ async def list_items_for_semantic_index() -> list[dict[str, str]]:
                 MAX(CASE WHEN id.fieldID = ? THEN idv.value END) AS title,
                 MAX(CASE WHEN id.fieldID = ? THEN idv.value END) AS abstractNote,
                 MAX(CASE WHEN id.fieldID = ? THEN idv.value END) AS doi,
+                MAX(CASE WHEN id.fieldID = ? THEN idv.value END) AS bookTitle,
+                MAX(CASE WHEN id.fieldID = ? THEN idv.value END) AS publicationTitle,
+                MAX(CASE WHEN id.fieldID = ? THEN idv.value END) AS publisher,
                 (
                     SELECT ai.key FROM itemAttachments ia
                     JOIN items ai ON ia.itemID = ai.itemID
@@ -1059,9 +1065,43 @@ async def list_items_for_semantic_index() -> list[dict[str, str]]:
 
         cur = await conn.execute(
             query,
-            (title_fid or -1, abs_fid or -1, doi_fid or -1),
+            (
+                title_fid or -1,
+                abs_fid or -1,
+                doi_fid or -1,
+                book_title_fid or -1,
+                pub_title_fid or -1,
+                publisher_fid or -1,
+            ),
         )
         rows = await cur.fetchall()
+
+        # Collect all item IDs so we can batch-fetch authors.
+        item_ids = [row["itemID"] for row in rows]
+
+        # Batch-fetch creator surnames per item.
+        authors_by_item: dict[int, list[str]] = {}
+        if item_ids:
+            # SQLite supports up to 999 params in IN clause; chunk if needed.
+            chunk_size = 900
+            for chunk_start in range(0, len(item_ids), chunk_size):
+                id_chunk = item_ids[chunk_start : chunk_start + chunk_size]
+                placeholders = ",".join("?" * len(id_chunk))
+                creator_cur = await conn.execute(
+                    f"""
+                    SELECT ic.itemID, c.lastName
+                    FROM itemCreators ic
+                    JOIN creators c ON ic.creatorID = c.creatorID
+                    WHERE ic.itemID IN ({placeholders})
+                    ORDER BY ic.itemID, ic.orderIndex
+                    """,
+                    id_chunk,
+                )
+                creator_rows = await creator_cur.fetchall()
+                for cr in creator_rows:
+                    last = (cr["lastName"] or "").strip()
+                    if last:
+                        authors_by_item.setdefault(cr["itemID"], []).append(last)
 
         out: list[dict[str, str]] = []
         for row in rows:
@@ -1076,6 +1116,10 @@ async def list_items_for_semantic_index() -> list[dict[str, str]]:
                 "doi": (row["doi"] or "").strip(),
                 "dateModified": (row["dateModified"] or ""),
                 "attachment_key": (row["attachment_key"] or ""),
+                "bookTitle": (row["bookTitle"] or "").strip(),
+                "publicationTitle": (row["publicationTitle"] or "").strip(),
+                "publisher": (row["publisher"] or "").strip(),
+                "authors": authors_by_item.get(row["itemID"], []),
             })
         return out
     except Exception as e:

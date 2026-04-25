@@ -18,6 +18,7 @@ from academic_mcp.chunking import (
     _STRIDE_CHARS,
     Chunk,
     chunk_item,
+    _build_context_header,
     _sliding_chunks,
 )
 
@@ -238,3 +239,127 @@ def test_sliding_chunks_last_chunk_covers_end():
     text = "A" * (_CHUNK_CHARS + _STRIDE_CHARS // 2)
     chunks = _sliding_chunks(text)
     assert chunks[-1].char_end == len(text)
+
+
+# ---------------------------------------------------------------------------
+# _build_context_header
+# ---------------------------------------------------------------------------
+
+def test_context_header_title_only():
+    """Title alone → no venue or author lines."""
+    h = _build_context_header({"title": "My Paper"})
+    assert h == "My Paper"
+    assert "In:" not in h
+    assert "Authors:" not in h
+
+
+def test_context_header_book_section_uses_book_title():
+    """bookTitle should appear as the In: venue line."""
+    h = _build_context_header({
+        "title": "Article 25: Logging",
+        "bookTitle": "The EU LED Commentary",
+        "authors": ["Veale", "Kosta"],
+    })
+    assert h.startswith("Article 25: Logging")
+    assert "In: The EU LED Commentary" in h
+    assert "Authors: Veale, Kosta" in h
+
+
+def test_context_header_journal_uses_publication_title():
+    """publicationTitle should appear when bookTitle is absent."""
+    h = _build_context_header({
+        "title": "Neural Scaling Laws",
+        "publicationTitle": "Nature Machine Intelligence",
+        "authors": ["Hoffmann"],
+    })
+    assert "In: Nature Machine Intelligence" in h
+    assert "Authors: Hoffmann" in h
+    # Venue should not appear twice
+    assert h.count("Nature Machine Intelligence") == 1
+
+
+def test_context_header_no_venue_shows_publisher():
+    """When there is no venue, publisher should appear instead."""
+    h = _build_context_header({
+        "title": "Some Report",
+        "publisher": "ENISA",
+    })
+    assert "Publisher: ENISA" in h
+
+
+def test_context_header_venue_hides_publisher():
+    """When a venue is present, publisher should be suppressed to avoid redundancy."""
+    h = _build_context_header({
+        "title": "Some Chapter",
+        "bookTitle": "Big Handbook",
+        "publisher": "Springer",
+    })
+    assert "Publisher:" not in h
+
+
+def test_context_header_six_authors_truncated_with_et_al():
+    """Six authors should be capped at 3 with 'et al.' appended."""
+    h = _build_context_header({
+        "title": "Multi-author Work",
+        "authors": ["Alpha", "Beta", "Gamma", "Delta", "Epsilon", "Zeta"],
+    })
+    assert "Authors: Alpha, Beta, Gamma et al." in h
+    assert "Delta" not in h
+
+
+# ---------------------------------------------------------------------------
+# chunk_item context-header integration
+# ---------------------------------------------------------------------------
+
+def test_ft_cache_chunks_include_full_context_header(tmp_path, monkeypatch):
+    """Each ft-cache chunk should start with title + venue + authors."""
+    storage = tmp_path / "storage"
+    monkeypatch.setattr(
+        chunking.zotero_sqlite,
+        "sqlite_config",
+        SimpleNamespace(available=True, storage_path=str(storage)),
+    )
+
+    ft_text = "Body " * 500
+    _write_ft_cache(storage, "ATT2", ft_text)
+
+    item = {
+        "item_key": "X",
+        "title": "Article 25: Logging",
+        "abstract": "",
+        "doi": "",
+        "dateModified": "2025-01-01",
+        "attachment_key": "ATT2",
+        "bookTitle": "The EU LED Commentary",
+        "publicationTitle": "",
+        "publisher": "",
+        "authors": ["Veale", "Kosta", "Boehm"],
+    }
+    chunks = chunk_item(item)
+    assert len(chunks) >= 1
+    expected_prefix = (
+        "Article 25: Logging\nIn: The EU LED Commentary\nAuthors: Veale, Kosta, Boehm\n\n"
+    )
+    for c in chunks:
+        assert c.text.startswith(expected_prefix)
+
+
+def test_abstract_chunk_includes_context_header():
+    """Abstract-only items should also get the context header."""
+    item = {
+        "item_key": "Y",
+        "title": "Neural Scaling Laws",
+        "abstract": "Abstract text here.",
+        "doi": "",
+        "dateModified": "2025-01-01",
+        "attachment_key": "",
+        "bookTitle": "",
+        "publicationTitle": "Nature Machine Intelligence",
+        "publisher": "",
+        "authors": ["Hoffmann"],
+    }
+    chunks = chunk_item(item)
+    assert len(chunks) == 1
+    assert "In: Nature Machine Intelligence" in chunks[0].text
+    assert "Authors: Hoffmann" in chunks[0].text
+    assert "Abstract text here." in chunks[0].text
