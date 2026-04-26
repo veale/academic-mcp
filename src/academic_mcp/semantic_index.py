@@ -321,8 +321,10 @@ class SemanticIndex:
 
             def _write_progress_status(done: bool) -> None:
                 """Persist a status snapshot.  Called after every batch and at end."""
+                now = datetime.now(timezone.utc).isoformat()
                 snapshot = {
-                    "last_sync": datetime.now(timezone.utc).isoformat(),
+                    "last_sync": now,
+                    "updated_at": now,
                     "started_at": started_at,
                     "count": col.count(),
                     "provider": embedder.provider,
@@ -352,38 +354,71 @@ class SemanticIndex:
                 # under way before the first batch finishes.
                 _write_progress_status(done=False)
 
-                for start in range(0, total_pending, batch_size):
-                    end = min(start + batch_size, total_pending)
-                    ids_batch = to_upsert_ids[start:end]
-                    docs_batch = to_upsert_docs[start:end]
-                    metas_batch = to_upsert_metas[start:end]
+                _MAX_EMBED_RETRIES = 3
+                _EMBED_RETRY_DELAY = 5.0  # seconds between retries
 
-                    embs_batch = embedder.encode(docs_batch)
-                    # If the embedder returned fewer vectors than documents (rare but
-                    # possible if the backend silently drops inputs), skip this batch
-                    # and log — persisting a mismatched upsert would corrupt Chroma.
-                    if len(embs_batch) != len(docs_batch):
-                        logger.error(
-                            "semantic_index: embedder returned %d vectors for %d "
-                            "documents; skipping batch %d-%d",
-                            len(embs_batch), len(docs_batch), start, end,
+                try:
+                    for start in range(0, total_pending, batch_size):
+                        end = min(start + batch_size, total_pending)
+                        ids_batch = to_upsert_ids[start:end]
+                        docs_batch = to_upsert_docs[start:end]
+                        metas_batch = to_upsert_metas[start:end]
+
+                        embs_batch: list[list[float]] = []
+                        for attempt in range(1, _MAX_EMBED_RETRIES + 1):
+                            try:
+                                embs_batch = embedder.encode(docs_batch)
+                                break
+                            except Exception as embed_exc:
+                                if attempt < _MAX_EMBED_RETRIES:
+                                    logger.warning(
+                                        "semantic_index: embed attempt %d/%d failed "
+                                        "(chunks %d-%d): %s — retrying in %.0fs",
+                                        attempt, _MAX_EMBED_RETRIES, start, end,
+                                        embed_exc, _EMBED_RETRY_DELAY,
+                                    )
+                                    import time
+                                    time.sleep(_EMBED_RETRY_DELAY)
+                                else:
+                                    logger.error(
+                                        "semantic_index: embed failed after %d attempts "
+                                        "(chunks %d-%d): %s — aborting sync",
+                                        _MAX_EMBED_RETRIES, start, end, embed_exc,
+                                    )
+                                    raise
+
+                        # If the embedder returned fewer vectors than documents (rare but
+                        # possible if the backend silently drops inputs), skip this batch
+                        # and log — persisting a mismatched upsert would corrupt Chroma.
+                        if len(embs_batch) != len(docs_batch):
+                            logger.error(
+                                "semantic_index: embedder returned %d vectors for %d "
+                                "documents; skipping batch %d-%d",
+                                len(embs_batch), len(docs_batch), start, end,
+                            )
+                            continue
+
+                        col.upsert(
+                            ids=ids_batch,
+                            documents=docs_batch,
+                            embeddings=embs_batch,
+                            metadatas=metas_batch,
                         )
-                        continue
+                        upserted += len(ids_batch)
 
-                    col.upsert(
-                        ids=ids_batch,
-                        documents=docs_batch,
-                        embeddings=embs_batch,
-                        metadatas=metas_batch,
-                    )
-                    upserted += len(ids_batch)
-
-                    logger.info(
-                        "semantic_index: upserted %d / %d chunks (%.1f%%)",
-                        upserted, total_pending,
-                        100.0 * upserted / max(1, total_pending),
-                    )
-                    _write_progress_status(done=False)
+                        logger.info(
+                            "semantic_index: upserted %d / %d chunks (%.1f%%)",
+                            upserted, total_pending,
+                            100.0 * upserted / max(1, total_pending),
+                        )
+                        _write_progress_status(done=False)
+                finally:
+                    # Always write a terminal status so in_progress never stays True
+                    # after the sync exits (whether cleanly or via exception).
+                    _write_progress_status(done=True)
+            else:
+                # Nothing to upsert — still mark done.
+                pass
 
             # Final status — consistent even if no upserts happened.
             _write_progress_status(done=True)
