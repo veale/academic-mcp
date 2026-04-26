@@ -373,7 +373,7 @@ class SemanticIndex:
                                 if attempt < _MAX_EMBED_RETRIES:
                                     logger.warning(
                                         "semantic_index: embed attempt %d/%d failed "
-                                        "(chunks %d-%d): %s — retrying in %.0fs",
+                                        "(chunks %d-%d): %r — retrying in %.0fs",
                                         attempt, _MAX_EMBED_RETRIES, start, end,
                                         embed_exc, _EMBED_RETRY_DELAY,
                                     )
@@ -382,7 +382,7 @@ class SemanticIndex:
                                 else:
                                     logger.error(
                                         "semantic_index: embed failed after %d attempts "
-                                        "(chunks %d-%d): %s — aborting sync",
+                                        "(chunks %d-%d): %r — aborting sync",
                                         _MAX_EMBED_RETRIES, start, end, embed_exc,
                                     )
                                     raise
