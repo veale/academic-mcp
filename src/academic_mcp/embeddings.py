@@ -278,9 +278,10 @@ def _openai_encoder(
             (i, texts[i : i + batch]) for i in range(0, len(texts), batch)
         ]
 
-        # Connect fast, read patiently.  180s read timeout covers a batch
-        # stuck behind other load on a constrained self-hosted server.
-        timeout = httpx.Timeout(connect=10.0, read=180.0, write=30.0, pool=10.0)
+        # Connect fast, read patiently.  Default 180s; override with
+        # OPENAI_EMBED_TIMEOUT for slow self-hosted servers.
+        read_timeout = float(os.getenv("OPENAI_EMBED_TIMEOUT", "300"))
+        timeout = httpx.Timeout(connect=10.0, read=read_timeout, write=30.0, pool=30.0)
         limits = httpx.Limits(
             max_connections=concurrency, max_keepalive_connections=concurrency
         )
