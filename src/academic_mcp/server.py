@@ -811,26 +811,29 @@ TOOLS = [
     Tool(
         name="semantic_index_rebuild",
         description=(
-            "Force a semantic index rebuild (wipes and re-embeds the collection).\n\n"
-            "**fulltext** parameter is deprecated and has no effect. "
-            "The index now uses chunk-level embeddings that read the "
-            ".zotero-ft-cache unconditionally for all items that have one.\n\n"
+            "Sync or rebuild the semantic index.\n\n"
+            "**Normal use (resume/incremental sync):** call with no arguments. "
+            "This continues from where the last sync left off and never deletes existing vectors. "
+            "Returns immediately — the sync runs in the background. "
+            "Use semantic_index_status to monitor progress.\n\n"
+            "**Force full rebuild (DESTRUCTIVE):** wipes the entire ChromaDB collection and "
+            "re-embeds all ~500k chunks from scratch. This takes several days on typical hardware. "
+            "ONLY do this if the embedding model has changed or the index is corrupt. "
+            "Requires setting `confirm_wipe` to the exact string 'YES_WIPE_THE_ENTIRE_INDEX' — "
+            "this is intentionally hard to type so an LLM cannot trigger it accidentally.\n\n"
             "Optional `provider` and `model` override the defaults from "
             "SEMANTIC_PROVIDER / SEMANTIC_MODEL for this run. Switching provider "
-            "ALWAYS requires force_rebuild — vectors from different embedding "
-            "models cannot be compared.\n\n"
+            "ALWAYS requires a force rebuild.\n\n"
             "Providers: local (sentence-transformers, any model id), openai "
             "(needs OPENAI_API_KEY; set OPENAI_BASE_URL for a local llama-server), "
-            "gemini (needs GEMINI_API_KEY). Vectors are always stored locally; "
-            "cloud/local providers only compute the embeddings."
+            "gemini (needs GEMINI_API_KEY). Vectors are always stored locally."
         ),
         inputSchema={
             "type": "object",
             "properties": {
-                "fulltext": {
-                    "type": "boolean",
-                    "description": "Deprecated — has no effect. Chunk-level sync always reads ft-cache.",
-                    "default": False,
+                "confirm_wipe": {
+                    "type": "string",
+                    "description": "Must be exactly 'YES_WIPE_THE_ENTIRE_INDEX' to perform a destructive full rebuild. Omit for normal incremental sync.",
                 },
                 "provider": {
                     "type": "string",
@@ -839,6 +842,11 @@ TOOLS = [
                 "model": {
                     "type": "string",
                     "description": "Arbitrary model id for the chosen provider. Defaults to SEMANTIC_MODEL.",
+                },
+                "fulltext": {
+                    "type": "boolean",
+                    "description": "Deprecated — has no effect. Chunk-level sync always reads ft-cache.",
+                    "default": False,
                 },
             },
         },
@@ -1217,25 +1225,62 @@ async def _handle_semantic_index_status(args: dict) -> list[TextContent]:
 
 
 async def _handle_semantic_index_rebuild(args: dict) -> list[TextContent]:
-    fulltext = bool(args.get("fulltext", False))
+    confirm_wipe = args.get("confirm_wipe", "")
+    force_rebuild = confirm_wipe == "YES_WIPE_THE_ENTIRE_INDEX"
     provider = args.get("provider") or None
     model = args.get("model") or None
+
+    if args.get("confirm_wipe") and not force_rebuild:
+        return [TextContent(type="text", text=(
+            "confirm_wipe value did not match. To perform a full destructive rebuild, "
+            "set confirm_wipe to exactly 'YES_WIPE_THE_ENTIRE_INDEX'. "
+            "To resume an incremental sync, call with no arguments."
+        ))]
+
     try:
         from .semantic_index import SemanticIndexUnavailable, get_semantic_index
     except ImportError:
         from academic_mcp.semantic_index import SemanticIndexUnavailable, get_semantic_index
 
-    try:
-        status = await get_semantic_index().sync(
-            force_rebuild=True,
-            include_fulltext=fulltext,
-            provider=provider,
-            model=model,
-        )
-    except SemanticIndexUnavailable as e:
-        return [TextContent(type="text", text=str(e))]
+    global _semantic_sync_task
 
-    return [TextContent(type="text", text=json.dumps(status, indent=2))]
+    if _semantic_sync_task and not _semantic_sync_task.done():
+        if force_rebuild:
+            _semantic_sync_task.cancel()
+        else:
+            return [TextContent(type="text", text=(
+                "A sync is already running in the background. "
+                "Use semantic_index_status to check progress."
+            ))]
+
+    async def _runner() -> None:
+        try:
+            await get_semantic_index().sync(
+                force_rebuild=force_rebuild,
+                include_fulltext=False,
+                provider=provider,
+                model=model,
+            )
+        except SemanticIndexUnavailable as e:
+            logger.warning("semantic_index_rebuild background task: %s", e)
+        except Exception as e:
+            logger.exception("semantic_index_rebuild background task failed: %s", e)
+
+    _semantic_sync_task = asyncio.create_task(_runner())
+
+    if force_rebuild:
+        msg = (
+            "Full index wipe started in the background. "
+            "All existing vectors have been deleted and re-embedding has begun. "
+            "This will take several days. Use semantic_index_status to monitor progress."
+        )
+    else:
+        msg = (
+            "Incremental sync started in the background. "
+            "New and updated chunks will be embedded; existing vectors are preserved. "
+            "Use semantic_index_status to monitor progress."
+        )
+    return [TextContent(type="text", text=msg)]
 
 
 async def _handle_search(args: dict) -> list[TextContent]:
