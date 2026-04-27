@@ -27,9 +27,9 @@ from pathlib import Path
 
 from . import zotero_sqlite
 
-# ~400 tokens ≈ 1600 chars. 50-token overlap ≈ 200 chars.
+# ~300 tokens ≈ 1200 chars. 50-token overlap ≈ 200 chars.
 _CHARS_PER_TOKEN = 4
-_TARGET_CHUNK_TOKENS = 400
+_TARGET_CHUNK_TOKENS = 300
 _OVERLAP_TOKENS = 50
 _CHUNK_CHARS = _TARGET_CHUNK_TOKENS * _CHARS_PER_TOKEN   # 1600
 _OVERLAP_CHARS = _OVERLAP_TOKENS * _CHARS_PER_TOKEN       # 200
@@ -108,26 +108,16 @@ def _sliding_chunks(text: str) -> list[Chunk]:
 def _build_context_header(item: dict) -> str:
     """Compact paper-level context prepended to every chunk.
 
-    ~50–150 chars that anchor 'what paper is this from' for embedding models
-    that benefit from per-chunk context (Qwen3-Embedding, nomic, etc.).
+    Title plus the container title (book/journal/website) when present.
+    Kept short to minimise per-chunk token overhead — at ~1041 tokens the
+    full header was the dominant cost in bulk indexing.
     """
     title = (item.get("title") or "").strip()
     venue = (item.get("bookTitle") or item.get("publicationTitle") or "").strip()
-    authors: list[str] = item.get("authors") or []
-    pub = (item.get("publisher") or "").strip()
 
     parts = [title] if title else []
     if venue:
         parts.append(f"In: {venue}")
-    if authors:
-        # Cap at 3 to avoid bloat for large edited volumes.
-        a = ", ".join(authors[:3])
-        if len(authors) > 3:
-            a += " et al."
-        parts.append(f"Authors: {a}")
-    if pub and not venue:
-        # Only show publisher when there is no venue — avoids redundancy.
-        parts.append(f"Publisher: {pub}")
     return "\n".join(parts)
 
 
