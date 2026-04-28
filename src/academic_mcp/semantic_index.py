@@ -73,6 +73,18 @@ def _get_upsert_batch_size() -> int:
         return _DEFAULT_UPSERT_BATCH
 
 
+# Chroma's SQLite backend caps SQL variables (~999 by default). Chunk delete
+# id-lists below that to avoid "too many SQL variables" errors.
+_DELETE_CHUNK_SIZE = 500
+
+
+def _chroma_delete_in_chunks(col: Any, ids: list[str]) -> None:
+    if not ids:
+        return
+    for i in range(0, len(ids), _DELETE_CHUNK_SIZE):
+        col.delete(ids=ids[i : i + _DELETE_CHUNK_SIZE])
+
+
 def _make_chunk_id(item_key: str, idx: int) -> str:
     return f"{item_key}{_CHUNK_ID_SEP}{idx}"
 
@@ -287,7 +299,7 @@ class SemanticIndex:
                     "running automatic rebuild to migrate to chunk-level storage."
                 )
                 if all_ids:
-                    col.delete(ids=all_ids)
+                    _chroma_delete_in_chunks(col, all_ids)
                 all_ids = []
                 all_metas = []
                 # Treat as force_rebuild for purposes of building prior.
@@ -302,7 +314,7 @@ class SemanticIndex:
                     )
                     entry["chunk_ids"].append(cid)
             elif force_rebuild and all_ids:
-                col.delete(ids=all_ids)
+                _chroma_delete_in_chunks(col, all_ids)
 
             seen_keys: set[str] = set()
             to_upsert_ids: list[str] = []
@@ -360,7 +372,7 @@ class SemanticIndex:
                 to_delete_ids.extend(prior_items[ik]["chunk_ids"])
 
             if to_delete_ids and not force_rebuild:
-                col.delete(ids=to_delete_ids)
+                _chroma_delete_in_chunks(col, to_delete_ids)
 
             upserted = 0
             total_pending = len(to_upsert_ids)
@@ -552,7 +564,7 @@ class SemanticIndex:
             # previous partial upsert).
             prior = col.get(where={"item_key": item_key}, include=[])
             if prior.get("ids"):
-                col.delete(ids=prior["ids"])
+                _chroma_delete_in_chunks(col, prior["ids"])
 
             ids, docs, metas = [], [], []
             for idx, c in enumerate(chunks):
