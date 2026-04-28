@@ -32,8 +32,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from dataclasses import dataclass
-from typing import Callable
+from dataclasses import dataclass, field
+from typing import Callable, Literal
 
 import httpx
 import numpy as np
@@ -41,6 +41,15 @@ import numpy as np
 from .config import config
 
 logger = logging.getLogger(__name__)
+
+
+# Two call sites need different transports:
+#   * "interactive" — search() and embed_item_now(); latency-sensitive,
+#                     usually wants local llama-server.
+#   * "bulk"        — sync() over thousands of chunks; throughput-sensitive,
+#                     may want a cloud provider for one-off backfills.
+# Same model on both, just different endpoints.  See config.bulk_openai_*.
+EmbedMode = Literal["interactive", "bulk"]
 
 
 class EmbedderUnavailable(RuntimeError):
@@ -66,6 +75,12 @@ class Embedder:
     # encode_query() falls back to _encode so all non-task-prompt models
     # are unaffected.
     _encode_query: Callable[[list[str]], list[list[float]]] | None = None
+    # Which call site this embedder was built for.  Stored for diagnostics
+    # and so SemanticIndex can cache one embedder per mode without rebuild.
+    mode: EmbedMode = "interactive"
+    # Resolved endpoint (informational; only set for OpenAI-compatible
+    # providers).  Used by the warning about cross-endpoint vector drift.
+    endpoint: str = field(default="")
 
     def encode(self, texts: list[str]) -> list[list[float]]:
         """Encode documents for indexing."""
@@ -219,10 +234,34 @@ def _l2_normalize(vecs: list[list[float]]) -> list[list[float]]:
     return (arr / norms).tolist()
 
 
+def _resolve_openai_endpoint(mode: EmbedMode) -> tuple[str, str]:
+    """Pick (base_url, api_key) for the OpenAI-compatible endpoint.
+
+    For ``mode="bulk"`` we consult ``BULK_OPENAI_BASE_URL`` /
+    ``BULK_OPENAI_API_KEY`` first, falling back to the regular
+    ``OPENAI_*`` values when either is unset.  This keeps the
+    one-endpoint default working untouched when no bulk overrides
+    are configured.
+
+    Returned tuple is suitable for direct use; the caller is still
+    responsible for the ``sk-noop`` fallback on local endpoints.
+    """
+    interactive_base = config.openai_base_url
+    interactive_key = config.openai_api_key
+    if mode == "bulk":
+        base = config.bulk_openai_base_url or interactive_base
+        api_key = config.bulk_openai_api_key or interactive_key
+    else:
+        base = interactive_base
+        api_key = interactive_key
+    return base, api_key
+
+
 def _openai_encoder(
     model_name: str,
-) -> tuple[Callable[[list[str]], list[list[float]]], Callable[[list[str]], list[list[float]]] | None]:
-    """Return (doc_encoder, query_encoder | None) for the OpenAI-compatible endpoint.
+    mode: EmbedMode = "interactive",
+) -> tuple[Callable[[list[str]], list[list[float]]], Callable[[list[str]], list[list[float]]] | None, str]:
+    """Return (doc_encoder, query_encoder | None, endpoint) for the OpenAI-compatible endpoint.
 
     Backend detection:
       * ``api.openai.com`` in the base URL → real OpenAI.  Requires a real
@@ -232,6 +271,13 @@ def _openai_encoder(
         self-hosted backend.  API key defaults to ``sk-noop`` if missing.
         Batches are small because self-hosted queue depth is bounded by the
         server's ``-np`` / ``--parallel`` setting.
+
+    ``mode`` selects which endpoint to use.  For ``"bulk"``, the
+    ``BULK_OPENAI_*`` env vars override (with fallback to the regular
+    ``OPENAI_*`` values).  For ``"interactive"``, only the regular vars
+    are consulted.  Per-mode tuning vars also resolve via the same
+    fallback chain (e.g. ``BULK_OPENAI_EMBED_BATCH`` overrides
+    ``OPENAI_EMBED_BATCH`` only when ``mode="bulk"``).
 
     Qwen3-Embedding quirks (triggered when ``qwen3-embed`` appears in the
     model id, case-insensitive):
@@ -244,34 +290,48 @@ def _openai_encoder(
         so produces double-EOS warnings and slightly off-distribution
         inputs).
     """
-    base = (config.openai_base_url or "https://api.openai.com/v1").rstrip("/")
+    base_raw, api_key = _resolve_openai_endpoint(mode)
+    base = (base_raw or "https://api.openai.com/v1").rstrip("/")
     endpoint = f"{base}/embeddings"
 
     is_openai_cloud = "api.openai.com" in base
-    api_key = config.openai_api_key
     if not api_key:
         if not is_openai_cloud:
             api_key = "sk-noop"
         else:
             raise EmbedderUnavailable(
-                "SEMANTIC_PROVIDER=openai requires OPENAI_API_KEY in your environment."
+                "SEMANTIC_PROVIDER=openai requires "
+                + ("BULK_OPENAI_API_KEY (or OPENAI_API_KEY)" if mode == "bulk" else "OPENAI_API_KEY")
+                + " in your environment."
             )
 
     is_qwen3 = _QWEN3_EMBED_FRAGMENT in model_name.lower()
+
+    # Per-mode tuning vars. BULK_* takes precedence over OPENAI_* when in
+    # bulk mode; in interactive mode, only OPENAI_* is consulted. Both
+    # always fall back to the appropriate hard-coded default.
+    def _env(name: str, default: str) -> str:
+        if mode == "bulk":
+            v = os.getenv(f"BULK_{name}", "").strip()
+            if v:
+                return v
+        return os.getenv(name, default)
 
     def _encode_batch(texts: list[str]) -> list[list[float]]:
         # Real OpenAI: big batches.  Self-hosted: small batches so each
         # request finishes inside the read timeout even when the server is
         # processing only a few in parallel.  Override with
         # OPENAI_EMBED_BATCH in .env if you want to retune after changing
-        # the server's ``-np`` setting.
+        # the server's ``-np`` setting.  In bulk mode, BULK_OPENAI_EMBED_BATCH
+        # takes precedence (typical: cloud bulk wants larger batches than
+        # the self-hosted interactive endpoint).
         default_batch = 96 if is_openai_cloud else 16
-        batch = int(os.getenv("OPENAI_EMBED_BATCH", str(default_batch)))
+        batch = int(_env("OPENAI_EMBED_BATCH", str(default_batch)))
         # Concurrent in-flight requests. Default 1 for cloud (cloud already
         # parallelises internally), 4 for self-hosted (matches typical -np 4).
         # Pair with OPENAI_EMBED_BATCH and server -np setting for best throughput.
         default_concurrency = 1 if is_openai_cloud else 4
-        concurrency = int(os.getenv("OPENAI_EMBED_CONCURRENCY", str(default_concurrency)))
+        concurrency = int(_env("OPENAI_EMBED_CONCURRENCY", str(default_concurrency)))
 
         # Slice into ordered request groups so we can stitch results back in order.
         groups: list[tuple[int, list[str]]] = [
@@ -280,7 +340,7 @@ def _openai_encoder(
 
         # Connect fast, read patiently.  Default 180s; override with
         # OPENAI_EMBED_TIMEOUT for slow self-hosted servers.
-        read_timeout = float(os.getenv("OPENAI_EMBED_TIMEOUT", "300"))
+        read_timeout = float(_env("OPENAI_EMBED_TIMEOUT", "300"))
         timeout = httpx.Timeout(connect=10.0, read=read_timeout, write=30.0, pool=30.0)
         limits = httpx.Limits(
             max_connections=concurrency, max_keepalive_connections=concurrency
@@ -354,9 +414,9 @@ def _openai_encoder(
             ]
             return _encode_batch(prefixed)
 
-        return _doc_encoder, _query_encoder
+        return _doc_encoder, _query_encoder, endpoint
 
-    return _doc_encoder, None
+    return _doc_encoder, None, endpoint
 
 
 # ---------------------------------------------------------------------------
@@ -409,11 +469,18 @@ def _gemini_encoder(model_name: str) -> Callable[[list[str]], list[list[float]]]
 def resolve_embedder(
     provider: str | None = None,
     model: str | None = None,
+    mode: EmbedMode = "interactive",
 ) -> Embedder:
     """Build an :class:`Embedder` for the requested provider/model.
 
     ``None`` arguments fall back to the values in :mod:`config`, which
     themselves default to ``local`` / ``all-MiniLM-L6-v2``.
+
+    ``mode`` selects the OpenAI endpoint when ``provider="openai"`` (see
+    :func:`_openai_encoder`).  For ``local`` and ``gemini`` providers,
+    ``mode`` is recorded on the returned :class:`Embedder` for diagnostics
+    but otherwise has no effect — those providers don't have a
+    bulk-vs-interactive endpoint distinction.
     """
     prov = (provider or config.semantic_provider or "local").lower()
     if prov not in _DEFAULT_MODELS:
@@ -424,10 +491,11 @@ def resolve_embedder(
     mdl = model or config.semantic_model or _DEFAULT_MODELS[prov]
 
     query_encoder: Callable[[list[str]], list[list[float]]] | None = None
+    endpoint = ""
     if prov == "local":
         doc_encoder, query_encoder = _local_encoder(mdl)
     elif prov == "openai":
-        doc_encoder, query_encoder = _openai_encoder(mdl)
+        doc_encoder, query_encoder, endpoint = _openai_encoder(mdl, mode=mode)
     elif prov == "gemini":
         doc_encoder = _gemini_encoder(mdl)
     else:  # pragma: no cover — guarded above
@@ -439,4 +507,6 @@ def resolve_embedder(
         dim=None,
         _encode=doc_encoder,
         _encode_query=query_encoder,
+        mode=mode,
+        endpoint=endpoint,
     )

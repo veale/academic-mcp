@@ -44,7 +44,7 @@ from typing import Any
 from . import zotero_sqlite
 from .chunking import chunk_item
 from .config import config
-from .embeddings import Embedder, EmbedderUnavailable, resolve_embedder
+from .embeddings import EmbedMode, Embedder, EmbedderUnavailable, resolve_embedder
 
 logger = logging.getLogger(__name__)
 
@@ -93,9 +93,14 @@ class SemanticIndex:
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.status_path = self.cache_dir / "status.json"
         self.collection_name = "zotero_items"
-        # Active embedder is resolved lazily via _get_embedder() so missing
-        # cloud keys don't blow up at import time.
-        self._embedder: Embedder | None = None
+        # Active embedders are resolved lazily via _get_embedder() so missing
+        # cloud keys don't blow up at import time.  Cached per-mode because
+        # bulk and interactive may resolve to different endpoints (same
+        # provider/model — see config.bulk_openai_*).
+        self._embedders: dict[EmbedMode, Embedder] = {}
+        # Set when we have already warned about cross-endpoint mixing so
+        # the warning fires at most once per process.
+        self._mix_warned: bool = False
 
     # -- status file -----------------------------------------------------
 
@@ -124,33 +129,76 @@ class SemanticIndex:
         client = chromadb.PersistentClient(path=str(self.cache_dir))
         return client.get_or_create_collection(name=self.collection_name)
 
-    def _get_embedder(self, provider: str | None = None, model: str | None = None) -> Embedder:
-        """Resolve and cache the active embedder.
+    def _get_embedder(
+        self,
+        provider: str | None = None,
+        model: str | None = None,
+        mode: EmbedMode = "interactive",
+    ) -> Embedder:
+        """Resolve and cache the active embedder for *mode*.
 
         Explicit provider/model args override configuration for this call.
-        Changing provider or model invalidates the cached instance so the
-        new one loads on the next encode.
+        Changing provider or model invalidates the cached instance for that
+        mode so the new one loads on the next encode.
+
+        Both modes must produce vectors in the same space — this is enforced
+        by reading a single ``SEMANTIC_MODEL`` for both.  Endpoints differ
+        only in transport (e.g. cloud bulk vs. local interactive), not in
+        which model they evaluate.
         """
+        cached = self._embedders.get(mode)
         if (
-            self._embedder is not None
-            and (provider is None or self._embedder.provider == provider.lower())
-            and (model is None or self._embedder.model == model)
+            cached is not None
+            and (provider is None or cached.provider == provider.lower())
+            and (model is None or cached.model == model)
         ):
-            return self._embedder
+            return cached
         try:
-            self._embedder = resolve_embedder(provider=provider, model=model)
+            embedder = resolve_embedder(provider=provider, model=model, mode=mode)
         except EmbedderUnavailable as e:
             raise SemanticIndexUnavailable(str(e)) from e
-        return self._embedder
+        self._embedders[mode] = embedder
+        self._maybe_warn_endpoint_mix()
+        return embedder
+
+    def _maybe_warn_endpoint_mix(self) -> None:
+        """One-shot warning when bulk and interactive resolve to different endpoints.
+
+        Different endpoints serving the same model (e.g. DeepInfra-hosted
+        bge-large for bulk + a local llama.cpp serving the same GGUF for
+        interactive) produce vectors with cosine similarity ~0.999 but not
+        bit-identical.  In practice this never affects top-k retrieval, but
+        users should know.
+        """
+        if self._mix_warned:
+            return
+        bulk = self._embedders.get("bulk")
+        interactive = self._embedders.get("interactive")
+        if bulk and interactive and bulk.endpoint and interactive.endpoint:
+            if bulk.endpoint != interactive.endpoint:
+                logger.info(
+                    "semantic_index: bulk endpoint (%s) differs from interactive endpoint (%s); "
+                    "vector cosine drift between the two is ~0.001 in practice and does not "
+                    "affect top-k retrieval, but exact-equality assumptions are off.",
+                    bulk.endpoint, interactive.endpoint,
+                )
+                self._mix_warned = True
 
     def _embed(self, texts: list[str]) -> list[list[float]]:
+        # Default to interactive mode; sync() bypasses this and calls
+        # embedder.encode() directly with mode="bulk" via _get_embedder.
         return self._get_embedder().encode(texts)
 
     @property
     def model_name(self) -> str:
         # Backwards-compat surface for tests and status output.
-        if self._embedder is not None:
-            return self._embedder.model
+        # Prefer the interactive embedder (queries are the canonical
+        # consumer of this name); fall back to bulk; then status; then the
+        # legacy default.
+        for mode in ("interactive", "bulk"):
+            emb = self._embedders.get(mode)  # type: ignore[arg-type]
+            if emb is not None:
+                return emb.model
         status = self._load_status()
         return status.get("model") or "all-MiniLM-L6-v2"
 
@@ -216,7 +264,7 @@ class SemanticIndex:
         if not zotero_sqlite.sqlite_config.available:
             raise SemanticIndexUnavailable("Zotero SQLite backend is not available")
 
-        embedder = self._get_embedder(provider=provider, model=model)
+        embedder = self._get_embedder(provider=provider, model=model, mode="bulk")
         if not force_rebuild:
             # Bail out before doing any work if an existing index disagrees.
             self._assert_compatible(embedder)
@@ -439,7 +487,7 @@ class SemanticIndex:
         Callers (e.g. the server handler) can pass char_start/char_end to
         ``fetch_fulltext(mode="range", ...)`` for precise passage retrieval.
         """
-        embedder = self._get_embedder()
+        embedder = self._get_embedder(mode="interactive")
         self._assert_compatible(embedder)
 
         def _search_blocking() -> list[dict[str, Any]]:
@@ -495,7 +543,7 @@ class SemanticIndex:
         if not chunks:
             return 0
 
-        embedder = self._get_embedder()
+        embedder = self._get_embedder(mode="interactive")
         self._assert_compatible(embedder)
 
         def _do() -> int:

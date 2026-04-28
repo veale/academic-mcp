@@ -47,7 +47,7 @@ class TestResolveEmbedder:
             _mock_config(provider="openai", model="text-embedding-3-small", openai_key="sk-test"),
         )
         with patch("academic_mcp.embeddings._openai_encoder") as enc_factory:
-            enc_factory.return_value = (lambda texts: [[0.1] * 1536 for _ in texts], None)
+            enc_factory.return_value = (lambda texts: [[0.1] * 1536 for _ in texts], None, 'http://test/v1/embeddings')
             from academic_mcp.embeddings import resolve_embedder
             emb = resolve_embedder(provider="openai")
         assert emb.provider == "openai"
@@ -82,7 +82,7 @@ class TestResolveEmbedder:
         )
         arbitrary_model = "text-embedding-my-custom-finetune-v99"
         with patch("academic_mcp.embeddings._openai_encoder") as enc_factory:
-            enc_factory.return_value = (lambda texts: [[0.1] * 512 for _ in texts], None)
+            enc_factory.return_value = (lambda texts: [[0.1] * 512 for _ in texts], None, 'http://test/v1/embeddings')
             from academic_mcp.embeddings import resolve_embedder
             emb = resolve_embedder(provider="openai", model=arbitrary_model)
         assert emb.model == arbitrary_model
@@ -199,6 +199,8 @@ def _mock_config(
     openai_key: str = "",
     gemini_key: str = "",
     openai_base_url: str = "",
+    bulk_openai_base_url: str = "",
+    bulk_openai_api_key: str = "",
 ):
     cfg = MagicMock()
     cfg.semantic_provider = provider
@@ -206,6 +208,8 @@ def _mock_config(
     cfg.openai_api_key = openai_key
     cfg.gemini_api_key = gemini_key
     cfg.openai_base_url = openai_base_url
+    cfg.bulk_openai_base_url = bulk_openai_base_url
+    cfg.bulk_openai_api_key = bulk_openai_api_key
     return cfg
 
 
@@ -264,7 +268,7 @@ class TestOpenAIEncoderQwen3:
         )
         monkeypatch.setattr(emb_mod.httpx, "AsyncClient", fake_client)
 
-        doc_enc, _ = emb_mod._openai_encoder("qwen3-embedding-0.6b")
+        doc_enc, _, _ = emb_mod._openai_encoder("qwen3-embedding-0.6b")
         doc_enc(["hello"])
 
         assert captured["url"] == "http://127.0.0.1:8080/v1/embeddings"
@@ -287,7 +291,7 @@ class TestOpenAIEncoderQwen3:
         monkeypatch.setattr(emb_mod.httpx, "AsyncClient", fake_client)
 
         # Should not raise EmbedderUnavailable
-        doc_enc, _ = emb_mod._openai_encoder("text-embedding")
+        doc_enc, _, _ = emb_mod._openai_encoder("text-embedding")
         doc_enc(["test"])  # should not raise
 
     def test_qwen3_doc_inputs_passed_verbatim(self, monkeypatch):
@@ -312,7 +316,7 @@ class TestOpenAIEncoderQwen3:
         )
         monkeypatch.setattr(emb_mod.httpx, "AsyncClient", fake_client)
 
-        doc_enc, _ = emb_mod._openai_encoder("qwen3-embedding-0.6b")
+        doc_enc, _, _ = emb_mod._openai_encoder("qwen3-embedding-0.6b")
         doc_enc(["hello world"])
 
         assert captured["inputs"] == ["hello world"]
@@ -337,7 +341,7 @@ class TestOpenAIEncoderQwen3:
         )
         monkeypatch.setattr(emb_mod.httpx, "AsyncClient", fake_client)
 
-        _, query_enc = emb_mod._openai_encoder("qwen3-embedding-0.6b")
+        _, query_enc, _ = emb_mod._openai_encoder("qwen3-embedding-0.6b")
         assert query_enc is not None
         query_enc(["algorithmic bias"])
 
@@ -364,7 +368,7 @@ class TestOpenAIEncoderQwen3:
         )
         monkeypatch.setattr(emb_mod.httpx, "AsyncClient", fake_client)
 
-        doc_enc, _ = emb_mod._openai_encoder("qwen3-embedding-0.6b")
+        doc_enc, _, _ = emb_mod._openai_encoder("qwen3-embedding-0.6b")
         vecs = doc_enc(["test"])
 
         import math
@@ -388,9 +392,275 @@ class TestOpenAIEncoderQwen3:
         )
         monkeypatch.setattr(emb_mod.httpx, "AsyncClient", fake_client)
 
-        doc_enc, query_enc = emb_mod._openai_encoder("text-embedding-3-small")
+        doc_enc, query_enc, _ = emb_mod._openai_encoder("text-embedding-3-small")
         doc_enc(["hello world"])
 
         assert query_enc is None
         assert "<|endoftext|>" not in captured["inputs"][0]
         assert "Instruct:" not in captured["inputs"][0]
+
+
+# ---------------------------------------------------------------------------
+# Bulk vs. interactive endpoint dispatch (the transition story)
+# ---------------------------------------------------------------------------
+
+class TestBulkVsInteractiveEndpoint:
+    """Cover the BULK_OPENAI_* override path used during cloud bulk indexing.
+
+    The product story: a user keeps OPENAI_BASE_URL pointing at a local
+    llama-server for fast queries, but sets BULK_OPENAI_BASE_URL to a cloud
+    provider so a one-time backfill runs in 30 minutes instead of days.
+    SEMANTIC_MODEL is shared so the vectors are comparable.
+    """
+
+    def _fake_async_post(self, vecs):
+        captured = {}
+
+        class _FakeResp:
+            status_code = 200
+            def json(self_inner):
+                return {"data": [{"embedding": v} for v in vecs]}
+
+        class _FakeAsyncClient:
+            def __init__(self, **kwargs):
+                pass
+            async def __aenter__(self): return self
+            async def __aexit__(self, *a): pass
+            async def post(self, url, *, headers, json):
+                captured["url"] = url
+                captured["headers"] = headers
+                captured["inputs"] = json.get("input", [])
+                return _FakeResp()
+
+        return _FakeAsyncClient, captured
+
+    def test_interactive_uses_regular_openai_vars(self, monkeypatch):
+        """mode='interactive' must ignore BULK_* overrides entirely."""
+        import academic_mcp.embeddings as emb_mod
+
+        fake_client, captured = self._fake_async_post([[0.1] * 1024])
+
+        monkeypatch.setattr(
+            "academic_mcp.embeddings.config",
+            _mock_config(
+                provider="openai",
+                model="BAAI/bge-large-en-v1.5",
+                openai_key="sk-local",
+                openai_base_url="http://llama_embed:8080/v1",
+                bulk_openai_base_url="https://api.deepinfra.com/v1/openai",
+                bulk_openai_api_key="sk-cloud",
+            ),
+        )
+        monkeypatch.setattr(emb_mod.httpx, "AsyncClient", fake_client)
+
+        doc_enc, _, endpoint = emb_mod._openai_encoder(
+            "BAAI/bge-large-en-v1.5", mode="interactive"
+        )
+        assert endpoint == "http://llama_embed:8080/v1/embeddings"
+        doc_enc(["hello"])
+        assert captured["url"] == "http://llama_embed:8080/v1/embeddings"
+        assert captured["headers"]["Authorization"] == "Bearer sk-local"
+
+    def test_bulk_uses_bulk_overrides(self, monkeypatch):
+        """mode='bulk' with BULK_* set must redirect transport, keep model."""
+        import academic_mcp.embeddings as emb_mod
+
+        fake_client, captured = self._fake_async_post([[0.1] * 1024])
+
+        monkeypatch.setattr(
+            "academic_mcp.embeddings.config",
+            _mock_config(
+                provider="openai",
+                model="BAAI/bge-large-en-v1.5",
+                openai_key="sk-local",
+                openai_base_url="http://llama_embed:8080/v1",
+                bulk_openai_base_url="https://api.deepinfra.com/v1/openai",
+                bulk_openai_api_key="sk-cloud",
+            ),
+        )
+        monkeypatch.setattr(emb_mod.httpx, "AsyncClient", fake_client)
+
+        doc_enc, _, endpoint = emb_mod._openai_encoder(
+            "BAAI/bge-large-en-v1.5", mode="bulk"
+        )
+        assert endpoint == "https://api.deepinfra.com/v1/openai/embeddings"
+        doc_enc(["hello"])
+        assert captured["url"] == "https://api.deepinfra.com/v1/openai/embeddings"
+        assert captured["headers"]["Authorization"] == "Bearer sk-cloud"
+
+    def test_bulk_falls_back_to_openai_vars_when_unset(self, monkeypatch):
+        """No BULK_* overrides → bulk mode behaves identically to interactive.
+
+        This is the backward-compatibility guarantee: existing single-endpoint
+        deployments are unaffected.
+        """
+        import academic_mcp.embeddings as emb_mod
+
+        fake_client, captured = self._fake_async_post([[0.1] * 1024])
+
+        monkeypatch.setattr(
+            "academic_mcp.embeddings.config",
+            _mock_config(
+                provider="openai",
+                model="BAAI/bge-large-en-v1.5",
+                openai_key="sk-local",
+                openai_base_url="http://llama_embed:8080/v1",
+                # bulk_openai_* deliberately blank
+            ),
+        )
+        monkeypatch.setattr(emb_mod.httpx, "AsyncClient", fake_client)
+
+        doc_enc, _, endpoint = emb_mod._openai_encoder(
+            "BAAI/bge-large-en-v1.5", mode="bulk"
+        )
+        assert endpoint == "http://llama_embed:8080/v1/embeddings"
+        doc_enc(["hello"])
+        assert captured["url"] == "http://llama_embed:8080/v1/embeddings"
+        assert captured["headers"]["Authorization"] == "Bearer sk-local"
+
+    def test_bulk_partial_override_inherits_key(self, monkeypatch):
+        """If only BULK_OPENAI_BASE_URL is set, the API key should fall back.
+
+        Some providers (DeepInfra free tier, Together AI) accept the same
+        key the user has from the parent OPENAI_API_KEY var.  We don't
+        assume they want to set both.
+        """
+        import academic_mcp.embeddings as emb_mod
+
+        fake_client, captured = self._fake_async_post([[0.1] * 1024])
+
+        monkeypatch.setattr(
+            "academic_mcp.embeddings.config",
+            _mock_config(
+                provider="openai",
+                model="BAAI/bge-large-en-v1.5",
+                openai_key="sk-shared",
+                openai_base_url="http://llama_embed:8080/v1",
+                bulk_openai_base_url="https://other.example.com/v1",
+                bulk_openai_api_key="",  # not set
+            ),
+        )
+        monkeypatch.setattr(emb_mod.httpx, "AsyncClient", fake_client)
+
+        doc_enc, _, endpoint = emb_mod._openai_encoder(
+            "BAAI/bge-large-en-v1.5", mode="bulk"
+        )
+        assert endpoint == "https://other.example.com/v1/embeddings"
+        doc_enc(["hello"])
+        assert captured["headers"]["Authorization"] == "Bearer sk-shared"
+
+    def test_bulk_env_override_for_batch_size(self, monkeypatch):
+        """BULK_OPENAI_EMBED_BATCH must take precedence in bulk mode only.
+
+        Cloud bulk wants 96+; local interactive wants 16.  The same process
+        must be able to use both without the bulk batch leaking into
+        interactive requests.
+        """
+        import academic_mcp.embeddings as emb_mod
+
+        # Capture every URL the encoder hits so we can count batches.
+        request_inputs: list[list[str]] = []
+
+        class _FakeResp:
+            status_code = 200
+            def json(self_inner):
+                # Echo back one vector per input so the encoder is happy.
+                n = len(self_inner._inputs)  # type: ignore[attr-defined]
+                return {"data": [{"embedding": [0.1] * 1024} for _ in range(n)]}
+
+        class _FakeAsyncClient:
+            def __init__(self, **kwargs): pass
+            async def __aenter__(self): return self
+            async def __aexit__(self, *a): pass
+            async def post(self, url, *, headers, json):
+                inputs = json.get("input", [])
+                request_inputs.append(list(inputs))
+                resp = _FakeResp()
+                resp._inputs = inputs  # type: ignore[attr-defined]
+                return resp
+
+        monkeypatch.setattr(
+            "academic_mcp.embeddings.config",
+            _mock_config(
+                provider="openai",
+                model="BAAI/bge-large-en-v1.5",
+                openai_key="sk-local",
+                openai_base_url="http://llama_embed:8080/v1",
+                bulk_openai_base_url="https://api.deepinfra.com/v1/openai",
+                bulk_openai_api_key="sk-cloud",
+            ),
+        )
+        monkeypatch.setattr(emb_mod.httpx, "AsyncClient", _FakeAsyncClient)
+        monkeypatch.setenv("OPENAI_EMBED_BATCH", "8")
+        monkeypatch.setenv("BULK_OPENAI_EMBED_BATCH", "32")
+
+        # Interactive mode → batch size 8 → 24 inputs split into 3 requests.
+        request_inputs.clear()
+        doc_enc, _, _ = emb_mod._openai_encoder(
+            "BAAI/bge-large-en-v1.5", mode="interactive"
+        )
+        doc_enc(["t"] * 24)
+        assert len(request_inputs) == 3
+        for r in request_inputs:
+            assert len(r) <= 8
+
+        # Bulk mode → batch size 32 → 24 inputs fit in 1 request.
+        request_inputs.clear()
+        doc_enc, _, _ = emb_mod._openai_encoder(
+            "BAAI/bge-large-en-v1.5", mode="bulk"
+        )
+        doc_enc(["t"] * 24)
+        assert len(request_inputs) == 1
+        assert len(request_inputs[0]) == 24
+
+    def test_bulk_missing_key_against_cloud_raises(self, monkeypatch):
+        """Cloud bulk endpoint with no key (and no fallback) must raise."""
+        import academic_mcp.embeddings as emb_mod
+
+        monkeypatch.setattr(
+            "academic_mcp.embeddings.config",
+            _mock_config(
+                provider="openai",
+                model="text-embedding-3-small",
+                openai_key="",  # no fallback either
+                openai_base_url="",
+                bulk_openai_base_url="https://api.openai.com/v1",
+                bulk_openai_api_key="",
+            ),
+        )
+        with pytest.raises(emb_mod.EmbedderUnavailable, match="BULK_OPENAI_API_KEY"):
+            emb_mod._openai_encoder("text-embedding-3-small", mode="bulk")
+
+    def test_resolve_embedder_threads_mode(self, monkeypatch):
+        """resolve_embedder must pass mode through and tag the Embedder."""
+        import academic_mcp.embeddings as emb_mod
+
+        captured_modes: list = []
+
+        def _fake_openai_encoder(model_name, mode="interactive"):
+            captured_modes.append(mode)
+            return (
+                lambda texts: [[0.1] * 1024 for _ in texts],
+                None,
+                f"http://test/{mode}/v1/embeddings",
+            )
+
+        monkeypatch.setattr(
+            "academic_mcp.embeddings.config",
+            _mock_config(
+                provider="openai",
+                model="BAAI/bge-large-en-v1.5",
+                openai_key="sk-x",
+            ),
+        )
+        monkeypatch.setattr(emb_mod, "_openai_encoder", _fake_openai_encoder)
+
+        emb_int = emb_mod.resolve_embedder(mode="interactive")
+        emb_bulk = emb_mod.resolve_embedder(mode="bulk")
+
+        assert captured_modes == ["interactive", "bulk"]
+        assert emb_int.mode == "interactive"
+        assert emb_bulk.mode == "bulk"
+        assert emb_int.endpoint != emb_bulk.endpoint
+        # Same model on both — vectors are in the same space.
+        assert emb_int.model == emb_bulk.model

@@ -279,8 +279,12 @@ The semantic index uses pluggable embedding backends. Vectors are **always store
 | Variable | Default | Description |
 |---|---|---|
 | `SEMANTIC_PROVIDER` | `local` | Embedding backend: `local`, `openai`, or `gemini` |
-| `SEMANTIC_MODEL` | *(provider default)* | Any model name the provider accepts (see table below) |
+| `SEMANTIC_MODEL` | *(provider default)* | Any model name the provider accepts (see table below). Used for **both** bulk indexing and queries — vectors must be in one space. |
 | `OPENAI_API_KEY` | *(empty)* | Required when `SEMANTIC_PROVIDER=openai` |
+| `OPENAI_BASE_URL` | *(empty)* | OpenAI-compatible endpoint for **interactive** calls (queries, single-item embeds). Empty = real OpenAI. Set to `http://llama_embed:8080/v1` (or similar) to use a self-hosted llama-server / vLLM / LM Studio. |
+| `BULK_OPENAI_BASE_URL` | *(empty, falls back to `OPENAI_BASE_URL`)* | Optional override for the **bulk** endpoint used by `semantic_index_rebuild` / `sync()`. Lets you run a one-time backfill against a fast cloud provider while keeping queries on a local llama-server. |
+| `BULK_OPENAI_API_KEY` | *(empty, falls back to `OPENAI_API_KEY`)* | API key paired with `BULK_OPENAI_BASE_URL`. Falls back to `OPENAI_API_KEY` if both endpoints share a key. |
+| `BULK_OPENAI_EMBED_BATCH` / `BULK_OPENAI_EMBED_CONCURRENCY` / `BULK_OPENAI_EMBED_TIMEOUT` | *(fall back to `OPENAI_*` equivalents)* | Per-mode tuning for the bulk endpoint. Cloud providers usually want larger batches and higher concurrency than self-hosted servers. |
 | `GEMINI_API_KEY` | *(empty)* | Required when `SEMANTIC_PROVIDER=gemini` |
 
 **Recommended models** (from best trade-off to most powerful):
@@ -327,6 +331,42 @@ semantic_index_rebuild(provider="openai", model="text-embedding-3-small")
 # Or let it pick from env vars
 semantic_index_rebuild()
 ```
+
+#### Cloud bulk + local interactive (split endpoints)
+
+The OpenAI provider supports two distinct endpoints in the same process:
+**bulk** (`semantic_index_rebuild` / `sync()`) and **interactive** (`semantic_search_zotero`, single-item embeds). Both **must use the same `SEMANTIC_MODEL`** so the vectors are comparable; only the transport differs.
+
+The intended workflow:
+
+1. **Backfill via cloud.** Set `BULK_OPENAI_BASE_URL` / `BULK_OPENAI_API_KEY` to a fast OpenAI-compatible cloud provider (DeepInfra, Together, Fireworks, OpenAI, etc.). Trigger `semantic_index_rebuild` once. ~30 min for a 13k-item library at a few dollars total cost.
+2. **Serve queries from local.** Keep `OPENAI_BASE_URL` pointing at your local llama-server (or vLLM / LM Studio) running the same model GGUF. Search latency stays low and your queries never leave the machine.
+3. **No swap dance.** Leave the `BULK_*` vars set; they're only consulted by the sync path. Removing them later cleanly reverts to single-endpoint behaviour.
+
+Example — `BAAI/bge-large-en-v1.5` served by DeepInfra for bulk + a local llama-server for queries:
+
+```bash
+SEMANTIC_PROVIDER=openai
+SEMANTIC_MODEL=BAAI/bge-large-en-v1.5
+
+# Interactive: local llama-server (queries, single-item adds)
+OPENAI_BASE_URL=http://llama_embed:8080/v1
+OPENAI_API_KEY=sk-noop                # llama-server accepts any key
+OPENAI_EMBED_BATCH=16
+OPENAI_EMBED_CONCURRENCY=4
+
+# Bulk: cloud (one-time backfill, then ongoing only if a large reindex is needed)
+BULK_OPENAI_BASE_URL=https://api.deepinfra.com/v1/openai
+BULK_OPENAI_API_KEY=<deepinfra key>
+BULK_OPENAI_EMBED_BATCH=96
+BULK_OPENAI_EMBED_CONCURRENCY=4
+```
+
+When unset, every `BULK_*` var falls back to its `OPENAI_*` counterpart, so existing single-endpoint deployments are unchanged.
+
+**Vector drift caveat.** Cloud providers and local llama.cpp running the same model produce vectors with cosine similarity ~0.999+ but not bit-identical (different quantizations, different inference servers). In practice this never affects top-k retrieval for academic search — the cosines between unrelated documents are 0.3–0.6, the drift is two orders of magnitude smaller. The first time bulk and interactive resolve to different endpoints, the server logs a one-shot info message acknowledging this.
+
+**Hard rule: same `SEMANTIC_MODEL` on both endpoints.** Mixing models (e.g., bulk via OpenAI's `text-embedding-3-small` and interactive via local `bge-large`) poisons the index — the vectors are in incompatible spaces and search results become noise. The single `SEMANTIC_MODEL` env var enforces this by construction.
 
 ### Zotero auto-import
 

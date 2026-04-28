@@ -474,3 +474,92 @@ async def test_sync_writes_text_format_2_in_metadata(fake_index, monkeypatch):
     assert "K1:0" in col._store
     meta = col._store["K1:0"]["metadata"]
     assert meta.get("text_format") == 2
+
+
+# ---------------------------------------------------------------------------
+# Bulk vs. interactive embedder dispatch
+# ---------------------------------------------------------------------------
+
+async def test_sync_uses_bulk_mode_search_uses_interactive(tmp_path, monkeypatch):
+    """sync() must request a 'bulk' embedder; search() must request 'interactive'.
+
+    Validates the wiring that lets a user point bulk at cloud and
+    interactive at local llama-server in the same process.
+    """
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(
+        semantic_index.zotero_sqlite,
+        "sqlite_config",
+        SimpleNamespace(available=True, storage_path=""),
+    )
+
+    idx = semantic_index.SemanticIndex()
+    idx.cache_dir = tmp_path / "chroma"
+    idx.cache_dir.mkdir(parents=True, exist_ok=True)
+    idx.status_path = idx.cache_dir / "status.json"
+
+    col = FakeCollection()
+    monkeypatch.setattr(idx, "_get_chroma_collection", lambda: col)
+    monkeypatch.setattr(idx, "_assert_compatible", lambda e: None)
+
+    requested_modes: list[str] = []
+
+    def _fake_resolve(*, provider=None, model=None, mode="interactive"):
+        requested_modes.append(mode)
+        # Return distinct embedders so we can also verify caching by mode.
+        emb = FakeEmbedder()
+        emb.mode = mode  # type: ignore[attr-defined]
+        emb.endpoint = f"http://{mode}.test/v1/embeddings"  # type: ignore[attr-defined]
+        return emb
+
+    monkeypatch.setattr(semantic_index, "resolve_embedder", _fake_resolve)
+
+    items = [_make_item("A", title="Paper A", abstract="abstract A")]
+    async def _list(): return items
+    monkeypatch.setattr(semantic_index.zotero_sqlite, "list_items_for_semantic_index", _list)
+
+    await idx.sync()
+    assert "bulk" in requested_modes
+
+    requested_modes.clear()
+    await idx.search("any query", k=3)
+    assert requested_modes == ["interactive"]
+
+
+async def test_get_embedder_caches_per_mode(tmp_path, monkeypatch):
+    """Repeated _get_embedder calls with the same mode must hit the cache."""
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(
+        semantic_index.zotero_sqlite,
+        "sqlite_config",
+        SimpleNamespace(available=True, storage_path=""),
+    )
+
+    idx = semantic_index.SemanticIndex()
+    idx.cache_dir = tmp_path / "chroma"
+    idx.cache_dir.mkdir(parents=True, exist_ok=True)
+    idx.status_path = idx.cache_dir / "status.json"
+
+    resolve_calls: list[str] = []
+
+    def _fake_resolve(*, provider=None, model=None, mode="interactive"):
+        resolve_calls.append(mode)
+        emb = FakeEmbedder()
+        emb.mode = mode  # type: ignore[attr-defined]
+        emb.endpoint = ""  # type: ignore[attr-defined]
+        return emb
+
+    monkeypatch.setattr(semantic_index, "resolve_embedder", _fake_resolve)
+
+    e1 = idx._get_embedder(mode="interactive")
+    e2 = idx._get_embedder(mode="interactive")
+    e3 = idx._get_embedder(mode="bulk")
+    e4 = idx._get_embedder(mode="bulk")
+
+    assert e1 is e2  # cache hit — same mode
+    assert e3 is e4  # cache hit — same mode
+    assert e1 is not e3  # distinct embedders for distinct modes
+    # resolve_embedder called twice: once per mode.
+    assert resolve_calls == ["interactive", "bulk"]

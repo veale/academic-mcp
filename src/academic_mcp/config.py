@@ -141,6 +141,29 @@ class Config:
         default_factory=lambda: os.getenv("OPENAI_BASE_URL", "").strip()
     )
 
+    # ── Bulk-mode embedding endpoint (optional) ───────────────────────
+    # When SemanticIndex.sync() runs (the bulk path: full reindex or large
+    # incremental top-up), the OpenAI client may be redirected to a
+    # different endpoint with these overrides.  Search and incremental
+    # single-item embedding (interactive path) always use the regular
+    # OPENAI_BASE_URL / OPENAI_API_KEY.
+    #
+    # Typical use: cloud bulk + local interactive.  Set BULK_OPENAI_BASE_URL
+    # to a cloud provider (DeepInfra, Together, OpenAI) for a fast one-time
+    # backfill, leave OPENAI_BASE_URL pointing at your local llama-server
+    # for ongoing low-latency queries.  SEMANTIC_MODEL must be the same on
+    # both endpoints — the vectors must be in one space or the index is
+    # poisoned.
+    #
+    # Any unset BULK_* var falls back to the corresponding OPENAI_* value,
+    # so leaving these blank reproduces the prior single-endpoint behaviour.
+    bulk_openai_base_url: str = field(
+        default_factory=lambda: os.getenv("BULK_OPENAI_BASE_URL", "").strip()
+    )
+    bulk_openai_api_key: str = field(
+        default_factory=lambda: os.getenv("BULK_OPENAI_API_KEY", "")
+    )
+
     # ── Cross-encoder reranker (applied to semantic_search_zotero) ────
     # Model ID for sentence-transformers CrossEncoder. Empty string disables
     # reranking entirely (retrieval order returned unchanged).
