@@ -172,14 +172,37 @@ class Config:
     )
 
     # ── Cross-encoder reranker (applied to semantic_search_zotero) ────
-    # Model ID for sentence-transformers CrossEncoder. Empty string disables
-    # reranking entirely (retrieval order returned unchanged).
+    # Provider chain: try `reranker_primary` first; on failure fall back to
+    # `reranker_fallback`. Each may be one of:
+    #   "openrouter"  — POST /v1/rerank to OpenRouter (cohere/rerank-v3.5 default)
+    #   "local"       — sentence-transformers CrossEncoder loaded in-process
+    #   "none"        — no reranking; bi-encoder order returned unchanged
+    reranker_primary: str = field(
+        default_factory=lambda: os.getenv("RERANKER_PRIMARY", "openrouter").lower()
+    )
+    reranker_fallback: str = field(
+        default_factory=lambda: os.getenv("RERANKER_FALLBACK", "none").lower()
+    )
+
+    # Local cross-encoder model ID for sentence-transformers CrossEncoder.
     cross_reranker_model: str = field(
         default_factory=lambda: os.getenv("CROSS_RERANKER_MODEL", "BAAI/bge-reranker-v2-m3")
     )
+
+    # OpenRouter rerank settings.
+    openrouter_api_key: str = field(
+        default_factory=lambda: os.getenv("OPENROUTER_API_KEY", "")
+    )
+    openrouter_rerank_model: str = field(
+        default_factory=lambda: os.getenv("OPENROUTER_RERANK_MODEL", "cohere/rerank-v3.5")
+    )
+    openrouter_base_url: str = field(
+        default_factory=lambda: os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+    )
+
     # Number of chunks to retrieve from Chroma BEFORE reranking.
     # semantic_search_zotero(k=10) fetches cross_reranker_fetch=50 chunks,
-    # reranks them with the cross-encoder, and returns the top 10.
+    # reranks them, and returns the top 10.
     cross_reranker_fetch: int = field(
         default_factory=lambda: int(os.getenv("CROSS_RERANKER_FETCH", "50"))
     )
