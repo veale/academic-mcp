@@ -127,17 +127,37 @@ def _run_sse(port: int):
         return PlainTextResponse("ok")
 
     async def handle_trigger_sync(request):
+        import json as _json
+        try:
+            from .server import _ensure_semantic_background_sync, _semantic_sync_task
+        except ImportError:
+            from academic_mcp.server import _ensure_semantic_background_sync, _semantic_sync_task
+
+        already_running = bool(_semantic_sync_task and not _semantic_sync_task.done())
+        _ensure_semantic_background_sync(max_age_hours=0)
+
+        info = {
+            "already_running_before_call": already_running,
+            "task_running_now": bool(_semantic_sync_task and not _semantic_sync_task.done()),
+        }
+        return PlainTextResponse(_json.dumps(info))
+
+    from contextlib import asynccontextmanager
+
+    async def _startup_sync():
+        # Give uvicorn a moment to finish binding before we start background work.
+        await asyncio.sleep(5)
         try:
             from .server import _ensure_semantic_background_sync
         except ImportError:
             from academic_mcp.server import _ensure_semantic_background_sync
+        import logging as _logging
+        _logging.getLogger(__name__).info("Startup: triggering semantic index sync check")
         _ensure_semantic_background_sync(max_age_hours=0)
-        return PlainTextResponse("sync triggered")
-
-    from contextlib import asynccontextmanager
 
     @asynccontextmanager
     async def lifespan(app):
+        asyncio.create_task(_startup_sync())
         asyncio.create_task(_nightly_sync_loop())
         yield
 
