@@ -289,9 +289,25 @@ class SemanticIndex:
 
             # Snapshot of what's currently indexed.
             #   prior_items[item_key] = {"dateModified": str, "chunk_ids": [str, ...]}
-            existing = col.get(include=["metadatas"])
-            all_ids: list[str] = existing.get("ids", []) or []
-            all_metas: list[dict] = existing.get("metadatas", []) or []
+            # Page the get() — chroma 1.x's Rust executor blows past the
+            # SQLite 999-variable cap if asked for the whole collection at once.
+            _GET_PAGE = 1000
+            all_ids: list[str] = []
+            all_metas: list[dict] = []
+            existing: dict[str, Any] = {"ids": all_ids, "metadatas": all_metas}
+            while True:
+                page = col.get(
+                    include=["metadatas"],
+                    limit=_GET_PAGE,
+                    offset=len(all_ids),
+                )
+                page_ids = page.get("ids") or []
+                if not page_ids:
+                    break
+                all_ids.extend(page_ids)
+                all_metas.extend(page.get("metadatas") or [])
+                if len(page_ids) < _GET_PAGE:
+                    break
 
             # Detect old single-vector format and force rebuild if needed.
             if not force_rebuild and self._needs_migration(existing):
