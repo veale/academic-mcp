@@ -184,6 +184,15 @@ class Config:
         default_factory=lambda: int(os.getenv("CROSS_RERANKER_FETCH", "50"))
     )
 
+    # ── Semantic Zotero default ──────────────────────────────────────
+    # When true (default), search_papers / search_and_read blend semantic
+    # Zotero hits in parallel with the lexical sources. Set to false to
+    # opt out globally; per-call `semantic=false` still overrides.
+    semantic_default_on: bool = field(
+        default_factory=lambda: os.getenv("SEMANTIC_DEFAULT_ON", "true").lower()
+        in ("true", "1", "yes")
+    )
+
     # ── PDF extraction backend ───────────────────────────────────────
     # When true, use pymupdf4llm for Markdown extraction (tables, multi-column,
     # bold/italic). Falls back to extract_text_with_sections on failure or if

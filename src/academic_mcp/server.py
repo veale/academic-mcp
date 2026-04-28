@@ -34,6 +34,7 @@ server = Server("academic-research")
 _doi_locks: dict[str, asyncio.Lock] = {}
 _doi_locks_lock = asyncio.Lock()  # protects the dict itself
 _semantic_sync_task: asyncio.Task | None = None
+_semantic_empty_hint_shown: bool = False
 
 
 async def _get_doi_lock(doi: str) -> asyncio.Lock:
@@ -173,12 +174,14 @@ TOOLS = [
                 },
                 "source": {
                     "type": "string",
-                    "enum": ["all", "semantic_scholar", "openalex", "zotero", "primo"],
+                    "enum": ["all", "semantic_scholar", "openalex", "zotero", "semantic_zotero", "primo"],
                     "description": (
-                        "Which sources to search. 'all' (default) searches Zotero + "
-                        "Semantic Scholar + OpenAlex + Primo (if configured) and "
-                        "deduplicates. 'zotero' searches only your library. "
-                        "'primo' searches your institution's Ex Libris catalogue."
+                        "Which sources to search. 'all' (default) searches Zotero "
+                        "(lexical + semantic) + Semantic Scholar + OpenAlex + Primo "
+                        "(if configured) and deduplicates. 'zotero' searches your "
+                        "library lexically; 'semantic_zotero' searches it via "
+                        "embeddings + cross-encoder rerank. 'primo' searches your "
+                        "institution's Ex Libris catalogue."
                     ),
                     "default": "all",
                 },
@@ -228,10 +231,12 @@ TOOLS = [
                 "semantic": {
                     "type": "boolean",
                     "description": (
-                        "When true, blend semantic search hits from your Zotero index "
-                        "(ChromaDB) with lexical results."
+                        "Blend semantic search hits from your Zotero index "
+                        "(ChromaDB + cross-encoder rerank) with the lexical sources. "
+                        "Runs in parallel with the API calls. Default true; set "
+                        "false to skip. Disable globally with SEMANTIC_DEFAULT_ON=false."
                     ),
-                    "default": False,
+                    "default": True,
                 },
             },
             "required": ["query"],
@@ -647,6 +652,13 @@ TOOLS = [
                     "type": "boolean",
                     "description": "Route through institutional proxy",
                     "default": False,
+                },
+                "semantic": {
+                    "type": "boolean",
+                    "description": (
+                        "Include semantic Zotero hits in the candidate list. "
+                        "Defaults to SEMANTIC_DEFAULT_ON (true)."
+                    ),
                 },
             },
             "required": ["query"],
@@ -1242,7 +1254,8 @@ async def _handle_semantic_index_rebuild(args: dict) -> list[TextContent]:
     except ImportError:
         from academic_mcp.semantic_index import SemanticIndexUnavailable, get_semantic_index
 
-    global _semantic_sync_task
+    global _semantic_sync_task, _semantic_empty_hint_shown
+    _semantic_empty_hint_shown = False
 
     if _semantic_sync_task and not _semantic_sync_task.done():
         if force_rebuild:
@@ -1283,7 +1296,12 @@ async def _handle_semantic_index_rebuild(args: dict) -> list[TextContent]:
     return [TextContent(type="text", text=msg)]
 
 
-async def _handle_search(args: dict) -> list[TextContent]:
+async def _collect_search_results(args: dict) -> list[dict]:
+    """Run the unified parallel-search pipeline and return merged, reranked results.
+
+    Used by search_papers (which formats the output) and search_and_read
+    (which picks a single result to fetch).
+    """
     query = args["query"]
     limit = min(args.get("limit", 5), 20)
     source = args.get("source", "all")
@@ -1292,229 +1310,333 @@ async def _handle_search(args: dict) -> list[TextContent]:
     venue = args.get("venue")
     domain_hint = args.get("domain_hint", "general")
     include_scite = bool(args.get("include_scite", False))
-    use_semantic = bool(args.get("semantic", False))
+    # `semantic` defaults to config.semantic_default_on; explicit per-call wins.
+    if "semantic" in args and args["semantic"] is not None:
+        use_semantic = bool(args["semantic"])
+    else:
+        use_semantic = config.semantic_default_on
 
-    results = []  # unified list of normalized result dicts
-    seen_dois = set()
-
-    # ── Helper to normalize a result ─────────────────────────────────
-    def _authors_str(authors: list) -> str:
-        if not authors:
-            return "Unknown"
-        names = authors[:3]
-        s = ", ".join(names)
-        if len(authors) > 3:
-            s += f" +{len(authors)-3} more"
-        return s
-
-    # ── 1. Zotero (always first, unless source excludes it) ──────────
-    if source in ("all", "zotero"):
-        try:
-            zot_results = await zotero.search_zotero(
-                query, limit=limit,
-                start_year=start_year, end_year=end_year,
-            )
-            for item in zot_results:
-                creators = item.get("creators", [])
-                author_names = []
-                for c in (creators if isinstance(creators, list) else []):
-                    if isinstance(c, dict):
-                        name = f"{c.get('firstName', '')} {c.get('lastName', '')}".strip()
-                        if name:
-                            author_names.append(name)
-                doi = (item.get("DOI") or "").strip()
-                if doi:
-                    seen_dois.add(zotero._normalize_doi(doi))
-                results.append({
-                    "title": item.get("title") or "Untitled",
-                    "authors": author_names,
-                    "year": (item.get("date") or "")[:4] or None,
-                    "doi": doi or None,
-                    "zotero_key": item.get("key") or None,
-                    "abstract": (item.get("abstractNote") or "").strip() or None,
-                    "citations": None,
-                    "venue": item.get("publicationTitle") or None,
-                    "found_in": ["zotero"],
-                    "in_zotero": True,
-                    "has_oa_pdf": True,
-                    "s2_id": None,
-                    "url": (item.get("url") or "").strip() or None,
-                })
-        except Exception:
-            logger.exception("Zotero search failed")
-
-    # Pre-fetch DOI index once (used to check Zotero membership below)
+    # Pre-fetch DOI index once (used to flag Zotero membership in API results).
     zot_index = await zotero.get_doi_index()
 
-    # ── 2. Semantic Scholar ──────────────────────────────────────────
-    if source in ("all", "semantic_scholar"):
-        try:
-            s2 = await apis.s2_search(
-                query, limit=limit,
-                start_year=start_year, end_year=end_year,
-            )
-            for paper in s2.get("data", []):
-                doi = apis.extract_doi(paper)
-                doi_norm = zotero._normalize_doi(doi) if doi else None
-                # Deduplicate
-                if doi_norm and doi_norm in seen_dois:
-                    # Enrich existing result
-                    for r in results:
-                        if r.get("doi") and zotero._normalize_doi(r["doi"]) == doi_norm:
-                            if "semantic_scholar" not in r["found_in"]:
-                                r["found_in"].append("semantic_scholar")
-                            r["citations"] = r["citations"] or paper.get("citationCount")
-                            r["s2_id"] = paper.get("paperId")
-                            if not r["abstract"] and paper.get("abstract"):
-                                r["abstract"] = paper["abstract"]
-                            break
-                    continue
-                if doi_norm:
-                    seen_dois.add(doi_norm)
-                in_zot = doi_norm in zot_index if doi_norm else False
-                results.append({
-                    "title": paper.get("title") or "Untitled",
-                    "authors": [a.get("name", "") for a in (paper.get("authors") or [])[:5]],
-                    "year": paper.get("year"),
-                    "doi": doi,
-                    "abstract": (paper.get("abstract") or "").strip() or None,
-                    "citations": paper.get("citationCount"),
-                    "venue": paper.get("venue") or None,
-                    "found_in": ["semantic_scholar"],
-                    "in_zotero": in_zot,
-                    "has_oa_pdf": bool((paper.get("openAccessPdf") or {}).get("url")),
-                    "s2_id": paper.get("paperId"),
-                })
-        except Exception as e:
-            logger.warning("Semantic Scholar search failed: %s", e)
+    # ── Per-source fetchers ─────────────────────────────────────────
+    # Each fetcher returns a list of normalized result dicts. They are
+    # scheduled in parallel and merged in priority order below.
 
-    # ── 3. OpenAlex ──────────────────────────────────────────────────
-    if source in ("all", "openalex"):
-        try:
-            oa = await apis.openalex_search(
-                query, limit=limit,
-                start_year=start_year, end_year=end_year, venue=venue,
-            )
-            for work in oa.get("results", []):
-                doi = apis.extract_doi(work)
-                doi_norm = zotero._normalize_doi(doi) if doi else None
-                if doi_norm and doi_norm in seen_dois:
-                    for r in results:
-                        if r.get("doi") and zotero._normalize_doi(r["doi"]) == doi_norm:
-                            if "openalex" not in r["found_in"]:
-                                r["found_in"].append("openalex")
-                            r["citations"] = r["citations"] or work.get("cited_by_count")
-                            if not r["abstract"]:
-                                r["abstract"] = _reconstruct_abstract(work.get("abstract_inverted_index"))
-                            _t = (work.get("type") or "").lower()
-                            if _t and not r.get("work_type"):
-                                r["work_type"] = _t
-                            if _t == "book-chapter" and not r.get("container_title"):
-                                r["container_title"] = ((work.get("primary_location") or {}).get("source") or {}).get("display_name")
-                            # Capture URL if the existing result doesn't have one.
-                            if not r.get("url"):
-                                _pl = work.get("primary_location") or {}
-                                r["url"] = _pl.get("pdf_url") or _pl.get("landing_page_url") or None
-                            break
-                    continue
-                if doi_norm:
-                    seen_dois.add(doi_norm)
-                authors = []
-                for auth in (work.get("authorships") or []):
-                    if not auth:
-                        continue
-                    name = (auth.get("author") or {}).get("display_name")
+    async def fetch_zotero_lex() -> list[dict]:
+        out: list[dict] = []
+        zot_results = await zotero.search_zotero(
+            query, limit=limit,
+            start_year=start_year, end_year=end_year,
+        )
+        for item in zot_results:
+            creators = item.get("creators", [])
+            author_names = []
+            for c in (creators if isinstance(creators, list) else []):
+                if isinstance(c, dict):
+                    name = f"{c.get('firstName', '')} {c.get('lastName', '')}".strip()
                     if name:
-                        authors.append(name)
-                    if len(authors) >= 5:
-                        break
-                in_zot = doi_norm in zot_index if doi_norm else False
-                _primary_loc = work.get("primary_location") or {}
-                _oa_source = _primary_loc.get("source") or {}
-                _oa_type = (work.get("type") or "").lower()
-                # Prefer direct PDF URL (faster); fall back to landing page for scraping.
-                _oa_url = _primary_loc.get("pdf_url") or _primary_loc.get("landing_page_url") or None
-                results.append({
-                    "title": work.get("title") or "Untitled",
-                    "authors": authors,
-                    "year": work.get("publication_year"),
-                    "doi": doi,
-                    "abstract": _reconstruct_abstract(work.get("abstract_inverted_index")) or None,
-                    "citations": work.get("cited_by_count"),
-                    "venue": _oa_source.get("display_name") or None,
-                    "found_in": ["openalex"],
-                    "in_zotero": in_zot,
-                    "has_oa_pdf": (work.get("open_access") or {}).get("is_oa", False),
-                    "s2_id": None,
-                    "work_type": _oa_type or None,
-                    "container_title": _oa_source.get("display_name") if _oa_type in ("book-chapter",) else None,
-                    "url": _oa_url,
-                })
+                        author_names.append(name)
+            doi = (item.get("DOI") or "").strip()
+            out.append({
+                "title": item.get("title") or "Untitled",
+                "authors": author_names,
+                "year": (item.get("date") or "")[:4] or None,
+                "doi": doi or None,
+                "zotero_key": item.get("key") or None,
+                "abstract": (item.get("abstractNote") or "").strip() or None,
+                "citations": None,
+                "venue": item.get("publicationTitle") or None,
+                "found_in": ["zotero"],
+                "in_zotero": True,
+                "has_oa_pdf": True,
+                "s2_id": None,
+                "url": (item.get("url") or "").strip() or None,
+            })
+        return out
+
+    async def fetch_semantic_zotero() -> list[dict]:
+        # Empty-index / unavailable → return [] (and surface a one-time hint
+        # via _semantic_index_status_for_hint, set below).
+        try:
+            from .semantic_index import SemanticIndexUnavailable, get_semantic_index
+            from .cross_reranker import rerank as _cross_rerank
+        except ImportError:
+            from academic_mcp.semantic_index import SemanticIndexUnavailable, get_semantic_index
+            from academic_mcp.cross_reranker import rerank as _cross_rerank
+
+        _ensure_semantic_background_sync()
+        try:
+            idx = get_semantic_index()
+            # Skip cleanly if the index is empty — the one-time hint is
+            # appended in the formatter using the index status.
+            try:
+                _st = await idx.status()
+                if int(_st.get("count") or 0) <= 0:
+                    return []
+            except Exception:
+                pass
+            fetch_n = max(limit, config.cross_reranker_fetch or 50)
+            chunks = await idx.search(query, k=fetch_n)
+        except SemanticIndexUnavailable:
+            return []
         except Exception as e:
-            logger.warning("OpenAlex search failed: %s", e)
+            logger.warning("Semantic Zotero search failed: %s", e)
+            return []
 
-    # ── 4. Ex Libris Primo ───────────────────────────────────────────
-    if source in ("all", "primo"):
-        try:
-            primo_results = await apis.primo_search(
-                query, limit=limit,
-                start_year=start_year, end_year=end_year,
-            )
-            for r in primo_results:
-                doi = (r.get("doi") or "").strip()
-                doi_norm = zotero._normalize_doi(doi) if doi else None
-                if doi_norm and doi_norm in seen_dois:
-                    for existing in results:
-                        if existing.get("doi") and zotero._normalize_doi(existing["doi"]) == doi_norm:
-                            if "primo" not in existing["found_in"]:
-                                existing["found_in"].append("primo")
-                            if not existing.get("_primo_proxy_url"):
-                                existing["_primo_proxy_url"] = r.get("_primo_proxy_url")
-                            if not existing.get("_primo_oa_url"):
-                                existing["_primo_oa_url"] = r.get("_primo_oa_url")
-                                existing["has_oa_pdf"] = existing["has_oa_pdf"] or r["has_oa_pdf"]
-                            break
-                    continue
-                if doi_norm:
-                    seen_dois.add(doi_norm)
-                in_zot = doi_norm in zot_index if doi_norm else False
-                r["in_zotero"] = in_zot
-                results.append(r)
-        except Exception:
-            logger.exception("Primo search failed")
+        if not chunks:
+            return []
 
-    # ── 4a. Primo law review search (domain_hint="law") ─────────────
-    if domain_hint == "law" and source in ("all", "primo") and (config.primo_domain and config.primo_vid):
+        # Rerank candidate pool, then dedupe by item_key keeping best chunk.
         try:
-            law_results = await apis.primo_search_law_reviews(
-                query, limit=limit,
-                start_year=start_year, end_year=end_year,
-            )
-            for r in law_results:
-                doi = (r.get("doi") or "").strip()
-                doi_norm = zotero._normalize_doi(doi) if doi else None
-                if doi_norm and doi_norm in seen_dois:
-                    # Merge into existing result
-                    for existing in results:
-                        if existing.get("doi") and zotero._normalize_doi(existing["doi"]) == doi_norm:
-                            if "primo_law" not in existing["found_in"]:
-                                existing["found_in"].append("primo_law")
-                            if not existing.get("_primo_proxy_url"):
-                                existing["_primo_proxy_url"] = r.get("_primo_proxy_url")
-                            if not existing.get("_primo_oa_url"):
-                                existing["_primo_oa_url"] = r.get("_primo_oa_url")
-                                existing["has_oa_pdf"] = existing["has_oa_pdf"] or r["has_oa_pdf"]
-                            break
+            reranked = await _cross_rerank(query, chunks, top_k=len(chunks))
+        except Exception as e:
+            logger.warning("Cross-reranker failed, falling back to bi-encoder order: %s", e)
+            reranked = chunks
+
+        seen_keys: set[str] = set()
+        unique_hits: list[dict] = []
+        for h in reranked:
+            ik = h.get("item_key") or ""
+            if ik and ik not in seen_keys:
+                seen_keys.add(ik)
+                unique_hits.append(h)
+            if len(unique_hits) >= limit:
+                break
+
+        out: list[dict] = []
+        for hit in unique_hits:
+            key = hit.get("item_key")
+            if not key:
+                continue
+            item = await zotero_sqlite.search_by_key(key)
+            if not item:
+                continue
+            author_names = []
+            for c in (item.creators or []):
+                nm = c.display_name.strip()
+                if nm:
+                    author_names.append(nm)
+            score = hit.get("rerank_score", hit.get("score"))
+            out.append({
+                "title": item.title or hit.get("title") or "Untitled",
+                "authors": author_names,
+                "year": (item.date or "")[:4] or None,
+                "doi": item.DOI or hit.get("doi") or None,
+                "zotero_key": item.key,
+                "abstract": item.abstractNote or hit.get("snippet") or None,
+                "citations": None,
+                "venue": item.publicationTitle or None,
+                "found_in": ["semantic_zotero", "zotero"],
+                "in_zotero": True,
+                "has_oa_pdf": True,
+                "s2_id": None,
+                "_semantic_zotero_score": score,
+                "url": (item.url or "").strip() or None,
+            })
+        return out
+
+    async def fetch_s2() -> list[dict]:
+        out: list[dict] = []
+        s2 = await apis.s2_search(
+            query, limit=limit,
+            start_year=start_year, end_year=end_year,
+        )
+        for paper in s2.get("data", []):
+            doi = apis.extract_doi(paper)
+            doi_norm = zotero._normalize_doi(doi) if doi else None
+            in_zot = doi_norm in zot_index if doi_norm else False
+            out.append({
+                "title": paper.get("title") or "Untitled",
+                "authors": [a.get("name", "") for a in (paper.get("authors") or [])[:5]],
+                "year": paper.get("year"),
+                "doi": doi,
+                "abstract": (paper.get("abstract") or "").strip() or None,
+                "citations": paper.get("citationCount"),
+                "venue": paper.get("venue") or None,
+                "found_in": ["semantic_scholar"],
+                "in_zotero": in_zot,
+                "has_oa_pdf": bool((paper.get("openAccessPdf") or {}).get("url")),
+                "s2_id": paper.get("paperId"),
+            })
+        return out
+
+    async def fetch_openalex() -> list[dict]:
+        out: list[dict] = []
+        oa = await apis.openalex_search(
+            query, limit=limit,
+            start_year=start_year, end_year=end_year, venue=venue,
+        )
+        for work in oa.get("results", []):
+            doi = apis.extract_doi(work)
+            doi_norm = zotero._normalize_doi(doi) if doi else None
+            authors: list[str] = []
+            for auth in (work.get("authorships") or []):
+                if not auth:
                     continue
-                if doi_norm:
-                    seen_dois.add(doi_norm)
-                in_zot = doi_norm in zot_index if doi_norm else False
-                if in_zot:
-                    r["in_zotero"] = True
-                    r["has_oa_pdf"] = True
-                results.append(r)
-        except Exception:
-            logger.exception("Primo law review search failed")
+                name = (auth.get("author") or {}).get("display_name")
+                if name:
+                    authors.append(name)
+                if len(authors) >= 5:
+                    break
+            in_zot = doi_norm in zot_index if doi_norm else False
+            _primary_loc = work.get("primary_location") or {}
+            _oa_source = _primary_loc.get("source") or {}
+            _oa_type = (work.get("type") or "").lower()
+            _oa_url = _primary_loc.get("pdf_url") or _primary_loc.get("landing_page_url") or None
+            out.append({
+                "title": work.get("title") or "Untitled",
+                "authors": authors,
+                "year": work.get("publication_year"),
+                "doi": doi,
+                "abstract": _reconstruct_abstract(work.get("abstract_inverted_index")) or None,
+                "citations": work.get("cited_by_count"),
+                "venue": _oa_source.get("display_name") or None,
+                "found_in": ["openalex"],
+                "in_zotero": in_zot,
+                "has_oa_pdf": (work.get("open_access") or {}).get("is_oa", False),
+                "s2_id": None,
+                "work_type": _oa_type or None,
+                "container_title": _oa_source.get("display_name") if _oa_type in ("book-chapter",) else None,
+                "url": _oa_url,
+            })
+        return out
+
+    async def fetch_primo() -> list[dict]:
+        primo_results = await apis.primo_search(
+            query, limit=limit,
+            start_year=start_year, end_year=end_year,
+        )
+        out: list[dict] = []
+        for r in primo_results:
+            doi = (r.get("doi") or "").strip()
+            doi_norm = zotero._normalize_doi(doi) if doi else None
+            r["in_zotero"] = doi_norm in zot_index if doi_norm else False
+            out.append(r)
+        return out
+
+    async def fetch_primo_law() -> list[dict]:
+        law_results = await apis.primo_search_law_reviews(
+            query, limit=limit,
+            start_year=start_year, end_year=end_year,
+        )
+        out: list[dict] = []
+        for r in law_results:
+            doi = (r.get("doi") or "").strip()
+            doi_norm = zotero._normalize_doi(doi) if doi else None
+            in_zot = doi_norm in zot_index if doi_norm else False
+            if in_zot:
+                r["in_zotero"] = True
+                r["has_oa_pdf"] = True
+            else:
+                r["in_zotero"] = False
+            out.append(r)
+        return out
+
+    # ── Schedule fetchers in parallel ───────────────────────────────
+    tasks: dict[str, "asyncio.Future"] = {}
+    if source in ("all", "zotero"):
+        tasks["zotero"] = asyncio.ensure_future(fetch_zotero_lex())
+    if use_semantic and source in ("all", "semantic_zotero"):
+        tasks["semantic_zotero"] = asyncio.ensure_future(fetch_semantic_zotero())
+    if source in ("all", "semantic_scholar"):
+        tasks["semantic_scholar"] = asyncio.ensure_future(fetch_s2())
+    if source in ("all", "openalex"):
+        tasks["openalex"] = asyncio.ensure_future(fetch_openalex())
+    if source in ("all", "primo") and (config.primo_domain and config.primo_vid):
+        tasks["primo"] = asyncio.ensure_future(fetch_primo())
+    if (
+        domain_hint == "law"
+        and source in ("all", "primo")
+        and (config.primo_domain and config.primo_vid)
+    ):
+        tasks["primo_law"] = asyncio.ensure_future(fetch_primo_law())
+
+    if tasks:
+        gathered = await asyncio.gather(*tasks.values(), return_exceptions=True)
+        by_source: dict[str, list[dict]] = {}
+        for src_name, res in zip(tasks.keys(), gathered):
+            if isinstance(res, Exception):
+                logger.warning("%s search failed: %s", src_name, res)
+                by_source[src_name] = []
+            else:
+                by_source[src_name] = res
+    else:
+        by_source = {}
+
+    # ── Merge results in priority order ─────────────────────────────
+    # Earlier sources win the "primary" record; later ones enrich found_in /
+    # missing fields. Order: Zotero lexical → semantic Zotero (so Zotero items
+    # surface first) → S2 → OpenAlex → Primo → Primo law.
+    priority = [
+        "zotero",
+        "semantic_zotero",
+        "semantic_scholar",
+        "openalex",
+        "primo",
+        "primo_law",
+    ]
+
+    results: list[dict] = []
+    seen_dois: set[str] = set()
+    seen_zot_keys: set[str] = set()
+
+    def _find_existing(rec: dict) -> dict | None:
+        d = rec.get("doi")
+        dn = zotero._normalize_doi(d) if d else None
+        zk = rec.get("zotero_key")
+        if dn and dn in seen_dois:
+            for r in results:
+                if r.get("doi") and zotero._normalize_doi(r["doi"]) == dn:
+                    return r
+        if zk and zk in seen_zot_keys:
+            for r in results:
+                if r.get("zotero_key") == zk:
+                    return r
+        return None
+
+    def _merge_into(existing: dict, rec: dict) -> None:
+        for s in rec.get("found_in", []):
+            if s not in existing["found_in"]:
+                existing["found_in"].append(s)
+        if not existing.get("citations") and rec.get("citations"):
+            existing["citations"] = rec["citations"]
+        if not existing.get("abstract") and rec.get("abstract"):
+            existing["abstract"] = rec["abstract"]
+        if not existing.get("s2_id") and rec.get("s2_id"):
+            existing["s2_id"] = rec["s2_id"]
+        if not existing.get("url") and rec.get("url"):
+            existing["url"] = rec["url"]
+        if not existing.get("venue") and rec.get("venue"):
+            existing["venue"] = rec["venue"]
+        if not existing.get("work_type") and rec.get("work_type"):
+            existing["work_type"] = rec["work_type"]
+        if not existing.get("container_title") and rec.get("container_title"):
+            existing["container_title"] = rec["container_title"]
+        if rec.get("_primo_proxy_url") and not existing.get("_primo_proxy_url"):
+            existing["_primo_proxy_url"] = rec["_primo_proxy_url"]
+        if rec.get("_primo_oa_url") and not existing.get("_primo_oa_url"):
+            existing["_primo_oa_url"] = rec["_primo_oa_url"]
+            existing["has_oa_pdf"] = existing.get("has_oa_pdf") or rec.get("has_oa_pdf", False)
+        if rec.get("_semantic_zotero_score") is not None and existing.get("_semantic_zotero_score") is None:
+            existing["_semantic_zotero_score"] = rec["_semantic_zotero_score"]
+        if rec.get("in_zotero") and not existing.get("in_zotero"):
+            existing["in_zotero"] = True
+
+    for src_name in priority:
+        for rec in by_source.get(src_name, []):
+            existing = _find_existing(rec)
+            if existing is not None:
+                _merge_into(existing, rec)
+                continue
+            d = rec.get("doi")
+            dn = zotero._normalize_doi(d) if d else None
+            if dn:
+                seen_dois.add(dn)
+            zk = rec.get("zotero_key")
+            if zk:
+                seen_zot_keys.add(zk)
+            results.append(rec)
 
     # ── 5. For Zotero items without abstracts, try getting a preview ──
     for r in results:
@@ -1541,63 +1663,6 @@ async def _handle_search(args: dict) -> list[TextContent]:
             except Exception as e:
                 logger.debug("Preview extraction failed for %s: %s", r["doi"], e)
 
-    # ── 5. Optional semantic Zotero merge ──────────────────────────
-    if use_semantic:
-        _ensure_semantic_background_sync()
-        try:
-            from .semantic_index import SemanticIndexUnavailable, get_semantic_index
-        except ImportError:
-            from academic_mcp.semantic_index import SemanticIndexUnavailable, get_semantic_index
-
-        try:
-            sem_hits = await get_semantic_index().search(query, k=limit)
-        except SemanticIndexUnavailable:
-            sem_hits = []
-        except Exception as e:
-            logger.warning("Semantic Zotero search failed: %s", e)
-            sem_hits = []
-
-        if sem_hits:
-            by_key = {
-                r.get("zotero_key"): r
-                for r in results
-                if r.get("zotero_key")
-            }
-            for hit in sem_hits:
-                key = hit.get("item_key")
-                if not key:
-                    continue
-                if key in by_key:
-                    if "semantic_zotero" not in by_key[key]["found_in"]:
-                        by_key[key]["found_in"].append("semantic_zotero")
-                    by_key[key]["_semantic_zotero_score"] = hit.get("score")
-                    continue
-
-                item = await zotero_sqlite.search_by_key(key)
-                if not item:
-                    continue
-                author_names = []
-                for c in (item.creators or []):
-                    nm = c.display_name.strip()
-                    if nm:
-                        author_names.append(nm)
-                results.append({
-                    "title": item.title or hit.get("title") or "Untitled",
-                    "authors": author_names,
-                    "year": (item.date or "")[:4] or None,
-                    "doi": item.DOI or hit.get("doi") or None,
-                    "zotero_key": item.key,
-                    "abstract": item.abstractNote or hit.get("snippet") or None,
-                    "citations": None,
-                    "venue": item.publicationTitle or None,
-                    "found_in": ["semantic_zotero", "zotero"],
-                    "in_zotero": True,
-                    "has_oa_pdf": True,
-                    "s2_id": None,
-                    "_semantic_zotero_score": hit.get("score"),
-                    "url": (item.url or "").strip() or None,
-                })
-
     # ── 6. Semantic re-ranking ─────────────────────────────────────
     #
     # Use sentence-transformers (all-MiniLM-L6-v2) to compute cosine
@@ -1606,6 +1671,30 @@ async def _handle_search(args: dict) -> list[TextContent]:
     # results are ordered by true semantic relevance.
     # Falls back to composite scoring if the model is unavailable.
     results = await rerank_results(query, results)
+    return results
+
+
+async def _handle_search(args: dict) -> list[TextContent]:
+    global _semantic_empty_hint_shown
+
+    query = args["query"]
+    include_scite = bool(args.get("include_scite", False))
+    if "semantic" in args and args["semantic"] is not None:
+        use_semantic = bool(args["semantic"])
+    else:
+        use_semantic = config.semantic_default_on
+
+    def _authors_str(authors: list) -> str:
+        if not authors:
+            return "Unknown"
+        names = authors[:3]
+        s = ", ".join(names)
+        if len(authors) > 3:
+            s += f" +{len(authors)-3} more"
+        return s
+
+    results = await _collect_search_results(args)
+
 
     # ── 7. Optional Scite enrichment ─────────────────────────────────
     if include_scite:
@@ -1673,6 +1762,7 @@ async def _handle_search(args: dict) -> list[TextContent]:
             _with_doi = sum(1 for r in results if r.get("doi"))
             _enriched = sum(1 for r in results if r.get("scite"))
             _status_parts.append(f"scite: {_enriched}/{_with_doi} enriched")
+        _sem_empty_hint = ""
         if use_semantic:
             try:
                 from .semantic_index import get_semantic_index
@@ -1681,6 +1771,14 @@ async def _handle_search(args: dict) -> list[TextContent]:
             try:
                 _sem_st = get_semantic_index()._load_status()
                 _sem_count = int(_sem_st.get("count") or 0)
+                # One-time hint when the user has semantic on but nothing indexed.
+                if _sem_count <= 0 and not _sem_st.get("in_progress") and not _semantic_empty_hint_shown:
+                    _sem_empty_hint = (
+                        "\nTip: semantic Zotero search is enabled but your index is empty — "
+                        "run `semantic_index_rebuild` to populate it. "
+                        "(Disable globally with SEMANTIC_DEFAULT_ON=false, or pass semantic=false.)\n"
+                    )
+                    _semantic_empty_hint_shown = True
                 if _sem_st.get("in_progress"):
                     _upserted = int(_sem_st.get("upserted") or 0)
                     _pending = int(_sem_st.get("pending") or 0)
@@ -1709,6 +1807,8 @@ async def _handle_search(args: dict) -> list[TextContent]:
                 _status_parts.append("semantic: unavailable")
         if _status_parts:
             text += f"[{' | '.join(_status_parts)}]\n"
+        if _sem_empty_hint:
+            text += _sem_empty_hint
 
     text += "=" * 60 + "\n\n"
 
@@ -3487,35 +3587,59 @@ async def _handle_search_and_read(args: dict) -> list[TextContent]:
     result_index = args.get("result_index", 0)
     use_proxy = args.get("use_proxy", False)
 
-    # Search first
+    # Use the unified parallel pipeline so semantic Zotero, S2, OpenAlex,
+    # and Primo all contribute candidates — not just S2.
     try:
-        s2 = await apis.s2_search(query, limit=5)
-        papers = s2.get("data", [])
+        results = await _collect_search_results({
+            "query": query,
+            "limit": 5,
+            "source": "all",
+            # `semantic` honours the global default (SEMANTIC_DEFAULT_ON);
+            # callers can still pass semantic=False to opt out.
+            "semantic": args.get("semantic"),
+        })
     except Exception as e:
         return [TextContent(type="text", text=f"Search failed: {e}")]
 
-    if not papers:
+    if not results:
         return [TextContent(type="text", text=f"No papers found for '{query}'")]
 
-    if result_index >= len(papers):
+    if result_index >= len(results):
         return [TextContent(
             type="text",
-            text=f"Result index {result_index} out of range (found {len(papers)} results)",
+            text=f"Result index {result_index} out of range (found {len(results)} results)",
         )]
 
-    paper = papers[result_index]
-    doi = apis.extract_doi(paper)
+    paper = results[result_index]
+    doi = paper.get("doi")
+    title = paper.get("title") or "Untitled"
+    sources = ", ".join(paper.get("found_in") or []) or "?"
 
-    text = f"Selected paper [{result_index}]: {paper.get('title')}\n"
+    text = f"Selected paper [{result_index}]: {title}\n"
+    text += f"Sources: {sources}\n"
     text += f"DOI: {doi}\n\n"
 
+    # If the paper is in Zotero, fetch_fulltext via zotero_key works without a DOI.
     if not doi:
-        text += "No DOI found for this paper. Cannot fetch PDF.\n"
+        zot_key = paper.get("zotero_key")
+        if zot_key:
+            fetch_result = await _handle_fetch_pdf({
+                "zotero_key": zot_key,
+                "use_proxy": use_proxy,
+            })
+            return [TextContent(type="text", text=text + fetch_result[0].text)]
+        url = paper.get("url")
+        if url:
+            fetch_result = await _handle_fetch_pdf({
+                "url": url,
+                "use_proxy": use_proxy,
+            })
+            return [TextContent(type="text", text=text + fetch_result[0].text)]
+        text += "No DOI / Zotero key / URL found for this paper. Cannot fetch full text.\n"
         if paper.get("abstract"):
             text += f"\nAbstract:\n{paper['abstract']}\n"
         return [TextContent(type="text", text=text)]
 
-    # Fetch and extract
     fetch_result = await _handle_fetch_pdf({
         "doi": doi,
         "use_proxy": use_proxy,

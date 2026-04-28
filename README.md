@@ -237,6 +237,29 @@ These are only relevant when running `--transport sse`. Ignored in stdio mode.
 
 ### Semantic search
 
+#### Default-on parallel blending
+
+`search_papers` and `search_and_read` run semantic Zotero search **in parallel**
+with the lexical sources (Zotero lexical, Semantic Scholar, OpenAlex, Primo).
+The semantic fetcher uses ChromaDB ANN over the local index, then a
+cross-encoder reranker (`BAAI/bge-reranker-v2-m3` by default) over a pool of
+`CROSS_RERANKER_FETCH=50` candidates. Results merge into the unified pipeline
+by DOI / Zotero key, so an item that surfaces in both lexical and semantic
+sources shows `Sources: zotero, semantic_zotero` rather than appearing twice.
+
+Knobs:
+
+- `SEMANTIC_DEFAULT_ON=true` (default) — set to `false` to disable globally.
+- Per-call: pass `semantic=false` to skip on a single call, or set
+  `source="semantic_zotero"` to query *only* the index.
+- `CROSS_RERANKER_MODEL` / `CROSS_RERANKER_FETCH` — swap models or candidate
+  pool size if the reranker becomes a latency bottleneck (it runs
+  concurrently with the API calls, so usually it’s hidden).
+
+If the index is empty, the semantic fetcher returns nothing cleanly and
+appends a one-time hint to the response telling you to run
+`semantic_index_rebuild`. The hint resets after a rebuild.
+
 #### Prerequisite: raise Zotero’s fulltext indexing limits
 
 Zotero’s default PDF indexing caps at **100 pages / 500,000 characters** per
