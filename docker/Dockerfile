@@ -39,12 +39,15 @@ ENV PYTHONUNBUFFERED=1 \
     SEMANTIC_CACHE_DIR=/var/cache/academic-mcp/chroma \
     ZOTERO_SQLITE_PATH=/zotero/zotero.sqlite \
     ZOTERO_LOCAL_STORAGE=/zotero/storage \
-    ZOTERO_LOCAL_ENABLED=false
+    ZOTERO_LOCAL_ENABLED=false \
+    HF_HOME=/var/cache/academic-mcp/hf \
+    SENTENCE_TRANSFORMERS_HOME=/var/cache/academic-mcp/hf/sentence-transformers
 
 # Cache and data directories.  All writable volumes.
 RUN mkdir -p /var/cache/academic-mcp/pdfs \
              /var/cache/academic-mcp/chroma \
              /var/cache/academic-mcp/articles \
+             /var/cache/academic-mcp/hf \
              /config \
              /zotero
 

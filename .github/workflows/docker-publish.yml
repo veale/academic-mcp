@@ -1,9 +1,9 @@
 name: Build & publish Docker image (arm64)
 
 # Builds linux/arm64 so the image runs on Asahi Linux (Apple Silicon) and
-# other ARM64 servers.  The build runs under QEMU emulation on GitHub's
-# x86 runners so that `uv sync` downloads the correct ARM64 wheels.
-# First build: ~30–60 min.  Subsequent builds: ~5–10 min (layer + GHA cache).
+# other ARM64 servers.  Runs on GitHub's native arm64 runner — no QEMU,
+# so wheels install at native speed.
+# First build: ~5–10 min.  Subsequent builds: ~1–3 min (layer + GHA cache).
 
 on:
   push:
@@ -18,7 +18,7 @@ env:
 
 jobs:
   build-and-push:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     permissions:
       contents: read
       packages: write   # needed to push to ghcr.io
@@ -26,14 +26,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      # QEMU lets Docker Buildx run an ARM64 build on an x86 runner.
-      # Without this, uv would download x86 wheels and the image would
-      # fail on Asahi.
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-        with:
-          platforms: arm64
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
