@@ -134,11 +134,15 @@ def _run_sse(port: int):
         _ensure_semantic_background_sync(max_age_hours=0)
         return PlainTextResponse("sync triggered")
 
-    async def _startup():
+    from contextlib import asynccontextmanager
+
+    @asynccontextmanager
+    async def lifespan(app):
         asyncio.create_task(_nightly_sync_loop())
+        yield
 
     app = Starlette(
-        on_startup=[_startup],
+        lifespan=lifespan,
         routes=[
             Route("/sse", endpoint=handle_sse),
             Route("/healthz", endpoint=handle_healthz),
