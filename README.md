@@ -242,19 +242,63 @@ These are only relevant when running `--transport sse`. Ignored in stdio mode.
 `search_papers` and `search_and_read` run semantic Zotero search **in parallel**
 with the lexical sources (Zotero lexical, Semantic Scholar, OpenAlex, Primo).
 The semantic fetcher uses ChromaDB ANN over the local index, then a
-cross-encoder reranker (`BAAI/bge-reranker-v2-m3` by default) over a pool of
-`CROSS_RERANKER_FETCH=50` candidates. Results merge into the unified pipeline
-by DOI / Zotero key, so an item that surfaces in both lexical and semantic
-sources shows `Sources: zotero, semantic_zotero` rather than appearing twice.
+cross-encoder reranker over a pool of `CROSS_RERANKER_FETCH=50` candidates.
+Results merge into the unified pipeline by DOI / Zotero key, so an item that
+surfaces in both lexical and semantic sources shows `Sources: zotero,
+semantic_zotero` rather than appearing twice.
 
 Knobs:
 
 - `SEMANTIC_DEFAULT_ON=true` (default) — set to `false` to disable globally.
 - Per-call: pass `semantic=false` to skip on a single call, or set
   `source="semantic_zotero"` to query *only* the index.
-- `CROSS_RERANKER_MODEL` / `CROSS_RERANKER_FETCH` — swap models or candidate
-  pool size if the reranker becomes a latency bottleneck (it runs
-  concurrently with the API calls, so usually it’s hidden).
+- `CROSS_RERANKER_FETCH` — candidate pool size before reranking.
+
+##### Reranker provider chain
+
+The reranker has a **primary → fallback** chain. Each slot is one of
+`openrouter`, `local`, or `none`:
+
+| Provider     | What it does                                                     | Cost / footprint |
+|--------------|------------------------------------------------------------------|------------------|
+| `openrouter` | POST `/v1/rerank` to OpenRouter (default `cohere/rerank-v3.5`).  | ~$2/1k searches; ~150 ms latency; needs `OPENROUTER_API_KEY`. |
+| `local`      | sentence-transformers CrossEncoder (default `BAAI/bge-reranker-v2-m3`). | Free; ~2 GB RAM resident; ~0.5–2 s on CPU. |
+| `none`       | No reranking — return top_k by bi-encoder score.                 | Free; instant; some quality loss. |
+
+Defaults: `RERANKER_PRIMARY=openrouter`, `RERANKER_FALLBACK=none`.
+
+Useful combinations:
+
+```
+# Default. Hosted reranker; if it fails (no key, network error), no rerank.
+RERANKER_PRIMARY=openrouter
+RERANKER_FALLBACK=none
+
+# Hosted primary, local backup. Best quality + offline-capable;
+# pays the local model's RAM cost.
+RERANKER_PRIMARY=openrouter
+RERANKER_FALLBACK=local
+
+# Fully offline. No API calls; loads the local model once.
+RERANKER_PRIMARY=local
+RERANKER_FALLBACK=none
+
+# Disable reranking entirely.
+RERANKER_PRIMARY=none
+RERANKER_FALLBACK=none
+```
+
+OpenRouter knobs:
+- `OPENROUTER_API_KEY` — required for the `openrouter` provider.
+- `OPENROUTER_RERANK_MODEL` — default `cohere/rerank-v3.5`.
+- `OPENROUTER_BASE_URL` — default `https://openrouter.ai/api/v1`.
+
+Local knob:
+- `CROSS_RERANKER_MODEL` — default `BAAI/bge-reranker-v2-m3`.
+
+Tip: on a memory-constrained self-hosted deployment, prefer
+`RERANKER_PRIMARY=openrouter`/`RERANKER_FALLBACK=none`. The local model is
+never loaded, saving ~2 GB RAM and avoiding the model download.
 
 If the index is empty, the semantic fetcher returns nothing cleanly and
 appends a one-time hint to the response telling you to run
@@ -1422,6 +1466,43 @@ launchctl load ~/Library/LaunchAgents/com.example.zotero-sync.plist
 ```
 
 See `deploy/README.md` for the full step-by-step bootstrap sequence.
+
+### Host requirements
+
+For the background semantic sync to complete cleanly on a self-hosted box:
+
+- **RAM:** plan for ~2–3 GB resident for the MCP process during sync (bi-encoder
+  + chroma + embedding batches). With `RERANKER_PRIMARY=local`, add ~2 GB
+  more for the cross-encoder.
+- **Swap:** keep at least 8 GiB free swap. The sync allocates bursty working
+  sets that briefly spike well above steady state; without swap headroom on a
+  contended host the kernel will OOM-kill the Python process. If you see
+  silent container restarts (exit 0, `docker inspect ... OOMKilled=false`),
+  check `dmesg | grep -i oom`.
+- **Swappiness:** `vm.swappiness=100` is appropriate on a memory-constrained
+  host — it lets the kernel actually use swap before triggering OOM.
+- **Container limits:** the example `docker-run-mcp.sh` sets `--memory 8g
+  --memory-swap 16g`. If you use Docker Compose, the equivalent service-level
+  keys are `mem_limit: 8g` and `memswap_limit: 16g`.
+- **Disk:** the cache volume holds Chroma (~10–20 GB for a 10k-item library),
+  PDFs, and downloaded HuggingFace models (~350 MB–2 GB depending on local
+  reranker model). Plan ~30 GB.
+
+### Caches and bind volumes
+
+The container expects one cache volume mounted at `/var/cache/academic-mcp`.
+Subdirectories are created on first run:
+
+| Path | Purpose | Approx. size |
+|---|---|---|
+| `chroma/` | semantic index (ChromaDB) | 10–20 GB |
+| `pdfs/` | downloaded PDF cache | grows over time |
+| `articles/` | article JSON cache | small |
+| `hf/` | HuggingFace model cache (`HF_HOME` is set here) — only populated when local reranker is used | ~2 GB if used |
+| `zotero-shadow.sqlite` | shadow copy of the Zotero SQLite mirror | ~tens of MB |
+
+Models download lazily on first use, not at image build time, and persist in
+`hf/` across container recreations.
 
 ### Client configuration
 

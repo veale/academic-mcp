@@ -33,7 +33,8 @@ docker run -d \
     --name academic_mcp \
     --restart always \
     --network "$NETWORK" \
-    --memory 4g \
+    --memory 8g \
+    --memory-swap 16g \
     --label project=academic-mcp \
     -v "$ZOTERO_MIRROR":/zotero:ro \
     -v "$NEXTCLOUD_ZOTERO":/nextcloud/data/YOURUSER/files/Zotero:ro \
