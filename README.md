@@ -291,13 +291,18 @@ The semantic index uses pluggable embedding backends. Vectors are **always store
 
 | Model | Provider | Dims | Quality | Privacy | Notes |
 |---|---|---|---|---|---|
-| `all-MiniLM-L6-v2` | `local` | 384 | Good | Fully local | **Default** — fast, ~90 MB RAM |
-| `BAAI/bge-small-en-v1.5` | `local` | 384 | Better | Fully local | Near-free quality bump; same loader |
-| `BAAI/bge-large-en-v1.5` | `local` | 1024 | Very strong | Fully local | ~1.3 GB RAM; ~3× slower than MiniLM |
-| `nomic-ai/nomic-embed-text-v1.5` | `local` | 768 | Strong, 8K ctx | Fully local | Best local pick for fulltext mode |
+| `all-MiniLM-L6-v2` | `local` | 384 | Good | Fully local | **Default** — fast, ~90 MB RAM, CLS pooling |
+| `BAAI/bge-small-en-v1.5` | `local` | 384 | Better | Fully local | Near-free quality bump; CLS pooling |
+| `BAAI/bge-large-en-v1.5` | `local` | 1024 | Very strong | Fully local | ~1.3 GB RAM; CLS pooling; 512 ctx |
+| `BAAI/bge-m3` | `local` / `openai` | 1024 | Very strong, multilingual | Fully local OR cloud | 8K ctx; 100+ languages; CLS pooling; **best all-round pick** |
+| `nomic-ai/nomic-embed-text-v1.5` | `local` | 768 | Strong, 8K ctx | Fully local | Mean pooling + task prefixes |
+| `Alibaba-NLP/gte-large-en-v1.5` | `openai` (cloud) | 1024 | Top English MTEB | Cloud only (llama.cpp support newer) | 8K ctx; mean pooling; needs L2 norm (handled automatically) |
+| `thenlper/gte-large` | `openai` (cloud) | 1024 | Strong English | Cloud only | 512 ctx; mean pooling; available on OpenRouter |
 | `text-embedding-3-small` | `openai` | 1536 | Strong | Text leaves machine | ~$0.01 abstract-only for 13k items |
 | `text-embedding-3-large` | `openai` | 3072 | Best class | Text leaves machine | ~$0.07 abstract-only — overkill |
 | `gemini-embedding-001` | `gemini` | variable | Comparable to OpenAI | Text leaves machine | — |
+
+> **Pooling matters when self-hosting via llama-server.** The mode is set with `--pooling`. Wrong pooling = silently broken vectors (no error, just bad search results). Use `cls` for the bge family, `mean` for gte and nomic, `last` for Qwen3-Embedding.
 
 You can pass any model string these providers accept — the table above is recommendations, not a fixed list.
 
@@ -343,28 +348,69 @@ The intended workflow:
 2. **Serve queries from local.** Keep `OPENAI_BASE_URL` pointing at your local llama-server (or vLLM / LM Studio) running the same model GGUF. Search latency stays low and your queries never leave the machine.
 3. **No swap dance.** Leave the `BULK_*` vars set; they're only consulted by the sync path. Removing them later cleanly reverts to single-endpoint behaviour.
 
-Example — `BAAI/bge-large-en-v1.5` served by DeepInfra for bulk + a local llama-server for queries:
+**Recommended pairing for a one-time bulk backfill: `BAAI/bge-m3` everywhere.** It's multilingual, 8K context, CLS pooling, 1024 dim, available on OpenRouter / DeepInfra / Together AI for cloud bulk and runs cleanly in llama.cpp for local interactive. No special normalisation, no prefix gymnastics, same dim across both endpoints.
+
+#### Worked example — OpenRouter for bulk + local llama-server for queries
+
+OpenRouter exposes embeddings via an OpenAI-compatible endpoint at `https://openrouter.ai/api/v1`, billed through the same account as their LLM models. Under the hood OpenRouter routes to DeepInfra for `baai/bge-m3` and `thenlper/gte-large`.
+
+```bash
+SEMANTIC_PROVIDER=openai
+SEMANTIC_MODEL=baai/bge-m3                    # OpenRouter uses lowercase; matches OpenAI naming convention
+
+# Interactive: local llama-server (queries, single-item adds)
+OPENAI_BASE_URL=http://llama_embed:8080/v1
+OPENAI_API_KEY=sk-noop                        # llama-server accepts any key
+OPENAI_EMBED_BATCH=16
+OPENAI_EMBED_CONCURRENCY=4
+
+# Bulk: OpenRouter
+BULK_OPENAI_BASE_URL=https://openrouter.ai/api/v1
+BULK_OPENAI_API_KEY=<openrouter key>
+BULK_OPENAI_EMBED_BATCH=96
+BULK_OPENAI_EMBED_CONCURRENCY=4
+```
+
+Local llama-server for the same model:
+
+```bash
+llama-server \
+  -m /models/bge-m3-f16.gguf \
+  --embedding --pooling cls \
+  -c 8192 -b 2048 -ub 2048 \
+  -ngl 99 -np 4 \
+  --host 0.0.0.0 --port 8080
+```
+
+#### Worked example — DeepInfra direct (no OpenRouter middleman)
+
+DeepInfra hosts a wider model catalogue than OpenRouter (including `Alibaba-NLP/gte-large-en-v1.5`, the v1.5 GTE which OpenRouter currently doesn't offer). Rates are similar.
 
 ```bash
 SEMANTIC_PROVIDER=openai
 SEMANTIC_MODEL=BAAI/bge-large-en-v1.5
 
-# Interactive: local llama-server (queries, single-item adds)
 OPENAI_BASE_URL=http://llama_embed:8080/v1
-OPENAI_API_KEY=sk-noop                # llama-server accepts any key
-OPENAI_EMBED_BATCH=16
-OPENAI_EMBED_CONCURRENCY=4
+OPENAI_API_KEY=sk-noop
 
-# Bulk: cloud (one-time backfill, then ongoing only if a large reindex is needed)
 BULK_OPENAI_BASE_URL=https://api.deepinfra.com/v1/openai
 BULK_OPENAI_API_KEY=<deepinfra key>
 BULK_OPENAI_EMBED_BATCH=96
 BULK_OPENAI_EMBED_CONCURRENCY=4
 ```
 
-When unset, every `BULK_*` var falls back to its `OPENAI_*` counterpart, so existing single-endpoint deployments are unchanged.
+When all `BULK_*` vars are unset, the bulk path silently falls back to the regular `OPENAI_*` values — existing single-endpoint deployments are unchanged.
 
-**Vector drift caveat.** Cloud providers and local llama.cpp running the same model produce vectors with cosine similarity ~0.999+ but not bit-identical (different quantizations, different inference servers). In practice this never affects top-k retrieval for academic search — the cosines between unrelated documents are 0.3–0.6, the drift is two orders of magnitude smaller. The first time bulk and interactive resolve to different endpoints, the server logs a one-shot info message acknowledging this.
+#### Picking a model for split-endpoint use
+
+| Model | Cloud availability | llama.cpp pooling | Multilingual | Good if you want… |
+|---|---|---|---|---|
+| `baai/bge-m3` | OpenRouter, DeepInfra, Together | `cls` | Yes (100+) | Best all-round; multilingual safety; mature local support |
+| `BAAI/bge-large-en-v1.5` | DeepInfra, Together, Cloudflare | `cls` | English only | Cheapest cloud option; rock-solid llama.cpp |
+| `Alibaba-NLP/gte-large-en-v1.5` | DeepInfra (not OpenRouter) | `mean` | English only | Highest English MTEB; 8K ctx; tested L2-normalised by this codebase |
+| `thenlper/gte-large` (v1.0) | OpenRouter, DeepInfra | `mean` | English only | If you want GTE via OpenRouter; 512 ctx |
+
+**Vector drift caveat.** Cloud providers and local llama.cpp running the same model produce vectors with cosine similarity ~0.999+ but not bit-identical (different quantizations, different inference servers). In practice this never affects top-k retrieval — cosines between unrelated documents are 0.3–0.6, two orders of magnitude larger than the drift. For models where the drift can be larger (Qwen3, GTE), this codebase applies client-side L2 normalisation automatically so cloud and local endpoints stay numerically comparable. The first time bulk and interactive resolve to different endpoints, the server logs a one-shot info message acknowledging this.
 
 **Hard rule: same `SEMANTIC_MODEL` on both endpoints.** Mixing models (e.g., bulk via OpenAI's `text-embedding-3-small` and interactive via local `bge-large`) poisons the index — the vectors are in incompatible spaces and search results become noise. The single `SEMANTIC_MODEL` env var enforces this by construction.
 

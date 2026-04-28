@@ -217,6 +217,17 @@ def _local_encoder(
 # Fragment that identifies Qwen3-Embedding models (case-insensitive check).
 _QWEN3_EMBED_FRAGMENT = "qwen3-embed"
 
+# Fragment that identifies GTE-family models (case-insensitive check).
+# Matches both ``thenlper/gte-large`` (v1.0, 512 ctx) and
+# ``Alibaba-NLP/gte-large-en-v1.5`` (v1.5, 8K ctx).  Both use mean
+# pooling (server-side) and benefit from client-side L2 normalisation
+# because cloud providers normalise by default but llama.cpp's
+# ``--embd-normalize`` flag is not always honoured at the HTTP layer.
+# Without explicit client-side normalisation, vectors from cloud and
+# local endpoints disagree by a scaling factor and cosine search
+# results drift between the two.
+_GTE_FRAGMENT = "gte-"
+
 # Instruction prepended to QUERY strings for Qwen3-Embedding models.
 # Documents are NOT prefixed. This is the standard asymmetric retrieval
 # pattern and gives ~1–5% retrieval lift for academic content.
@@ -305,7 +316,10 @@ def _openai_encoder(
                 + " in your environment."
             )
 
-    is_qwen3 = _QWEN3_EMBED_FRAGMENT in model_name.lower()
+    model_lower = model_name.lower()
+    is_qwen3 = _QWEN3_EMBED_FRAGMENT in model_lower
+    is_gte = _GTE_FRAGMENT in model_lower
+    needs_client_normalize = is_qwen3 or is_gte
 
     # Per-mode tuning vars. BULK_* takes precedence over OPENAI_* when in
     # bulk mode; in interactive mode, only OPENAI_* is consulted. Both
@@ -368,7 +382,7 @@ def _openai_encoder(
                             )
                         data = resp.json()
                         vecs = [item["embedding"] for item in data.get("data", [])]
-                        if is_qwen3:
+                        if needs_client_normalize:
                             vecs = _l2_normalize(vecs)
                         return (start, vecs)
 

@@ -376,6 +376,68 @@ class TestOpenAIEncoderQwen3:
         assert math.isclose(vecs[0][0], 0.6, abs_tol=1e-5)
         assert math.isclose(vecs[0][1], 0.8, abs_tol=1e-5)
 
+    def test_gte_vectors_are_normalized(self, monkeypatch):
+        """GTE-family models should also get client-side L2 normalisation.
+
+        Both ``thenlper/gte-large`` (v1.0) and ``Alibaba-NLP/gte-large-en-v1.5``
+        (v1.5) need this because cloud and local servers disagree on
+        whether to normalise post-pooling.  Without explicit client-side
+        normalisation, vectors from the two endpoints differ by a scaling
+        factor and cosine search ranks drift between them.
+        """
+        import academic_mcp.embeddings as emb_mod
+        import math
+
+        # [3.0, 4.0] has L2 norm = 5.0 → normalised = [0.6, 0.8]
+        fake_client, _ = self._fake_async_post([[3.0, 4.0]])
+
+        for model in ("thenlper/gte-large", "Alibaba-NLP/gte-large-en-v1.5"):
+            monkeypatch.setattr(
+                "academic_mcp.embeddings.config",
+                _mock_config(
+                    provider="openai",
+                    model=model,
+                    openai_key="sk-test",
+                    openai_base_url="http://127.0.0.1:8080/v1",
+                ),
+            )
+            monkeypatch.setattr(emb_mod.httpx, "AsyncClient", fake_client)
+
+            doc_enc, _, _ = emb_mod._openai_encoder(model)
+            vecs = doc_enc(["test"])
+            assert len(vecs) == 1
+            assert math.isclose(vecs[0][0], 0.6, abs_tol=1e-5), f"{model} not normalised"
+            assert math.isclose(vecs[0][1], 0.8, abs_tol=1e-5), f"{model} not normalised"
+
+    def test_gte_query_uses_no_instruction_prefix(self, monkeypatch):
+        """GTE models do NOT use a Qwen3-style instruction prefix.
+
+        GTE was trained with the same encoding for query and document; adding
+        a prefix would put queries off-distribution and degrade retrieval.
+        """
+        import academic_mcp.embeddings as emb_mod
+
+        fake_client, captured = self._fake_async_post([[0.1] * 1024])
+
+        monkeypatch.setattr(
+            "academic_mcp.embeddings.config",
+            _mock_config(
+                provider="openai",
+                model="thenlper/gte-large",
+                openai_key="sk-test",
+                openai_base_url="http://127.0.0.1:8080/v1",
+            ),
+        )
+        monkeypatch.setattr(emb_mod.httpx, "AsyncClient", fake_client)
+
+        doc_enc, query_enc, _ = emb_mod._openai_encoder("thenlper/gte-large")
+        # GTE has no separate query encoder — same pathway for queries.
+        assert query_enc is None
+        doc_enc(["algorithmic bias"])
+        sent = captured["inputs"][0]
+        assert "Instruct:" not in sent
+        assert sent == "algorithmic bias"
+
     def test_non_qwen3_openai_no_instruction_no_endoftext(self, monkeypatch):
         """Standard OpenAI models should NOT get Qwen3 wrappers."""
         import academic_mcp.embeddings as emb_mod

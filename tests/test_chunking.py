@@ -160,8 +160,14 @@ def test_ft_cache_offsets_point_to_raw_ft_text(tmp_path, monkeypatch):
     assert ft_text[first.char_start : first.char_end] == "A" * _CHUNK_CHARS
 
 
-def test_ft_cache_respects_max_chars(tmp_path, monkeypatch):
-    """A very large ft-cache should produce no chunk past _MAX_FT_CHARS."""
+def test_ft_cache_respects_max_chars_when_set(tmp_path, monkeypatch):
+    """When _MAX_FT_CHARS is set to an integer, no chunk should pass that boundary.
+
+    Default is now None (no cap; full books indexed); this test verifies the
+    cap still works for users who set it explicitly to bound chunk-count.
+    """
+    cap = 200_000
+    monkeypatch.setattr(chunking, "_MAX_FT_CHARS", cap)
     storage = tmp_path / "storage"
     monkeypatch.setattr(
         chunking.zotero_sqlite,
@@ -169,18 +175,20 @@ def test_ft_cache_respects_max_chars(tmp_path, monkeypatch):
         SimpleNamespace(available=True, storage_path=str(storage)),
     )
 
-    oversized = "Z" * (_MAX_FT_CHARS + 10_000)
+    oversized = "Z" * (cap + 10_000)
     _write_ft_cache(storage, "ATT1", oversized)
 
     item = _make_item(title="Big Book", attachment_key="ATT1")
     chunks = chunk_item(item)
 
     for c in chunks:
-        assert c.char_end <= _MAX_FT_CHARS
+        assert c.char_end <= cap
 
 
-def test_ft_cache_beyond_max_is_ignored(tmp_path, monkeypatch):
-    """Characters beyond _MAX_FT_CHARS must not appear in any chunk's char_end."""
+def test_ft_cache_beyond_explicit_max_is_ignored(tmp_path, monkeypatch):
+    """Characters beyond a user-set _MAX_FT_CHARS must not appear in any chunk."""
+    cap = 200_000
+    monkeypatch.setattr(chunking, "_MAX_FT_CHARS", cap)
     storage = tmp_path / "storage"
     monkeypatch.setattr(
         chunking.zotero_sqlite,
@@ -188,7 +196,7 @@ def test_ft_cache_beyond_max_is_ignored(tmp_path, monkeypatch):
         SimpleNamespace(available=True, storage_path=str(storage)),
     )
 
-    oversized = "Q" * (_MAX_FT_CHARS + 50_000)
+    oversized = "Q" * (cap + 50_000)
     _write_ft_cache(storage, "ATT1", oversized)
 
     item = _make_item(title="Long Book", attachment_key="ATT1")
@@ -196,8 +204,8 @@ def test_ft_cache_beyond_max_is_ignored(tmp_path, monkeypatch):
 
     assert len(chunks) > 0
     for c in chunks:
-        assert c.char_end <= _MAX_FT_CHARS, (
-            f"chunk char_end={c.char_end} exceeds _MAX_FT_CHARS={_MAX_FT_CHARS}"
+        assert c.char_end <= cap, (
+            f"chunk char_end={c.char_end} exceeds _MAX_FT_CHARS={cap}"
         )
 
 
@@ -254,15 +262,20 @@ def test_context_header_title_only():
 
 
 def test_context_header_book_section_uses_book_title():
-    """bookTitle should appear as the In: venue line."""
+    """bookTitle should appear as the In: venue line.
+
+    The current header is intentionally compact (title + venue only); authors
+    and publisher are no longer included — they bloated the embedding payload
+    without measurable retrieval benefit, see chunking.py module docstring.
+    """
     h = _build_context_header({
         "title": "Article 25: Logging",
         "bookTitle": "The EU LED Commentary",
-        "authors": ["Veale", "Kosta"],
+        "authors": ["Veale", "Kosta"],  # ignored
     })
     assert h.startswith("Article 25: Logging")
     assert "In: The EU LED Commentary" in h
-    assert "Authors: Veale, Kosta" in h
+    assert "Authors:" not in h
 
 
 def test_context_header_journal_uses_publication_title():
@@ -270,49 +283,47 @@ def test_context_header_journal_uses_publication_title():
     h = _build_context_header({
         "title": "Neural Scaling Laws",
         "publicationTitle": "Nature Machine Intelligence",
-        "authors": ["Hoffmann"],
+        "authors": ["Hoffmann"],  # ignored
     })
     assert "In: Nature Machine Intelligence" in h
-    assert "Authors: Hoffmann" in h
+    assert "Authors:" not in h
     # Venue should not appear twice
     assert h.count("Nature Machine Intelligence") == 1
 
 
-def test_context_header_no_venue_shows_publisher():
-    """When there is no venue, publisher should appear instead."""
+def test_context_header_publisher_is_dropped():
+    """Publisher is no longer included in the header (compact-header policy)."""
     h = _build_context_header({
         "title": "Some Report",
         "publisher": "ENISA",
     })
-    assert "Publisher: ENISA" in h
-
-
-def test_context_header_venue_hides_publisher():
-    """When a venue is present, publisher should be suppressed to avoid redundancy."""
-    h = _build_context_header({
-        "title": "Some Chapter",
-        "bookTitle": "Big Handbook",
-        "publisher": "Springer",
-    })
+    assert "ENISA" not in h
     assert "Publisher:" not in h
 
 
-def test_context_header_six_authors_truncated_with_et_al():
-    """Six authors should be capped at 3 with 'et al.' appended."""
-    h = _build_context_header({
-        "title": "Multi-author Work",
-        "authors": ["Alpha", "Beta", "Gamma", "Delta", "Epsilon", "Zeta"],
-    })
-    assert "Authors: Alpha, Beta, Gamma et al." in h
-    assert "Delta" not in h
+def test_context_header_truncates_overlong_title_and_venue():
+    """Long title + venue must be capped so the prefix doesn't crowd the embedder.
+
+    Reason: prefix tokens compete with chunk content for the embedder's
+    context window (512 for bge/gte-v1.0). An uncapped 600-char book title
+    would push our 400-token chunks past the truncation threshold.
+    """
+    long_title = "A " * 200  # ~400 chars
+    long_venue = "B " * 200
+    h = _build_context_header({"title": long_title, "bookTitle": long_venue})
+    title_line, venue_line = h.split("\n")
+    assert len(title_line) <= chunking._HEADER_TITLE_MAX_CHARS
+    # Venue line includes the "In: " prefix; only the venue portion is capped.
+    assert len(venue_line) <= chunking._HEADER_VENUE_MAX_CHARS + len("In: ")
+    assert title_line.endswith("…")  # ellipsis marks truncation
 
 
 # ---------------------------------------------------------------------------
-# chunk_item context-header integration
+# chunk_item context-header integration (compact header)
 # ---------------------------------------------------------------------------
 
-def test_ft_cache_chunks_include_full_context_header(tmp_path, monkeypatch):
-    """Each ft-cache chunk should start with title + venue + authors."""
+def test_ft_cache_chunks_include_compact_context_header(tmp_path, monkeypatch):
+    """Each ft-cache chunk should start with title + venue (no authors)."""
     storage = tmp_path / "storage"
     monkeypatch.setattr(
         chunking.zotero_sqlite,
@@ -333,19 +344,18 @@ def test_ft_cache_chunks_include_full_context_header(tmp_path, monkeypatch):
         "bookTitle": "The EU LED Commentary",
         "publicationTitle": "",
         "publisher": "",
-        "authors": ["Veale", "Kosta", "Boehm"],
+        "authors": ["Veale", "Kosta", "Boehm"],  # ignored by current header
     }
     chunks = chunk_item(item)
     assert len(chunks) >= 1
-    expected_prefix = (
-        "Article 25: Logging\nIn: The EU LED Commentary\nAuthors: Veale, Kosta, Boehm\n\n"
-    )
+    expected_prefix = "Article 25: Logging\nIn: The EU LED Commentary\n\n"
     for c in chunks:
         assert c.text.startswith(expected_prefix)
+        assert "Authors:" not in c.text.split("\n\n", 1)[0]
 
 
 def test_abstract_chunk_includes_context_header():
-    """Abstract-only items should also get the context header."""
+    """Abstract-only items should also get the (compact) context header."""
     item = {
         "item_key": "Y",
         "title": "Neural Scaling Laws",
@@ -361,5 +371,132 @@ def test_abstract_chunk_includes_context_header():
     chunks = chunk_item(item)
     assert len(chunks) == 1
     assert "In: Nature Machine Intelligence" in chunks[0].text
-    assert "Authors: Hoffmann" in chunks[0].text
+    assert "Authors:" not in chunks[0].text
     assert "Abstract text here." in chunks[0].text
+
+
+# ---------------------------------------------------------------------------
+# Section-aware chunking (.article.json path)
+# ---------------------------------------------------------------------------
+
+def test_section_chunking_emits_one_chunk_per_section(tmp_path, monkeypatch):
+    """When a .article.json with sections exists, prefer section chunks over sliding."""
+    from academic_mcp import text_cache
+
+    # Stub get_cached to return a hand-crafted CachedArticle.
+    text = "INTRO content here.\n\nMETHODS content describing methodology.\n\nRESULTS we found things."
+    sections = [
+        {"title": "Introduction", "level": 2, "start": 0,  "end": 19, "word_count": 3},
+        {"title": "Methods",      "level": 2, "start": 21, "end": 60, "word_count": 4},
+        {"title": "Results",      "level": 2, "start": 62, "end": len(text), "word_count": 4},
+    ]
+    fake_article = text_cache.CachedArticle(
+        doi="10.1/test", text=text, source="test",
+        sections=sections, section_detection="html_headings",
+    )
+    monkeypatch.setattr(text_cache, "get_cached", lambda doi: fake_article)
+
+    item = _make_item(title="Paper", abstract="", attachment_key="", doi="10.1/test")
+    chunks = chunk_item(item)
+
+    assert len(chunks) == 3
+    assert all(c.source == "article_section" for c in chunks)
+    # Each chunk's text must mention its section title in the prefix block.
+    assert "Section: Introduction" in chunks[0].text
+    assert "Section: Methods"      in chunks[1].text
+    assert "Section: Results"      in chunks[2].text
+    # And contain the section body content.
+    assert "INTRO content here."   in chunks[0].text
+    assert "METHODS content"       in chunks[1].text
+    assert "RESULTS we found"      in chunks[2].text
+    # Offsets must point into the underlying article.text, not into the prefix.
+    assert chunks[0].char_start == 0
+    assert chunks[1].char_start == 21
+    assert chunks[2].char_start == 62
+
+
+def test_section_chunking_subdivides_long_sections(tmp_path, monkeypatch):
+    """Sections longer than _CHUNK_CHARS must be sliding-windowed within the section."""
+    from academic_mcp import text_cache
+
+    big_section = "X" * (_CHUNK_CHARS * 2 + 500)  # forces multiple sub-chunks
+    text = big_section
+    sections = [
+        {"title": "Big Section", "level": 2, "start": 0, "end": len(text), "word_count": 1},
+    ]
+    fake_article = text_cache.CachedArticle(
+        doi="10.1/big", text=text, source="test",
+        sections=sections, section_detection="pdf_toc",
+    )
+    monkeypatch.setattr(text_cache, "get_cached", lambda doi: fake_article)
+
+    item = _make_item(title="Paper", abstract="", attachment_key="", doi="10.1/big")
+    chunks = chunk_item(item)
+
+    assert len(chunks) >= 3
+    # All sub-chunks come from the same (only) section.
+    for c in chunks:
+        assert c.source == "article_section"
+        assert "Section: Big Section" in c.text
+    # Offsets are translated back to article.text coordinates (start at 0,
+    # advance by stride, never exceed the section's end).
+    assert chunks[0].char_start == 0
+    assert chunks[-1].char_end == len(text)
+
+
+def test_section_chunking_falls_back_when_article_has_no_sections(tmp_path, monkeypatch):
+    """Empty sections list → fall through to ft-cache / abstract paths."""
+    from academic_mcp import text_cache
+
+    fake_article = text_cache.CachedArticle(
+        doi="10.1/none", text="some text", source="test",
+        sections=[], section_detection="keyword_skeleton",
+    )
+    monkeypatch.setattr(text_cache, "get_cached", lambda doi: fake_article)
+
+    item = _make_item(
+        title="Fallback Paper", abstract="An abstract.", attachment_key="", doi="10.1/none"
+    )
+    chunks = chunk_item(item)
+    # No ft-cache, no sections → abstract path.
+    assert len(chunks) == 1
+    assert chunks[0].source == "abstract"
+
+
+def test_section_chunking_falls_back_when_no_doi(tmp_path, monkeypatch):
+    """Items without a DOI can't look up article.json — must use ft-cache or abstract."""
+    storage = tmp_path / "storage"
+    monkeypatch.setattr(
+        chunking.zotero_sqlite,
+        "sqlite_config",
+        SimpleNamespace(available=True, storage_path=str(storage)),
+    )
+    _write_ft_cache(storage, "ATT_NODOI", "Body content " * 200)
+
+    item = _make_item(title="No DOI", abstract="", attachment_key="ATT_NODOI", doi="")
+    chunks = chunk_item(item)
+    assert len(chunks) >= 1
+    assert all(c.source == "ft_cache" for c in chunks)
+
+
+# ---------------------------------------------------------------------------
+# _MAX_FT_CHARS = None — full-book coverage
+# ---------------------------------------------------------------------------
+
+def test_ft_cache_reads_full_file_when_cap_is_none(tmp_path, monkeypatch):
+    """With _MAX_FT_CHARS=None, even very long ft-caches are read in full."""
+    monkeypatch.setattr(chunking, "_MAX_FT_CHARS", None)
+    storage = tmp_path / "storage"
+    monkeypatch.setattr(
+        chunking.zotero_sqlite,
+        "sqlite_config",
+        SimpleNamespace(available=True, storage_path=str(storage)),
+    )
+    huge_text = "A" * (500_000)  # well past the historical 200k cap
+    _write_ft_cache(storage, "BIG", huge_text)
+
+    item = _make_item(title="Long Book", abstract="", attachment_key="BIG", doi="")
+    chunks = chunk_item(item)
+    # Last chunk's char_end should reach the end of the source text (or very close
+    # — final stride may overshoot slightly, but we should index well past 200k).
+    assert chunks[-1].char_end > 400_000
