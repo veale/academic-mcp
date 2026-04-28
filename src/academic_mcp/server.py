@@ -98,12 +98,14 @@ def _ensure_semantic_background_sync(max_age_hours: int = 24) -> None:
                         "Background semantic sync attempt %d/%d failed: %s — "
                         "retrying in %ds",
                         attempt, _MAX_ATTEMPTS, e, delay,
+                        exc_info=True,
                     )
                     await asyncio.sleep(delay)
                 else:
                     logger.error(
                         "Background semantic sync failed after %d attempts: %s",
                         _MAX_ATTEMPTS, e,
+                        exc_info=True,
                     )
 
     try:
