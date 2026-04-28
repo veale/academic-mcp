@@ -73,9 +73,10 @@ def _get_upsert_batch_size() -> int:
         return _DEFAULT_UPSERT_BATCH
 
 
-# Chroma's SQLite backend caps SQL variables (~999 by default). Chunk delete
-# id-lists below that to avoid "too many SQL variables" errors.
-_DELETE_CHUNK_SIZE = 500
+# Chroma 1.x's Rust executor binds multiple SQL params per id internally
+# (id + segment refs), so the practical safe batch is well below SQLite's
+# 999-variable cap. 100 leaves headroom even on older bundled sqlite builds.
+_DELETE_CHUNK_SIZE = 100
 
 
 def _chroma_delete_in_chunks(col: Any, ids: list[str]) -> None:
