@@ -263,8 +263,12 @@ def _resolve_openai_endpoint(mode: EmbedMode) -> tuple[str, str]:
         base = config.bulk_openai_base_url or interactive_base
         api_key = config.bulk_openai_api_key or interactive_key
     else:
-        base = interactive_base
-        api_key = interactive_key
+        if config.bulk_openai_fallback_query:
+            base = interactive_base or config.bulk_openai_base_url
+            api_key = interactive_key or config.bulk_openai_api_key
+        else:
+            base = interactive_base
+            api_key = interactive_key
     return base, api_key
 
 

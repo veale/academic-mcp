@@ -163,6 +163,13 @@ class Config:
     bulk_openai_api_key: str = field(
         default_factory=lambda: os.getenv("BULK_OPENAI_API_KEY", "")
     )
+    # When true (default), the interactive/query path also falls back to the
+    # BULK_OPENAI_* endpoint when OPENAI_BASE_URL / OPENAI_API_KEY are blank.
+    # Set to false to keep interactive queries strictly on the non-bulk endpoint.
+    bulk_openai_fallback_query: bool = field(
+        default_factory=lambda: os.getenv("BULK_OPENAI_FALLBACK_QUERY", "true").lower()
+        in ("true", "1", "yes")
+    )
 
     # ── Cross-encoder reranker (applied to semantic_search_zotero) ────
     # Model ID for sentence-transformers CrossEncoder. Empty string disables
