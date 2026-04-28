@@ -54,30 +54,57 @@ def _ensure_semantic_background_sync(max_age_hours: int = 24) -> None:
 
     async def _runner() -> None:
         try:
+            from .semantic_index import SemanticIndexUnavailable, get_semantic_index
+        except ImportError:
+            from academic_mcp.semantic_index import SemanticIndexUnavailable, get_semantic_index
+
+        _MAX_ATTEMPTS = 5
+        _RETRY_DELAYS = [30, 60, 120, 300]  # seconds between attempts (backoff)
+
+        for attempt in range(1, _MAX_ATTEMPTS + 1):
             try:
-                from .semantic_index import SemanticIndexUnavailable, get_semantic_index
-            except ImportError:
-                from academic_mcp.semantic_index import SemanticIndexUnavailable, get_semantic_index
+                idx = get_semantic_index()
+                status = await idx.status()
+                last_sync = status.get("last_sync")
+                stale = True
+                if isinstance(last_sync, str) and last_sync:
+                    try:
+                        from datetime import datetime, timezone
 
-            idx = get_semantic_index()
-            status = await idx.status()
-            last_sync = status.get("last_sync")
-            stale = True
-            if isinstance(last_sync, str) and last_sync:
-                try:
-                    from datetime import datetime, timezone
-
-                    ts = datetime.fromisoformat(last_sync.replace("Z", "+00:00"))
-                    age_hours = (datetime.now(timezone.utc) - ts).total_seconds() / 3600.0
-                    stale = age_hours > max_age_hours
-                except Exception:
-                    stale = True
-            if stale:
+                        ts = datetime.fromisoformat(last_sync.replace("Z", "+00:00"))
+                        age_hours = (datetime.now(timezone.utc) - ts).total_seconds() / 3600.0
+                        stale = age_hours > max_age_hours
+                    except Exception:
+                        stale = True
+                # Also resume if a previous sync was interrupted (in_progress stuck True).
+                interrupted = bool(status.get("in_progress"))
+                if not stale and not interrupted:
+                    return  # Nothing to do.
+                if interrupted and not stale:
+                    logger.info(
+                        "Background semantic sync: resuming interrupted sync "
+                        "(in_progress=True in status)."
+                    )
                 await idx.sync(force_rebuild=False, include_fulltext=False)
-        except SemanticIndexUnavailable:
-            return
-        except Exception as e:
-            logger.debug("Background semantic sync skipped: %s", e)
+                return  # Completed successfully.
+            except SemanticIndexUnavailable:
+                return  # Not configured — don't retry.
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                if attempt < _MAX_ATTEMPTS:
+                    delay = _RETRY_DELAYS[min(attempt - 1, len(_RETRY_DELAYS) - 1)]
+                    logger.warning(
+                        "Background semantic sync attempt %d/%d failed: %s — "
+                        "retrying in %ds",
+                        attempt, _MAX_ATTEMPTS, e, delay,
+                    )
+                    await asyncio.sleep(delay)
+                else:
+                    logger.error(
+                        "Background semantic sync failed after %d attempts: %s",
+                        _MAX_ATTEMPTS, e,
+                    )
 
     try:
         _semantic_sync_task = asyncio.create_task(_runner())
