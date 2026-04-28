@@ -47,6 +47,57 @@ async def _run_stdio():
         await server.run(read_stream, write_stream, server.create_initialization_options())
 
 
+async def _nightly_sync_loop() -> None:
+    """Run semantic sync once per day at ~02:00 local time if there are unprocessed items.
+
+    Disabled by setting SEMANTIC_NIGHTLY_SYNC=false (default: true).
+    """
+    import os
+    from datetime import datetime, timezone
+
+    if os.getenv("SEMANTIC_NIGHTLY_SYNC", "true").lower() not in ("true", "1", "yes"):
+        return
+
+    logger = logging.getLogger(__name__)
+
+    try:
+        from .server import _ensure_semantic_background_sync
+    except ImportError:
+        from academic_mcp.server import _ensure_semantic_background_sync
+
+    try:
+        from .semantic_index import SemanticIndexUnavailable, get_semantic_index
+    except ImportError:
+        from academic_mcp.semantic_index import SemanticIndexUnavailable, get_semantic_index
+
+    while True:
+        now = datetime.now()
+        # Next 02:00 local time
+        target = now.replace(hour=2, minute=0, second=0, microsecond=0)
+        if target <= now:
+            target = target.replace(day=target.day + 1)
+        wait_seconds = (target - now).total_seconds()
+        logger.debug("Nightly sync scheduler: sleeping %.0fs until %s", wait_seconds, target)
+        await asyncio.sleep(wait_seconds)
+
+        try:
+            idx = get_semantic_index()
+            status = await idx.status()
+            done = status.get("chunks_done", 0)
+            total = status.get("chunks_total", 0)
+            if total > 0 and done < total:
+                logger.info(
+                    "Nightly sync: %d/%d chunks unprocessed — starting sync", total - done, total
+                )
+                _ensure_semantic_background_sync(max_age_hours=0)  # force trigger
+            else:
+                logger.debug("Nightly sync: index complete (%d/%d), skipping", done, total)
+        except SemanticIndexUnavailable:
+            pass
+        except Exception as e:
+            logger.warning("Nightly sync check failed: %s", e)
+
+
 def _run_sse(port: int):
     import os
     from mcp.server.sse import SseServerTransport
@@ -75,10 +126,23 @@ def _run_sse(port: int):
     async def handle_healthz(request):
         return PlainTextResponse("ok")
 
+    async def handle_trigger_sync(request):
+        try:
+            from .server import _ensure_semantic_background_sync
+        except ImportError:
+            from academic_mcp.server import _ensure_semantic_background_sync
+        _ensure_semantic_background_sync(max_age_hours=0)
+        return PlainTextResponse("sync triggered")
+
+    async def _startup():
+        asyncio.create_task(_nightly_sync_loop())
+
     app = Starlette(
+        on_startup=[_startup],
         routes=[
             Route("/sse", endpoint=handle_sse),
             Route("/healthz", endpoint=handle_healthz),
+            Route("/trigger-sync", endpoint=handle_trigger_sync),
             Mount("/messages/", app=sse.handle_post_message),
         ],
     )
