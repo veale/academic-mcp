@@ -248,12 +248,20 @@ def _run_streamable_http(port: int):
             asyncio.create_task(_nightly_sync_loop())
             yield
 
+    # Both `/mcp` and `/mcp/` should reach the streamable-http handler so
+    # clients work with or without the trailing slash. Starlette's Mount
+    # with prefix `/mcp` only matches `/mcp/...`, not `/mcp` exactly, so
+    # we add an explicit Route for the bare path.
+    async def handle_mcp_root(request):
+        await handle_mcp(request.scope, request.receive, request._send)
+
     app = Starlette(
         lifespan=lifespan,
         routes=[
             Route("/healthz", endpoint=handle_healthz),
             Route("/trigger-sync", endpoint=handle_trigger_sync),
-            Mount("/mcp", app=handle_mcp),
+            Route("/mcp", endpoint=handle_mcp_root, methods=["GET", "POST", "DELETE"]),
+            Mount("/mcp/", app=handle_mcp),
         ],
     )
     app = wrap_app(app)
