@@ -14,8 +14,7 @@ dependencies = [
     "python-dotenv>=1.0.0",
     "pyzotero>=1.6.0",       # Zotero API client
     "aiosqlite>=0.20.0",     # Native async SQLite (no thread-pool overhead)
-    "sentence-transformers>=3.0.0",  # Semantic re-ranking (all-MiniLM-L6-v2)
-    "numpy>=1.26.0",         # Required by sentence-transformers
+    "numpy>=1.26.0",         # vector math for reranker / similarity scoring
     "trafilatura>=2.0.0",
     "rank-bm25>=0.2.2",
     "pymupdf4llm>=1.27.0",   # Markdown PDF extraction (tables, multi-column, bold/italic)
@@ -28,6 +27,25 @@ stealth = [
 semantic = [
     "chromadb>=0.5.0",
     "einops>=0.7.0",       # required by nomic-embed-text-v1.5
+]
+# Lightweight ONNX-based reranker for search_papers. ~150 MB total —
+# uses onnxruntime (already pulled in by chromadb) plus a small
+# bi-encoder model (default sentence-transformers/all-MiniLM-L6-v2,
+# ~80 MB on disk). Set RERANKER_PRIMARY=fastembed (or =openrouter with
+# RERANKER_FALLBACK=fastembed) to use it. Bundled in the default Docker
+# image so users can flip the env var without rebuilding.
+fastembed = [
+    "fastembed>=0.3.0",
+]
+# In-process model hosting (sentence-transformers + torch). Heavy: ~4 GB.
+# Only needed if you set RERANKER_PRIMARY=local, want the search_papers
+# bi-encoder reranker, or use SEMANTIC_PROVIDER=local. Without this extra,
+# all three components gracefully degrade (composite scoring / no rerank /
+# clear error) — most users should leave this off and use a hosted reranker
+# (e.g. RERANKER_PRIMARY=openrouter) and a hosted embedder (e.g. local
+# llama-server via SEMANTIC_PROVIDER=openai with OPENAI_BASE_URL).
+local-models = [
+    "sentence-transformers>=3.0.0",
 ]
 # Hosted embedding providers (optional — not used by the default local
 # all-MiniLM-L6-v2 backend). Install one of these alongside [semantic] to

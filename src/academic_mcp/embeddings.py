@@ -165,8 +165,11 @@ def _local_encoder(
                 from sentence_transformers import SentenceTransformer
             except Exception as e:
                 raise EmbedderUnavailable(
-                    "sentence-transformers not installed; run `uv sync --extra semantic` "
-                    "or pip install sentence-transformers."
+                    "Local embedding provider requested but sentence-transformers "
+                    "is not installed. Either install the optional extra "
+                    "(`uv sync --extra local-models`) or use a hosted provider "
+                    "(SEMANTIC_PROVIDER=openai with OPENAI_BASE_URL pointing at "
+                    "a local llama-server, or SEMANTIC_PROVIDER=gemini)."
                 ) from e
             try:
                 kwargs: dict = {}

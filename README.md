@@ -256,31 +256,49 @@ Knobs:
 
 ##### Reranker provider chain
 
-The reranker has a **primary → fallback** chain. Each slot is one of
-`openrouter`, `local`, or `none`:
+The reranker has a **primary → fallback** chain. The same setting governs
+both rerankers in the codebase: the cross-source `search_papers` reranker
+and the `semantic_search_zotero` cross-encoder reranker.
 
-| Provider     | What it does                                                     | Cost / footprint |
-|--------------|------------------------------------------------------------------|------------------|
-| `openrouter` | POST `/v1/rerank` to OpenRouter (default `cohere/rerank-v3.5`).  | ~$2/1k searches; ~150 ms latency; needs `OPENROUTER_API_KEY`. |
-| `local`      | sentence-transformers CrossEncoder (default `BAAI/bge-reranker-v2-m3`). | Free; ~2 GB RAM resident; ~0.5–2 s on CPU. |
-| `none`       | No reranking — return top_k by bi-encoder score.                 | Free; instant; some quality loss. |
+| Provider     | What it does                                                     | Cost / footprint | Used by |
+|--------------|------------------------------------------------------------------|------------------|---------|
+| `openrouter` | POST `/v1/rerank` to OpenRouter (default `cohere/rerank-v3.5`).  | ~$2/1k searches; ~150 ms latency; needs `OPENROUTER_API_KEY`. | both |
+| `fastembed`  | Local ONNX bi-encoder (default `sentence-transformers/all-MiniLM-L6-v2`). Bundled in the default Docker image. | Free; ~50 ms on CPU; ~150 MB total footprint. | `search_papers` only |
+| `local`      | sentence-transformers CrossEncoder (default `BAAI/bge-reranker-v2-m3`). Requires the optional `local-models` extra (`uv sync --extra local-models`); the default Docker image does not include it. | Free; ~2 GB RAM resident; ~0.5–2 s on CPU. | both |
+| `none`       | No reranking — return top_k by bi-encoder score.                 | Free; instant; some quality loss. | both |
+
+`fastembed` is intentionally skipped by the `semantic_search_zotero`
+cross-encoder path: the candidates there were already ranked by the
+ChromaDB bi-encoder, so re-running another bi-encoder over them would
+not improve quality. If you set `RERANKER_PRIMARY=fastembed`, the Zotero
+semantic path will fall through to `RERANKER_FALLBACK` for that route only
+— so a sensible combination is `fastembed` primary + `openrouter` fallback,
+which keeps API searches free/local while still cross-encoder-reranking
+your Zotero semantic results in the cloud.
 
 Defaults: `RERANKER_PRIMARY=openrouter`, `RERANKER_FALLBACK=none`.
 
 Useful combinations:
 
 ```
-# Default. Hosted reranker; if it fails (no key, network error), no rerank.
+# Default — hosted reranker for both pipelines. If OpenRouter fails (no
+# key, network error), no rerank.
 RERANKER_PRIMARY=openrouter
 RERANKER_FALLBACK=none
 
-# Hosted primary, local backup. Best quality + offline-capable;
-# pays the local model's RAM cost.
-RERANKER_PRIMARY=openrouter
-RERANKER_FALLBACK=local
+# Free/offline-friendly: fastembed handles search_papers locally,
+# openrouter handles the cross-encoder Zotero rerank.
+RERANKER_PRIMARY=fastembed
+RERANKER_FALLBACK=openrouter
 
-# Fully offline. No API calls; loads the local model once.
+# Fully offline (heavy). Uses sentence-transformers CrossEncoder — needs
+# `uv sync --extra local-models` and ~2 GB RAM.
 RERANKER_PRIMARY=local
+RERANKER_FALLBACK=none
+
+# No API key, no heavy deps. fastembed reranks API searches; Zotero
+# semantic search returns bi-encoder order unchanged.
+RERANKER_PRIMARY=fastembed
 RERANKER_FALLBACK=none
 
 # Disable reranking entirely.
@@ -288,17 +306,38 @@ RERANKER_PRIMARY=none
 RERANKER_FALLBACK=none
 ```
 
+**Switching to fastembed without a rebuild:** the default Docker image
+already includes `fastembed`. Set `RERANKER_PRIMARY=fastembed` (or
+`RERANKER_FALLBACK=fastembed`) in your container env and recreate the
+container — the model downloads to `$HF_HOME` on first use (~80 MB) and
+persists across recreations.
+
 OpenRouter knobs:
 - `OPENROUTER_API_KEY` — required for the `openrouter` provider.
-- `OPENROUTER_RERANK_MODEL` — default `cohere/rerank-v3.5`.
+- `OPENROUTER_RERANK_MODEL` — default `cohere/rerank-v3.5`. Used by the
+  cross-encoder Zotero reranker.
+- `OPENROUTER_API_RERANK_MODEL` — defaults to whatever
+  `OPENROUTER_RERANK_MODEL` is set to. Override this to use a *different*
+  (typically cheaper) model for the high-volume `search_papers` reranker
+  while keeping the higher-quality default for Zotero semantic results.
 - `OPENROUTER_BASE_URL` — default `https://openrouter.ai/api/v1`.
+
+Over-fetch knobs (apply only to `search_papers`):
+- `RERANKER_OVERFETCH` — default 4. When a reranker is configured, each
+  source is asked for `limit × this` candidates so the reranker has a wider
+  pool to score. Set to 1 to disable over-fetch.
+- `RERANKER_OVERFETCH_CAP` — default 50. Hard cap per source so we don't
+  hammer Semantic Scholar/OpenAlex on a `limit=20` call.
 
 Local knob:
 - `CROSS_RERANKER_MODEL` — default `BAAI/bge-reranker-v2-m3`.
 
 Tip: on a memory-constrained self-hosted deployment, prefer
 `RERANKER_PRIMARY=openrouter`/`RERANKER_FALLBACK=none`. The local model is
-never loaded, saving ~2 GB RAM and avoiding the model download.
+never loaded, saving ~2 GB RAM and avoiding the model download. The default
+Docker image does **not** install `sentence-transformers`/`torch` at all
+(saves ~4 GB image weight) — to use `local`, install the optional extra:
+`uv sync --extra local-models`.
 
 If the index is empty, the semantic fetcher returns nothing cleanly and
 appends a one-time hint to the response telling you to run

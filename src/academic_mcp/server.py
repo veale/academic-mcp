@@ -156,9 +156,14 @@ TOOLS = [
         description=(
             "Search for academic papers across Zotero, Semantic Scholar, and OpenAlex. "
             "Returns a ranked list with metadata, abstracts, and retrieval options.\n\n"
-            "QUERY TIPS: Decompose natural language questions into 2-6 technical keywords. "
+            "QUERY TIPS: Write a hybrid query — a few technical keywords AND a short "
+            "natural-language clause stating the question or scope. The lexical sources "
+            "match on keywords; the semantic embedder and cross-encoder reranker score "
+            "the full intent. "
             "Example: 'How do bees navigate using magnetic fields?' → "
-            "'magnetoreception honeybee navigation geomagnetic'. "
+            "'magnetoreception honeybee navigation geomagnetic — how bees orient using magnetic fields'. "
+            "Avoid pure prose ('How do bees…?') and avoid keyword soup ('bee magnetic') — "
+            "the hybrid form serves both retrieval pipelines. "
             "Use author:LastName to search by author.\n\n"
             "NEXT STEP: Pass the DOIs from results to batch_sections to survey the "
             "structure of multiple papers at once, or fetch_fulltext(mode='sections') "
@@ -190,9 +195,18 @@ TOOLS = [
                 "query": {
                     "type": "string",
                     "description": (
-                        "Search keywords (e.g. 'attention mechanism vision transformer'). "
-                        "Decompose natural language questions into 2-6 technical keywords "
-                        "before calling — VERBATIM queries are discouraged. "
+                        "Search query. The system runs lexical sources (Semantic Scholar, "
+                        "OpenAlex, Zotero) AND semantic sources (ChromaDB embeddings + "
+                        "cross-encoder rerank) over the same string, so write queries that "
+                        "serve both: a few precise technical keywords plus a short clause "
+                        "stating intent or scope. "
+                        "Example: 'magnetoreception honeybee navigation — how do bees use "
+                        "magnetic fields to orient'. "
+                        "The keywords drive lexical recall; the trailing clause gives the "
+                        "semantic embedder and reranker enough signal to score relevance "
+                        "well. Avoid pure prose questions ('How do bees…?') — the keyword "
+                        "head still matters. Avoid keyword-only soup ('bee magnetic') — the "
+                        "reranker scores worse without context. "
                         "Use author:LastName to search by author."
                     ),
                 },
@@ -664,9 +678,9 @@ TOOLS = [
             "  search_papers → batch_sections(dois=[...]) → search_in_article or "
             "  fetch_fulltext(mode='section').\n"
             "This avoids loading the entire text into context.\n\n"
-            "QUERY TIPS: Decompose questions into 2-6 keywords. "
-            "Example: 'CRISPR gene editing advances' not 'What are the latest "
-            "advances in CRISPR gene editing?'"
+            "QUERY TIPS: Write a hybrid query — keywords plus a short clause stating "
+            "intent. Both retrieval pipelines (lexical + semantic+reranker) are run. "
+            "Example: 'CRISPR gene editing advances — recent breakthroughs in clinical applications'."
         ),
         inputSchema={
             "type": "object",
@@ -1334,6 +1348,19 @@ async def _collect_search_results(args: dict) -> list[dict]:
     query = args["query"]
     limit = min(args.get("limit", 5), 20)
     source = args.get("source", "all")
+
+    # When a reranker is configured, over-fetch from each source so the
+    # reranker has a wider candidate pool to score. The caller still sees
+    # the same ranked output; the only cost is API quota. Falls back to
+    # the requested limit when reranking is disabled.
+    _rerank_on = (
+        (config.reranker_primary or "none").lower() not in ("none", "off", "disabled")
+        or (config.reranker_fallback or "none").lower() not in ("none", "off", "disabled")
+    )
+    if _rerank_on:
+        per_source_limit = min(limit * config.reranker_overfetch, config.reranker_overfetch_cap)
+    else:
+        per_source_limit = limit
     start_year = args.get("start_year")
     end_year = args.get("end_year")
     venue = args.get("venue")
@@ -1355,7 +1382,7 @@ async def _collect_search_results(args: dict) -> list[dict]:
     async def fetch_zotero_lex() -> list[dict]:
         out: list[dict] = []
         zot_results = await zotero.search_zotero(
-            query, limit=limit,
+            query, limit=per_source_limit,
             start_year=start_year, end_year=end_year,
         )
         for item in zot_results:
@@ -1405,7 +1432,7 @@ async def _collect_search_results(args: dict) -> list[dict]:
                     return []
             except Exception:
                 pass
-            fetch_n = max(limit, config.cross_reranker_fetch or 50)
+            fetch_n = max(per_source_limit, config.cross_reranker_fetch or 50)
             chunks = await idx.search(query, k=fetch_n)
         except SemanticIndexUnavailable:
             return []
@@ -1430,7 +1457,7 @@ async def _collect_search_results(args: dict) -> list[dict]:
             if ik and ik not in seen_keys:
                 seen_keys.add(ik)
                 unique_hits.append(h)
-            if len(unique_hits) >= limit:
+            if len(unique_hits) >= per_source_limit:
                 break
 
         out: list[dict] = []
@@ -1468,7 +1495,7 @@ async def _collect_search_results(args: dict) -> list[dict]:
     async def fetch_s2() -> list[dict]:
         out: list[dict] = []
         s2 = await apis.s2_search(
-            query, limit=limit,
+            query, limit=per_source_limit,
             start_year=start_year, end_year=end_year,
         )
         for paper in s2.get("data", []):
@@ -1493,7 +1520,7 @@ async def _collect_search_results(args: dict) -> list[dict]:
     async def fetch_openalex() -> list[dict]:
         out: list[dict] = []
         oa = await apis.openalex_search(
-            query, limit=limit,
+            query, limit=per_source_limit,
             start_year=start_year, end_year=end_year, venue=venue,
         )
         for work in oa.get("results", []):
@@ -1533,7 +1560,7 @@ async def _collect_search_results(args: dict) -> list[dict]:
 
     async def fetch_primo() -> list[dict]:
         primo_results = await apis.primo_search(
-            query, limit=limit,
+            query, limit=per_source_limit,
             start_year=start_year, end_year=end_year,
         )
         out: list[dict] = []
@@ -1546,7 +1573,7 @@ async def _collect_search_results(args: dict) -> list[dict]:
 
     async def fetch_primo_law() -> list[dict]:
         law_results = await apis.primo_search_law_reviews(
-            query, limit=limit,
+            query, limit=per_source_limit,
             start_year=start_year, end_year=end_year,
         )
         out: list[dict] = []

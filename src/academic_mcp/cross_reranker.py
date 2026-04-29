@@ -44,7 +44,17 @@ def _get_local_cross_encoder():
     model_name = config.cross_reranker_model or "BAAI/bge-reranker-v2-m3"
     try:
         from sentence_transformers import CrossEncoder  # type: ignore
+    except ImportError:
+        logger.warning(
+            "cross_reranker: 'local' provider requested but sentence-transformers "
+            "is not installed. Either install the optional extra "
+            "(`uv sync --extra local-models`) or set RERANKER_PRIMARY/FALLBACK "
+            "to 'openrouter' or 'none'."
+        )
+        _cross_encoder = None
+        return None
 
+    try:
         logger.info("cross_reranker: loading local CrossEncoder %s", model_name)
         _cross_encoder = CrossEncoder(model_name)
         logger.info("cross_reranker: local CrossEncoder loaded")
@@ -163,6 +173,18 @@ def _run_provider(
         return _rerank_openrouter(query, chunks, top_k)
     if n == "local":
         return _rerank_local(query, chunks, top_k)
+    if n == "fastembed":
+        # fastembed is a bi-encoder — using it as the cross-encoder over
+        # ChromaDB candidates would noticeably degrade ranking quality
+        # (the bi-encoder already produced the candidate scores). The
+        # search_papers reranker uses fastembed; this module deliberately
+        # does not. Skip to fallback.
+        logger.info(
+            "cross_reranker: 'fastembed' is not supported here (bi-encoder "
+            "would not improve over candidate scores); skipping to fallback. "
+            "Use 'openrouter' or 'local' for semantic_search_zotero reranking."
+        )
+        return None
     if n in ("", "none", "off", "disabled"):
         return None
     logger.warning("cross_reranker: unknown provider %r — skipping", name)

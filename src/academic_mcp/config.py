@@ -196,8 +196,29 @@ class Config:
     openrouter_rerank_model: str = field(
         default_factory=lambda: os.getenv("OPENROUTER_RERANK_MODEL", "cohere/rerank-v3.5")
     )
+    # Override the rerank model for the search_papers (cross-source) reranker
+    # specifically, leaving the cross-encoder Zotero reranker on the higher-
+    # quality default. Useful for cost — e.g. set this to a cheaper model
+    # if you do many search_papers calls.
+    openrouter_api_rerank_model: str = field(
+        default_factory=lambda: os.getenv(
+            "OPENROUTER_API_RERANK_MODEL",
+            os.getenv("OPENROUTER_RERANK_MODEL", "cohere/rerank-v3.5"),
+        )
+    )
     openrouter_base_url: str = field(
         default_factory=lambda: os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+    )
+
+    # Over-fetch multiplier applied to per-source limits in search_papers
+    # when reranking is enabled. Higher → bigger candidate pool for the
+    # reranker to choose from → better top-N quality. Capped at 50/source
+    # to avoid hammering APIs.
+    reranker_overfetch: int = field(
+        default_factory=lambda: max(1, int(os.getenv("RERANKER_OVERFETCH", "4")))
+    )
+    reranker_overfetch_cap: int = field(
+        default_factory=lambda: max(5, int(os.getenv("RERANKER_OVERFETCH_CAP", "50")))
     )
 
     # Number of chunks to retrieve from Chroma BEFORE reranking.

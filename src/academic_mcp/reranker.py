@@ -1,17 +1,31 @@
-"""Semantic re-ranking using sentence-transformers.
+"""Re-ranking for cross-source academic search results.
 
-Computes cosine similarity between the user query and each result's
-abstract (or title as fallback) using the lightweight all-MiniLM-L6-v2
-model. Designed for the M4 Mac's CPU/Neural Engine — runs in milliseconds
-on batches of 20-40 items.
+Used by ``search_papers`` (Semantic Scholar / OpenAlex / Zotero / Primo)
+to reorder a merged candidate list by relevance to the query. Distinct
+from :mod:`cross_reranker`, which reranks chunks for ``semantic_search_zotero``.
 
-Safety constraints:
-  - All model inference runs via asyncio.to_thread to avoid blocking the
-    event loop.
-  - Embeddings are computed only for the current result batch (never
-    cached across requests) to keep RAM usage minimal.
-  - If the model fails to load (missing dependency, OOM, etc.), the
-    module silently falls back to the original composite scoring.
+Provider chain (shared with cross_reranker via ``RERANKER_PRIMARY`` /
+``RERANKER_FALLBACK``):
+
+  * ``openrouter`` — POST /v1/rerank to OpenRouter (cohere/rerank-v3.5).
+    Cross-encoder quality, ~150 ms latency, requires OPENROUTER_API_KEY.
+  * ``fastembed``  — local ONNX bi-encoder via fastembed (default
+    ``sentence-transformers/all-MiniLM-L6-v2``). Tiny footprint, ~50 ms
+    on CPU, no network. Bi-encoder quality (rougher than cross-encoder).
+  * ``local``      — sentence-transformers SentenceTransformer. Same
+    quality as fastembed but pulls in torch (~4 GB). Requires the
+    ``local-models`` extra.
+  * ``none``       — no semantic rerank; sort by composite score
+    (zotero-bonus, OA, citations, recency, breadth).
+
+Zotero items are always promoted to the top tier regardless of provider.
+
+Configuration:
+  * ``RERANKER_PRIMARY``           — default ``openrouter``
+  * ``RERANKER_FALLBACK``          — default ``none``
+  * ``OPENROUTER_API_KEY``         — required for openrouter
+  * ``OPENROUTER_RERANK_MODEL``    — default ``cohere/rerank-v3.5``
+  * ``FASTEMBED_RERANK_MODEL``     — default ``sentence-transformers/all-MiniLM-L6-v2``
 """
 
 from __future__ import annotations
@@ -19,75 +33,22 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
+import os
 from typing import Any
+
+from .config import config
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Lazy model loading with graceful fallback
-# ---------------------------------------------------------------------------
-
-_model = None
-_model_load_failed = False
-
-
-def _load_model():
-    """Load the sentence-transformers model (once). Returns None on failure."""
-    global _model, _model_load_failed
-    if _model is not None:
-        return _model
-    if _model_load_failed:
-        return None
-    try:
-        from sentence_transformers import SentenceTransformer
-        _model = SentenceTransformer("all-MiniLM-L6-v2")
-        logger.info("Loaded sentence-transformers model: all-MiniLM-L6-v2")
-        return _model
-    except Exception as e:
-        _model_load_failed = True
-        logger.warning(
-            "sentence-transformers unavailable, falling back to composite scoring: %s", e
-        )
-        return None
-
 
 # ---------------------------------------------------------------------------
-# Cosine similarity computation (runs in thread via asyncio.to_thread)
-# ---------------------------------------------------------------------------
-
-def _compute_similarities(query: str, texts: list[str]) -> list[float]:
-    """Compute cosine similarities between query and each text.
-
-    Returns a list of floats in [0, 1] (cosine similarity).
-    Runs synchronously — caller wraps in asyncio.to_thread.
-    """
-    model = _load_model()
-    if model is None:
-        return []
-
-    import numpy as np
-
-    # Encode query + all texts in a single batch for efficiency
-    all_inputs = [query] + texts
-    embeddings = model.encode(all_inputs, normalize_embeddings=True)
-
-    query_emb = embeddings[0]
-    text_embs = embeddings[1:]
-
-    # Cosine similarity with normalized vectors = dot product
-    similarities = np.dot(text_embs, query_emb).tolist()
-    return similarities
-
-
-# ---------------------------------------------------------------------------
-# Fallback composite scoring (original logic)
+# Composite (no-rerank) fallback
 # ---------------------------------------------------------------------------
 
 _CURRENT_YEAR = 2026
 
 
 def _composite_score(r: dict) -> tuple:
-    """Original composite scoring — used when semantic model is unavailable."""
     zotero_bonus = 1 if r.get("in_zotero") else 0
     oa_bonus = 1 if r.get("has_oa_pdf") else 0
     cites = math.log1p(r.get("citations") or 0)
@@ -97,48 +58,198 @@ def _composite_score(r: dict) -> tuple:
     return (zotero_bonus, oa_bonus, breadth, cites, recency)
 
 
+def _result_text(r: dict) -> str:
+    text = r.get("abstract") or r.get("title") or ""
+    if text.startswith("[Preview from"):
+        idx = text.find("]: ")
+        if idx > 0:
+            text = text[idx + 3:]
+    return text
+
+
+# ---------------------------------------------------------------------------
+# Provider: local sentence-transformers (heavy)
+# ---------------------------------------------------------------------------
+
+_local_model = None
+_local_load_attempted = False
+
+
+def _load_local_model():
+    global _local_model, _local_load_attempted
+    if _local_load_attempted:
+        return _local_model
+    _local_load_attempted = True
+    try:
+        from sentence_transformers import SentenceTransformer
+    except ImportError:
+        logger.info(
+            "reranker: 'local' provider requested but sentence-transformers "
+            "is not installed. Install the optional extra "
+            "(`uv sync --extra local-models`) or use 'fastembed' / 'openrouter' / 'none'."
+        )
+        return None
+    try:
+        _local_model = SentenceTransformer("all-MiniLM-L6-v2")
+        logger.info("reranker: loaded local SentenceTransformer all-MiniLM-L6-v2")
+    except Exception as e:
+        logger.warning("reranker: local model load failed: %s", e)
+        _local_model = None
+    return _local_model
+
+
+def _score_local(query: str, texts: list[str]) -> list[float] | None:
+    model = _load_local_model()
+    if model is None:
+        return None
+    import numpy as np
+    embs = model.encode([query] + list(texts), normalize_embeddings=True)
+    return np.dot(embs[1:], embs[0]).tolist()
+
+
+# ---------------------------------------------------------------------------
+# Provider: fastembed (lightweight ONNX bi-encoder)
+# ---------------------------------------------------------------------------
+
+_fastembed_model = None
+_fastembed_load_attempted = False
+
+
+def _load_fastembed_model():
+    global _fastembed_model, _fastembed_load_attempted
+    if _fastembed_load_attempted:
+        return _fastembed_model
+    _fastembed_load_attempted = True
+    try:
+        from fastembed import TextEmbedding  # type: ignore
+    except ImportError:
+        logger.info(
+            "reranker: 'fastembed' provider requested but fastembed is not "
+            "installed. Install with `uv sync --extra fastembed` (or `pip "
+            "install fastembed`). Falling through to fallback provider."
+        )
+        return None
+    model_name = os.getenv(
+        "FASTEMBED_RERANK_MODEL",
+        "sentence-transformers/all-MiniLM-L6-v2",
+    )
+    try:
+        _fastembed_model = TextEmbedding(model_name=model_name)
+        logger.info("reranker: loaded fastembed %s", model_name)
+    except Exception as e:
+        logger.warning("reranker: fastembed load failed: %s", e)
+        _fastembed_model = None
+    return _fastembed_model
+
+
+def _score_fastembed(query: str, texts: list[str]) -> list[float] | None:
+    model = _load_fastembed_model()
+    if model is None:
+        return None
+    import numpy as np
+    embs = list(model.embed([query] + list(texts)))
+    arr = np.array(embs)
+    norms = np.linalg.norm(arr, axis=1, keepdims=True)
+    arr = arr / np.clip(norms, 1e-12, None)
+    return np.dot(arr[1:], arr[0]).tolist()
+
+
+# ---------------------------------------------------------------------------
+# Provider: OpenRouter rerank API (cross-encoder quality)
+# ---------------------------------------------------------------------------
+
+def _score_openrouter(query: str, texts: list[str]) -> list[float] | None:
+    api_key = config.openrouter_api_key
+    if not api_key:
+        return None
+    try:
+        import httpx
+    except ImportError:
+        return None
+    payload = {
+        "model": config.openrouter_api_rerank_model,
+        "query": query,
+        "documents": texts,
+        "top_n": len(texts),
+    }
+    url = config.openrouter_base_url.rstrip("/") + "/rerank"
+    try:
+        resp = httpx.post(
+            url,
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            json=payload,
+            timeout=15.0,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as e:
+        logger.warning("reranker: openrouter call failed: %r", e)
+        return None
+    results = data.get("results") or []
+    scores = [0.0] * len(texts)
+    for r in results:
+        idx = r.get("index")
+        if idx is None or not (0 <= idx < len(texts)):
+            continue
+        scores[idx] = float(r.get("relevance_score", 0.0))
+    return scores
+
+
+# ---------------------------------------------------------------------------
+# Provider dispatch
+# ---------------------------------------------------------------------------
+
+def _score(provider: str, query: str, texts: list[str]) -> list[float] | None:
+    p = (provider or "").lower()
+    if p == "openrouter":
+        return _score_openrouter(query, texts)
+    if p == "fastembed":
+        return _score_fastembed(query, texts)
+    if p == "local":
+        return _score_local(query, texts)
+    if p in ("", "none", "off", "disabled"):
+        return None
+    logger.warning("reranker: unknown provider %r — skipping", provider)
+    return None
+
+
+def _compute_similarities(query: str, texts: list[str]) -> list[float]:
+    """Try primary then fallback. Returns [] if neither produces scores."""
+    for provider in (config.reranker_primary, config.reranker_fallback):
+        scores = _score(provider, query, texts)
+        if scores is not None:
+            return scores
+    return []
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
 async def rerank_results(query: str, results: list[dict]) -> list[dict]:
-    """Re-rank search results by semantic similarity to the query.
+    """Re-rank search results by relevance to the query.
 
-    - Zotero items are always boosted to the top tier.
-    - Within each tier (zotero / non-zotero), results are sorted by
-      cosine similarity to the query embedding.
-    - If the model is unavailable, falls back to composite scoring.
-
-    This function is safe to call from the async event loop — all model
-    inference is offloaded to a thread.
+    Zotero items are always promoted to the top tier. Within each tier,
+    results are sorted by the configured rerank provider's score; if all
+    providers miss, falls back to composite scoring.
     """
     if not results:
         return results
 
-    # Build text representations for each result (abstract preferred, title fallback)
-    texts = []
-    for r in results:
-        text = r.get("abstract") or r.get("title") or ""
-        # Strip preview prefixes from Zotero fulltext previews
-        if text.startswith("[Preview from"):
-            idx = text.find("]: ")
-            if idx > 0:
-                text = text[idx + 3:]
-        texts.append(text)
+    texts = [_result_text(r) for r in results]
 
-    # Compute similarities in a thread (non-blocking)
     try:
         similarities = await asyncio.to_thread(_compute_similarities, query, texts)
     except Exception as e:
-        logger.warning("Semantic re-ranking failed, using composite scoring: %s", e)
+        logger.warning("reranker: scoring failed, using composite: %s", e)
         similarities = []
 
     if similarities and len(similarities) == len(results):
-        # Attach similarity scores to results
         for r, sim in zip(results, similarities):
             r["_semantic_similarity"] = round(sim, 4)
-
-        # Sort: Zotero tier first, then by semantic similarity descending
         results.sort(
             key=lambda r: (
                 1 if r.get("in_zotero") else 0,
@@ -147,7 +258,6 @@ async def rerank_results(query: str, results: list[dict]) -> list[dict]:
             reverse=True,
         )
     else:
-        # Fallback to composite scoring
         results.sort(key=_composite_score, reverse=True)
 
     return results

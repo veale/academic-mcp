@@ -22,14 +22,30 @@ WORKDIR /app
 # Bring in lockfile + project metadata first to maximise layer cache.
 COPY pyproject.toml uv.lock README.md ./
 
-# Install deps into /app/.venv.  The [semantic] extra pulls chromadb and
-# sentence-transformers (needed for the reranker).  Stealth is NOT
-# installed; Scrapling sidecar handles browser work.
-RUN uv sync --frozen --no-install-project --extra semantic
+# Install deps into /app/.venv.
+#
+# Extras:
+#   semantic        — chromadb + einops (needed for the index)
+#   semantic-openai — openai client (used to talk to a local llama-server
+#                     for embeddings via SEMANTIC_PROVIDER=openai)
+#   fastembed       — lightweight ONNX bi-encoder for the search_papers
+#                     reranker (~150 MB total). Activated by setting
+#                     RERANKER_PRIMARY=fastembed (or as fallback). Skipped
+#                     by the cross-encoder reranker (semantic_search_zotero).
+#
+# NOT installed (kept out to keep the image small):
+#   local-models    — sentence-transformers + torch (~4 GB). Without it,
+#                     the local cross-encoder, the search_papers bi-encoder
+#                     reranker, and SEMANTIC_PROVIDER=local all gracefully
+#                     degrade. Use a hosted reranker (RERANKER_PRIMARY=openrouter)
+#                     and a hosted embedder instead.
+#   stealth         — scrapling browser deps; the scrapling-mcp sidecar
+#                     handles browser work.
+RUN uv sync --frozen --no-install-project --extra semantic --extra semantic-openai --extra fastembed
 
 # Copy source and install the project itself.
 COPY src/ ./src/
-RUN uv sync --frozen --extra semantic
+RUN uv sync --frozen --extra semantic --extra semantic-openai --extra fastembed
 
 # Runtime env defaults.  Every one of these is overridable at `docker run` time.
 ENV PYTHONUNBUFFERED=1 \
@@ -41,7 +57,9 @@ ENV PYTHONUNBUFFERED=1 \
     ZOTERO_LOCAL_STORAGE=/zotero/storage \
     ZOTERO_LOCAL_ENABLED=false \
     HF_HOME=/var/cache/academic-mcp/hf \
-    SENTENCE_TRANSFORMERS_HOME=/var/cache/academic-mcp/hf/sentence-transformers
+    SENTENCE_TRANSFORMERS_HOME=/var/cache/academic-mcp/hf/sentence-transformers \
+    RERANKER_PRIMARY=openrouter \
+    RERANKER_FALLBACK=none
 
 # Cache and data directories.  All writable volumes.
 RUN mkdir -p /var/cache/academic-mcp/pdfs \
