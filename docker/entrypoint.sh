@@ -19,4 +19,4 @@ if [ -n "${ZOTERO_SQLITE_PATH:-}" ] && [ ! -f "${ZOTERO_SQLITE_PATH}" ]; then
     echo "      return errors until the sqlite file appears."
 fi
 
-exec uv run python -m academic_mcp --transport sse --port "${MCP_PORT:-8765}"
+exec uv run python -m academic_mcp --transport "${MCP_TRANSPORT:-streamable-http}" --port "${MCP_PORT:-8765}"

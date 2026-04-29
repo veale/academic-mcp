@@ -17,7 +17,7 @@ except ImportError:
 def main():
     parser = argparse.ArgumentParser(description="Academic Research MCP Server")
     parser.add_argument(
-        "--transport", choices=["stdio", "sse"], default="stdio",
+        "--transport", choices=["stdio", "sse", "streamable-http"], default="stdio",
         help="Transport mode (default: stdio)",
     )
     parser.add_argument(
@@ -39,6 +39,8 @@ def main():
         asyncio.run(_run_stdio())
     elif args.transport == "sse":
         _run_sse(args.port)
+    elif args.transport == "streamable-http":
+        _run_streamable_http(args.port)
 
 
 async def _run_stdio():
@@ -168,6 +170,90 @@ def _run_sse(port: int):
             Route("/healthz", endpoint=handle_healthz),
             Route("/trigger-sync", endpoint=handle_trigger_sync),
             Mount("/messages/", app=sse.handle_post_message),
+        ],
+    )
+    app = wrap_app(app)
+
+    host = os.getenv("MCP_HOST", "0.0.0.0")
+    port = int(os.getenv("MCP_PORT", str(port)))
+    uvicorn.run(app, host=host, port=port)
+
+
+def _run_streamable_http(port: int):
+    """Run the server over MCP streamable HTTP transport.
+
+    Single-endpoint chunked-HTTP transport (one POST per request, response
+    streams back on the same connection). Avoids the SSE dual-channel
+    session-loss failure mode.
+
+    Mount path: /mcp  (clients should connect to https://host/mcp).
+    """
+    import os
+    from contextlib import asynccontextmanager
+
+    from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+    from starlette.applications import Starlette
+    from starlette.routing import Mount, Route
+    from starlette.responses import PlainTextResponse
+    import uvicorn
+
+    try:
+        from .auth import wrap_app
+    except ImportError:
+        from academic_mcp.auth import wrap_app
+
+    session_manager = StreamableHTTPSessionManager(
+        app=server,
+        json_response=False,
+        stateless=False,
+    )
+
+    async def handle_mcp(scope, receive, send):
+        await zotero_import.ensure_auto_import_initialized()
+        await session_manager.handle_request(scope, receive, send)
+
+    async def handle_healthz(request):
+        return PlainTextResponse("ok")
+
+    async def handle_trigger_sync(request):
+        import json as _json
+        try:
+            from .server import _ensure_semantic_background_sync, _semantic_sync_task
+        except ImportError:
+            from academic_mcp.server import _ensure_semantic_background_sync, _semantic_sync_task
+
+        already_running = bool(_semantic_sync_task and not _semantic_sync_task.done())
+        _ensure_semantic_background_sync(max_age_hours=0)
+
+        info = {
+            "already_running_before_call": already_running,
+            "task_running_now": bool(_semantic_sync_task and not _semantic_sync_task.done()),
+        }
+        return PlainTextResponse(_json.dumps(info))
+
+    async def _startup_sync():
+        await asyncio.sleep(5)
+        try:
+            from .server import _ensure_semantic_background_sync
+        except ImportError:
+            from academic_mcp.server import _ensure_semantic_background_sync
+        import logging as _logging
+        _logging.getLogger(__name__).info("Startup: triggering semantic index sync check")
+        _ensure_semantic_background_sync(max_age_hours=0)
+
+    @asynccontextmanager
+    async def lifespan(app):
+        async with session_manager.run():
+            asyncio.create_task(_startup_sync())
+            asyncio.create_task(_nightly_sync_loop())
+            yield
+
+    app = Starlette(
+        lifespan=lifespan,
+        routes=[
+            Route("/healthz", endpoint=handle_healthz),
+            Route("/trigger-sync", endpoint=handle_trigger_sync),
+            Mount("/mcp", app=handle_mcp),
         ],
     )
     app = wrap_app(app)
