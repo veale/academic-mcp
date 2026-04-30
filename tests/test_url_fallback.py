@@ -152,7 +152,8 @@ class TestUrlTierDirectPdf:
     async def test_url_landing_page_falls_back_to_stealth_extraction(self):
         """Non-PDF URL with stealth browser enabled → _extract_from_landing_page called."""
         from academic_mcp import text_cache
-        from academic_mcp.server import _handle_fetch_pdf, _extract_from_landing_page
+        from academic_mcp.server import _handle_fetch_pdf
+        from academic_mcp.core.fetch import _extract_from_landing_page
 
         test_url = "https://university.example/thesis"
         cache_key = _url_cache_key(test_url)
@@ -172,7 +173,7 @@ class TestUrlTierDirectPdf:
         }
 
         with patch("academic_mcp.pdf_fetcher.fetch_direct", return_value=None), \
-             patch("academic_mcp.server._extract_from_landing_page",
+             patch("academic_mcp.core.fetch._extract_from_landing_page",
                    new=AsyncMock(return_value=lp_result)) as mock_lp, \
              patch.object(text_cache, "get_cached", side_effect=[None, None, cached_article]), \
              patch.object(text_cache, "put_cached", return_value=cached_article), \

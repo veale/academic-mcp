@@ -2068,9 +2068,10 @@ def _format_full_body(fa) -> str:
 
 def _format_failure(fa) -> list[TextContent]:
     """Render a failure response from fa.error and fa.failure_hints."""
-    parts = [fa.error or "Unknown error"]
-    parts.extend(fa.failure_hints)
-    return [TextContent(type="text", text="\n".join(parts))]
+    text = fa.error or "Unknown error"
+    if fa.failure_hints:
+        text = text + "\n" + "".join(fa.failure_hints)
+    return [TextContent(type="text", text=text)]
 
 
 def _format_fetched_for_mcp(fa) -> list[TextContent]:
@@ -2110,9 +2111,24 @@ def _format_fetched_for_mcp(fa) -> list[TextContent]:
 async def _handle_fetch_pdf(args: dict) -> list[TextContent]:
     try:
         from .core import fetch as core_fetch
+        from .core.types import ArticleId
     except ImportError:
         from academic_mcp.core import fetch as core_fetch
-    article = await core_fetch.fetch_article(args)
+        from academic_mcp.core.types import ArticleId
+    article = await core_fetch.fetch_article(
+        ArticleId(
+            doi=args.get("doi"),
+            zotero_key=args.get("zotero_key"),
+            url=args.get("url"),
+        ),
+        mode=args.get("mode", "sections"),
+        section=args.get("section"),
+        range_start=args.get("range_start"),
+        range_end=args.get("range_end"),
+        use_proxy=args.get("use_proxy", False),
+        pages=args.get("pages"),
+        source=args.get("source", "auto"),
+    )
     return _format_fetched_for_mcp(article)
 
 async def _handle_search_and_read(args: dict) -> list[TextContent]:

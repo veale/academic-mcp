@@ -62,10 +62,7 @@ async def _nightly_sync_loop() -> None:
 
     logger = logging.getLogger(__name__)
 
-    try:
-        from .server import _ensure_semantic_background_sync
-    except ImportError:
-        from academic_mcp.server import _ensure_semantic_background_sync
+    from .core.background import _ensure_semantic_background_sync
 
     try:
         from .semantic_index import SemanticIndexUnavailable, get_semantic_index
@@ -130,17 +127,15 @@ def _run_sse(port: int):
 
     async def handle_trigger_sync(request):
         import json as _json
-        try:
-            from .server import _ensure_semantic_background_sync, _semantic_sync_task
-        except ImportError:
-            from academic_mcp.server import _ensure_semantic_background_sync, _semantic_sync_task
+        from .core import background as _bg
+        from .core.background import _ensure_semantic_background_sync
 
-        already_running = bool(_semantic_sync_task and not _semantic_sync_task.done())
+        already_running = bool(_bg._semantic_sync_task and not _bg._semantic_sync_task.done())
         _ensure_semantic_background_sync(max_age_hours=0)
 
         info = {
             "already_running_before_call": already_running,
-            "task_running_now": bool(_semantic_sync_task and not _semantic_sync_task.done()),
+            "task_running_now": bool(_bg._semantic_sync_task and not _bg._semantic_sync_task.done()),
         }
         return PlainTextResponse(_json.dumps(info))
 
@@ -149,13 +144,10 @@ def _run_sse(port: int):
     async def _startup_sync():
         # Give uvicorn a moment to finish binding before we start background work.
         await asyncio.sleep(5)
-        try:
-            from .server import _ensure_semantic_background_sync
-        except ImportError:
-            from academic_mcp.server import _ensure_semantic_background_sync
+        from .core.background import _ensure_semantic_background_sync as _sync
         import logging as _logging
         _logging.getLogger(__name__).info("Startup: triggering semantic index sync check")
-        _ensure_semantic_background_sync(max_age_hours=0)
+        _sync(max_age_hours=0)
 
     @asynccontextmanager
     async def lifespan(app):
@@ -217,29 +209,24 @@ def _run_streamable_http(port: int):
 
     async def handle_trigger_sync(request):
         import json as _json
-        try:
-            from .server import _ensure_semantic_background_sync, _semantic_sync_task
-        except ImportError:
-            from academic_mcp.server import _ensure_semantic_background_sync, _semantic_sync_task
+        from .core import background as _bg
+        from .core.background import _ensure_semantic_background_sync
 
-        already_running = bool(_semantic_sync_task and not _semantic_sync_task.done())
+        already_running = bool(_bg._semantic_sync_task and not _bg._semantic_sync_task.done())
         _ensure_semantic_background_sync(max_age_hours=0)
 
         info = {
             "already_running_before_call": already_running,
-            "task_running_now": bool(_semantic_sync_task and not _semantic_sync_task.done()),
+            "task_running_now": bool(_bg._semantic_sync_task and not _bg._semantic_sync_task.done()),
         }
         return PlainTextResponse(_json.dumps(info))
 
     async def _startup_sync():
         await asyncio.sleep(5)
-        try:
-            from .server import _ensure_semantic_background_sync
-        except ImportError:
-            from academic_mcp.server import _ensure_semantic_background_sync
+        from .core.background import _ensure_semantic_background_sync as _sync
         import logging as _logging
         _logging.getLogger(__name__).info("Startup: triggering semantic index sync check")
-        _ensure_semantic_background_sync(max_age_hours=0)
+        _sync(max_age_hours=0)
 
     @asynccontextmanager
     async def lifespan(app):

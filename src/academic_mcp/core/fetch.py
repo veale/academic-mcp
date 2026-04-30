@@ -2,7 +2,7 @@
 
 Contains:
 - Per-DOI async locking primitives
-- Formatting helpers (_format_citation_header, _apply_mode_filter, etc.)
+- Formatting helpers (_apply_mode_filter, etc.)
 - fetch_article(args) — the full retrieval pipeline
 """
 
@@ -51,42 +51,6 @@ async def _get_doi_lock(doi: str) -> asyncio.Lock:
         if doi not in _doi_locks:
             _doi_locks[doi] = asyncio.Lock()
         return _doi_locks[doi]
-
-
-# ---------------------------------------------------------------------------
-# Citation header formatter
-# ---------------------------------------------------------------------------
-
-def _format_citation_header(doi: str, metadata: dict | None = None) -> str:
-    """Format a short citation block for prepending to article text.
-
-    Returns an empty string if no metadata is available.
-    """
-    if not metadata:
-        return ""
-
-    parts = []
-    if metadata.get("title"):
-        parts.append(f"Title: {metadata['title']}")
-    if metadata.get("authors"):
-        authors = metadata["authors"]
-        if isinstance(authors, list):
-            if len(authors) <= 3:
-                parts.append(f"Authors: {', '.join(authors)}")
-            else:
-                parts.append(f"Authors: {', '.join(authors[:3])} et al.")
-        elif isinstance(authors, str):
-            parts.append(f"Authors: {authors}")
-    if metadata.get("year"):
-        parts.append(f"Year: {metadata['year']}")
-    if metadata.get("venue"):
-        parts.append(f"Venue: {metadata['venue']}")
-    parts.append(f"DOI: {doi}")
-
-    if not parts:
-        return ""
-
-    return "── Citation ──\n" + "\n".join(parts) + "\n──────────────\n\n"
 
 
 # ---------------------------------------------------------------------------
@@ -237,25 +201,10 @@ def _apply_mode_filter(
     range_start: int | None,
     range_end: int | None,
 ) -> FetchedArticle:
-    """Apply a mode filter to a cached article and return formatted text."""
+    """Apply mode filter: populate structured fields, set fa.text to raw slice."""
     doi = cached.doi
 
-    # Prepend citation header for all modes except "sections"
-    if mode != "sections":
-        citation_header = _format_citation_header(doi, cached.metadata)
-    else:
-        citation_header = ""
-
     if mode == "sections":
-        det = cached.section_detection
-        det_note = {
-            "html_headings":    "html_headings (high confidence — publisher <h2>/<h3> tags)",
-            "pdf_font_analysis": "pdf_font_analysis (reliable — font-size threshold on spans)",
-            "text_heuristic":   "text_heuristic (approximate — regex on plain text)",
-            "keyword_skeleton": "keyword_skeleton (TF-IDF chunks — no structural headings found)",
-            "unknown":          "unknown (migrated cache entry)",
-        }.get(det, det)
-
         structured_sections: list[Section] = []
 
         if not cached.sections:
@@ -268,22 +217,12 @@ def _apply_mode_filter(
                     section_detection="keyword_skeleton",
                     word_count=cached.word_count,
                 )
-                lines = [
-                    f"Document map for DOI: {doi}\n"
-                    f"Source: {cached.source}\n"
-                    "Navigation: keyword_skeleton (no structural headings detected)\n",
-                    "=" * 60 + "\n",
-                ]
                 total = len(skeleton)
                 for chunk in skeleton:
-                    kw = ", ".join(chunk.get("keywords", []))
                     wc = chunk.get("word_count", 0)
                     start = chunk.get("start", 0)
                     end = chunk.get("end", 0)
                     n = chunk.get("chunk", 0)
-                    lines.append(
-                        f"[{n}/{total}]  chars {start:,}–{end:,} ({wc} words): {kw}\n"
-                    )
                     structured_sections.append(Section(
                         title=f"[{n}/{total}]",
                         char_start=start,
@@ -293,18 +232,6 @@ def _apply_mode_filter(
                         word_count=wc,
                         is_infill=True,
                     ))
-                lines += [
-                    "\n",
-                    f"→ fetch_fulltext(doi=\"{doi}\", mode=\"range\", range_start=N, range_end=M)\n",
-                    f"→ search_in_article(doi=\"{doi}\", terms=[\"keyword\"])\n",
-                ]
-                text = "".join(lines)
-            else:
-                text = (
-                    f"No sections detected for DOI: {doi}\n"
-                    f"Section detection: {det_note}\n"
-                    "Try mode='full' to read the entire text.\n"
-                )
 
         else:
             # Per-section TF-IDF keywords (structural sections only — infill gets
@@ -317,16 +244,6 @@ def _apply_mode_filter(
             display_sections = content_extractor.infill_keyword_chunks(
                 cached.text, cached.sections
             )
-            has_infill = any(s.get("_infill") for s in display_sections)
-
-            effective_det_note = (det_note + " + keyword infill") if has_infill else det_note
-
-            lines = [
-                f"Sections for DOI: {doi}\n"
-                f"Source: {cached.source}\n"
-                f"Section detection: {effective_det_note}\n",
-                "=" * 60 + "\n",
-            ]
 
             # Build an index from section start offset → keyword list so we can
             # look up keywords quickly while iterating display_sections.
@@ -342,13 +259,8 @@ def _apply_mode_filter(
                 end = entry.get("end", 0)
 
                 if entry.get("_infill"):
-                    kw = ", ".join(entry.get("keywords", []))
-                    title = entry["title"]
-                    lines.append(
-                        f"  {title} chars {start:,}–{end:,} ({wc} words): {kw}\n"
-                    )
                     structured_sections.append(Section(
-                        title=title,
+                        title=entry["title"],
                         char_start=start,
                         char_end=end,
                         level=3,
@@ -357,15 +269,7 @@ def _apply_mode_filter(
                         is_infill=True,
                     ))
                 else:
-                    indent = "  " if entry.get("level", 2) == 3 else ""
                     kw_list = kw_by_start.get(start, [])
-                    kw_str = ", ".join(kw_list) if kw_list else ""
-                    lines.append(
-                        f"{indent}[{structural_idx}] {entry['title']}  ({wc} words, chars {start:,}–{end:,})\n"
-                    )
-                    if kw_str:
-                        lines.append(f"{indent}    → {kw_str}\n")
-                    structural_idx += 1
                     structured_sections.append(Section(
                         title=entry["title"],
                         char_start=start,
@@ -375,13 +279,7 @@ def _apply_mode_filter(
                         word_count=wc,
                         is_infill=False,
                     ))
-
-            lines += [
-                "\n",
-                f"→ fetch_fulltext(doi=\"{doi}\", mode=\"range\", range_start=N, range_end=M)\n",
-                f"→ search_in_article(doi=\"{doi}\", terms=[\"keyword\"])\n",
-            ]
-            text = "".join(lines)
+                    structural_idx += 1
 
         fa = _cached_article_result(cached, "")
         fa.mode = FetchMode.sections
@@ -427,7 +325,6 @@ def _apply_mode_filter(
             return fa
         end = match.get("end") or len(cached.text)
         section_text = cached.text[match["start"]:end]
-        # Truncate raw section text if needed (formatter adds header overhead)
         if len(section_text) > config.max_context_length:
             section_text = section_text[:config.max_context_length]
         fa = _cached_article_result(cached, section_text)
@@ -444,7 +341,6 @@ def _apply_mode_filter(
     if mode == "preview":
         preview_chunks: list[PreviewChunk] = []
         if not cached.sections:
-            # No section data — return first 2 000 chars as a preview
             preview_chunks.append(PreviewChunk(
                 section_title=None,
                 text=cached.text[:2000],
@@ -465,7 +361,6 @@ def _apply_mode_filter(
                     word_count_shown=len(abs_text.split()),
                 ))
             else:
-                # Show pre-first-heading preamble (likely abstract)
                 first_start = cached.sections[0]["start"] if cached.sections else len(cached.text)
                 if first_start > 0:
                     preamble = cached.text[:first_start]
@@ -524,55 +419,6 @@ def _apply_mode_filter(
 # PDF extraction helpers
 # ---------------------------------------------------------------------------
 
-def _format_extracted_pdf(
-    pdf_source: "Path | bytes", doi: str, source: str, pages_str: str | None = None,
-) -> FetchedArticle:
-    """Extract text from a PDF file (Path preferred) and format as a tool response."""
-    if pages_str:
-        parts = pages_str.split("-")
-        start = int(parts[0])
-        end = int(parts[1]) if len(parts) > 1 else start
-        extracted_text = pdf_extractor.extract_text_by_pages(pdf_source, start, end)
-        return FetchedArticle(
-            doi=doi,
-            text=(
-                f"Extracted text from pages {pages_str} of DOI: {doi}\n"
-                f"Source: {source}\n\n"
-                f"{extracted_text}"
-            ),
-            source=source,
-        )
-
-    result = pdf_extractor.extract_text(pdf_source)
-
-    header = (
-        f"Full text extracted from DOI: {doi}\n"
-        f"Source: {source}\n"
-        f"Pages: {result['pages']}\n"
-        f"Truncated: {result['truncated']}\n"
-    )
-
-    if result["metadata"].get("title"):
-        header += f"PDF Title: {result['metadata']['title']}\n"
-
-    if result["sections"]:
-        header += "Sections: " + ", ".join(
-            s["title"] for s in result["sections"][:15]
-        ) + "\n"
-
-    header += "\n" + "=" * 60 + "\n\n"
-
-    return FetchedArticle(
-        doi=doi,
-        text=header + result["text"],
-        source=source,
-        sections=result.get("sections") or [],
-        section_detection="pdf_font_analysis",
-        word_count=len(result["text"].split()),
-        truncated=bool(result.get("truncated")),
-    )
-
-
 def _cache_pdf_and_return(
     pdf_source: "Path | bytes",
     doi: str,
@@ -596,7 +442,16 @@ def _cache_pdf_and_return(
         return fa
 
     if pages_str:
-        return _format_extracted_pdf(pdf_source, doi, source, pages_str)
+        parts = pages_str.split("-")
+        start_page = int(parts[0])
+        end_page = int(parts[1]) if len(parts) > 1 else start_page
+        extracted_text = pdf_extractor.extract_text_by_pages(pdf_source, start_page, end_page)
+        return FetchedArticle(
+            doi=doi,
+            text=extracted_text,
+            source=f"pages {pages_str} ({source})",
+            mode=FetchMode.full,
+        )
 
     if config.use_pymupdf4llm:
         result = pdf_extractor.extract_text_pymupdf4llm(pdf_source)
@@ -608,7 +463,6 @@ def _cache_pdf_and_return(
     pdf_meta: dict = {}
     if result["metadata"]:
         pdf_meta["title"] = result["metadata"].get("title", "")
-        # Authors may be in the PDF metadata
         if result["metadata"].get("author"):
             pdf_meta["authors"] = result["metadata"]["author"].split(",") if isinstance(result["metadata"]["author"], str) else result["metadata"]["author"]
 
@@ -623,51 +477,14 @@ def _cache_pdf_and_return(
     # Queue for background Zotero import (non-blocking; only when we have a file)
     if isinstance(pdf_source, Path):
         zotero_import.enqueue_zotero_import(doi, pdf_source, cached_article)
-        # Surface startup/probe issues immediately on the same response.
         hint = zotero_import.get_auto_import_hint(doi)
         if hint:
             logger.warning("Auto-import warning for %s: %s", doi, hint)
 
-    if mode != "full":
-        _pdf_path_for_mode = str(pdf_source) if isinstance(pdf_source, Path) else None
-        fa = _apply_mode_filter(cached_article, mode, section_name, range_start, range_end)
-        fa.pdf_path = fa.pdf_path or _pdf_path_for_mode
-        fa.cache_key = fa.cache_key or text_cache._cache_key(doi)
-        return _append_import_hint(fa)
-
-    # mode == "full" — format exactly as _format_extracted_pdf does
-    header = (
-        f"Full text extracted from DOI: {doi}\n"
-        f"Source: {source}\n"
-        f"Pages: {result['pages']}\n"
-        f"Truncated: {result['truncated']}\n"
-    )
-    if result["metadata"].get("title"):
-        header += f"PDF Title: {result['metadata']['title']}\n"
-    if result["sections"]:
-        header += "Sections: " + ", ".join(
-            s["title"] for s in result["sections"][:15]
-        ) + "\n"
-    header += "\n" + "=" * 60 + "\n\n"
-
-    # Add citation header for full mode
-    citation_header = _format_citation_header(doi, pdf_meta)
-    full_text = header + raw_text
-    if len(full_text) > config.max_context_length:
-        full_text = full_text[:config.max_context_length] + "\n\n[... TRUNCATED ...]"
     _pdf_path = str(pdf_source) if isinstance(pdf_source, Path) else None
-    fa = FetchedArticle(
-        doi=doi,
-        text=citation_header + full_text,
-        source=source,
-        sections=cached_article.sections or [],
-        section_detection=cached_article.section_detection or "pdf_font_analysis",
-        word_count=cached_article.word_count or 0,
-        metadata=pdf_meta,
-        truncated=bool(result.get("truncated")),
-        pdf_path=_pdf_path,
-        cache_key=text_cache._cache_key(doi),
-    )
+    fa = _apply_mode_filter(cached_article, mode, section_name, range_start, range_end)
+    fa.pdf_path = fa.pdf_path or _pdf_path
+    fa.cache_key = fa.cache_key or text_cache._cache_key(doi)
     return _append_import_hint(fa)
 
 
@@ -675,16 +492,27 @@ def _cache_pdf_and_return(
 # Main fetch pipeline
 # ---------------------------------------------------------------------------
 
-async def fetch_article(args: dict) -> FetchedArticle:
+async def fetch_article(
+    identifier: "ArticleId",
+    mode: str = "sections",
+    section: str | None = None,
+    range_start: int | None = None,
+    range_end: int | None = None,
+    use_proxy: bool = False,
+    pages: str | None = None,
+    source: str = "auto",
+    _original_ssrn_doi: str | None = None,
+) -> FetchedArticle:
     """Full article retrieval pipeline.
 
     Tries (in order): article cache, Zotero, URL tier, SSRN remapping,
     external APIs (S2/OA/Unpaywall), direct HTTP, CORE.ac.uk, web search,
     DOI landing page, proxied fetch, stealth browser, HeinOnline, SSRN cookies.
     """
-    zotero_key = (args.get("zotero_key") or "").strip() or None
-    doi = args.get("doi")
-    url = (args.get("url") or "").strip() or None
+    from .types import ArticleId as _ArticleId  # local import avoids circular at module level
+    zotero_key = (identifier.zotero_key or "").strip() or None
+    doi = identifier.doi
+    url = (identifier.url or "").strip() or None
     if not doi and not zotero_key and not url:
         _msg = "fetch_fulltext requires at least one of 'doi', 'zotero_key', or 'url'."
         return FetchedArticle(doi="", text=_msg, error=_msg)
@@ -695,13 +523,9 @@ async def fetch_article(args: dict) -> FetchedArticle:
         # URL-only: synthesize a stable cache key from the URL hash.
         _url_hash = hashlib.sha256(url.encode("utf-8")).hexdigest()[:16]
         doi = f"url:{_url_hash}"
-    use_proxy = args.get("use_proxy", False)
-    pages_str = args.get("pages")
-    mode = args.get("mode", "sections")
-    section_name = args.get("section")
-    range_start = args.get("range_start")
-    range_end = args.get("range_end")
-    force_html = args.get("source", "auto") == "html"
+    pages_str = pages
+    section_name = section
+    force_html = source == "html"
 
     # Initialize variables for failure message
     html = None
@@ -823,41 +647,9 @@ async def fetch_article(args: dict) -> FetchedArticle:
                             word_count=len(raw_text.split()),
                             metadata=zot_meta,
                         )
-                        if mode != "full":
-                            result = _apply_mode_filter(
-                                cached_article, mode, section_name, range_start, range_end
-                            )
-                        else:
-                            header = f"Full text from Zotero (already indexed) for DOI: {doi}\n"
-                            header += f"Source: {zot_result['source']}\n"
-                            if zot_result.get("indexed_pages") and zot_result.get("total_pages"):
-                                header += f"Pages indexed: {zot_result['indexed_pages']}/{zot_result['total_pages']}\n"
-                            if zot_result.get("truncated"):
-                                header += (
-                                    "⚠ WARNING: Text is TRUNCATED — Zotero only indexed "
-                                    f"{zot_result.get('indexed_pages', '?')}/{zot_result.get('total_pages', '?')} pages. "
-                                    "Increase in Zotero > Settings > Search > PDF Indexing, reindex, and sync.\n"
-                                    "Alternatively, use fetch_fulltext with use_proxy=true to get the full PDF.\n"
-                                )
-                            header += "=" * 60 + "\n\n"
-                            text = header + raw_text
-                            if len(text) > config.max_context_length:
-                                text = text[:config.max_context_length] + "\n\n[... TRUNCATED ...]"
-                            result = FetchedArticle(
-                                doi=doi,
-                                text=text,
-                                source=zot_result["source"],
-                                sections=cached_article.sections or [],
-                                section_detection=cached_article.section_detection or "text_heuristic",
-                                word_count=cached_article.word_count or 0,
-                                metadata=zot_meta,
-                                truncated=bool(zot_result.get("truncated")),
-                            )
-
-                        # Add citation header for full mode
-                        if result is not None and mode == "full":
-                            citation_header = _format_citation_header(doi, zot_meta)
-                            result.text = citation_header + result.text
+                        result = _apply_mode_filter(
+                            cached_article, mode, section_name, range_start, range_end
+                        )
 
                     # Got PDF path from Zotero — extract text from disk
                     elif zot_result.get("pdf_path"):
@@ -955,31 +747,9 @@ async def fetch_article(args: dict) -> FetchedArticle:
                                             word_count=_lp["word_count"],
                                             metadata={"url": url},
                                         )
-                                        if mode != "full":
-                                            result = _apply_mode_filter(
-                                                _cached_lp, mode, section_name, range_start, range_end
-                                            )
-                                        else:
-                                            _text = (
-                                                f"Full text extracted from URL: {url}\n"
-                                                f"Source: {_lp['source']}\n"
-                                                f"Word count: {_lp['word_count']}\n"
-                                                f"{'=' * 60}\n\n" + _raw
-                                            )
-                                            if len(_text) > config.max_context_length:
-                                                _text = (
-                                                    _text[:config.max_context_length]
-                                                    + "\n\n[... TRUNCATED — full text exceeds context limit ...]"
-                                                )
-                                            result = FetchedArticle(
-                                                doi=doi,
-                                                text=_text,
-                                                source=_lp["source"],
-                                                sections=_cached_lp.sections or [],
-                                                section_detection=_cached_lp.section_detection or "unknown",
-                                                word_count=_cached_lp.word_count or 0,
-                                                metadata={"url": url},
-                                            )
+                                        result = _apply_mode_filter(
+                                            _cached_lp, mode, section_name, range_start, range_end
+                                        )
                             except Exception as _ue3:
                                 logger.info("URL tier: landing-page extraction failed for %s: %s", url, _ue3)
 
@@ -1002,7 +772,7 @@ async def fetch_article(args: dict) -> FetchedArticle:
                     # any OA PDF URLs before doing any network fetching.  We skip this
                     # when re-entering the pipeline via a remap (to avoid recursion).
                     _ssrn_remap: dict | None = None
-                    if doi.startswith("10.2139/ssrn.") and not args.get("_original_ssrn_doi"):
+                    if doi.startswith("10.2139/ssrn.") and not _original_ssrn_doi:
                         async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as _c:
                             _ssrn_remap = await apis.resolve_ssrn_doi(doi, _c)
 
@@ -1021,11 +791,13 @@ async def fetch_article(args: dict) -> FetchedArticle:
                         if result is None and (_ssrn_remap or {}).get("published_doi"):
                             _pub_doi = _ssrn_remap["published_doi"]
                             logger.info("SSRN %s → published %s", doi, _pub_doi)
-                            result = await fetch_article({
-                                **args,
-                                "doi": _pub_doi,
-                                "_original_ssrn_doi": doi,
-                            })
+                            result = await fetch_article(
+                                _ArticleId(doi=_pub_doi),
+                                mode=mode, section=section_name,
+                                range_start=range_start, range_end=range_end,
+                                use_proxy=use_proxy, pages=pages_str, source=source,
+                                _original_ssrn_doi=doi,
+                            )
 
                         # If still nothing, try title-based search for a published version
                         if result is None and (_ssrn_remap or {}).get("title"):
@@ -1038,11 +810,13 @@ async def fetch_article(args: dict) -> FetchedArticle:
                                     "SSRN title search %r → %s",
                                     _ssrn_remap["title"][:60], _title_remap["published_doi"],
                                 )
-                                result = await fetch_article({
-                                    **args,
-                                    "doi": _title_remap["published_doi"],
-                                    "_original_ssrn_doi": doi,
-                                })
+                                result = await fetch_article(
+                                    _ArticleId(doi=_title_remap["published_doi"]),
+                                    mode=mode, section=section_name,
+                                    range_start=range_start, range_end=range_end,
+                                    use_proxy=use_proxy, pages=pages_str, source=source,
+                                    _original_ssrn_doi=doi,
+                                )
 
                     # ── Step 1: Gather candidate PDF URLs from external APIs ────────
                     s2_paper = None
@@ -1209,32 +983,9 @@ async def fetch_article(args: dict) -> FetchedArticle:
                                     word_count=lp["word_count"],
                                     metadata=cite_meta,
                                 )
-                                if mode != "full":
-                                    result = _apply_mode_filter(
-                                        cached_article, mode, section_name, range_start, range_end
-                                    )
-                                else:
-                                    text = (
-                                        f"Full text extracted from DOI: {doi}\n"
-                                        f"Source: {lp['source']}\n"
-                                        f"Word count: {lp['word_count']}\n"
-                                        f"{'=' * 60}\n\n" + raw_text
-                                    )
-                                    if len(text) > config.max_context_length:
-                                        text = (
-                                            text[:config.max_context_length]
-                                            + "\n\n[... TRUNCATED — full text exceeds context limit ...]"
-                                        )
-                                    citation_header = _format_citation_header(doi, cite_meta)
-                                    result = FetchedArticle(
-                                        doi=doi,
-                                        text=citation_header + text,
-                                        source=lp["source"],
-                                        sections=cached_article.sections or [],
-                                        section_detection=cached_article.section_detection or "unknown",
-                                        word_count=cached_article.word_count or 0,
-                                        metadata=cite_meta,
-                                    )
+                                result = _apply_mode_filter(
+                                    cached_article, mode, section_name, range_start, range_end
+                                )
 
                     if force_html:
                         doi_url = (
@@ -1283,32 +1034,9 @@ async def fetch_article(args: dict) -> FetchedArticle:
                                             word_count=html_words,
                                             metadata=cite_meta,
                                         )
-                                    if mode != "full":
-                                        result = _apply_mode_filter(
-                                            cached_article, mode, section_name, range_start, range_end
-                                        )
-                                    else:
-                                        text = (
-                                            f"Full text extracted from DOI: {doi}\n"
-                                            f"Source: {html_source}\n"
-                                            f"Word count: {extraction['word_count']}\n"
-                                            f"{'=' * 60}\n\n" + raw_text
-                                        )
-                                        if len(text) > config.max_context_length:
-                                            text = (
-                                                text[:config.max_context_length]
-                                                + "\n\n[... TRUNCATED — full text exceeds context limit ...]"
-                                            )
-                                        citation_header = _format_citation_header(doi, cite_meta)
-                                        result = FetchedArticle(
-                                            doi=doi,
-                                            text=citation_header + text,
-                                            source=html_source,
-                                            sections=cached_article.sections or [],
-                                            section_detection=cached_article.section_detection or "unknown",
-                                            word_count=cached_article.word_count or 0,
-                                            metadata=cite_meta,
-                                        )
+                                    result = _apply_mode_filter(
+                                        cached_article, mode, section_name, range_start, range_end
+                                    )
 
                     # ── Step 4: Proxied fetch on candidates (institutional access) ───
                     if result is None and use_proxy and config.gost_proxy_url:
@@ -1399,7 +1127,7 @@ async def fetch_article(args: dict) -> FetchedArticle:
 
                     # ── Failure ──────────────────────────────────────────────────────
                     if result is None:
-                        _original_doi = args.get("_original_ssrn_doi") or doi
+                        _original_doi = _original_ssrn_doi or doi
                         _is_ssrn = _original_doi.startswith("10.2139/ssrn.")
 
                         if _is_ssrn:
@@ -1412,7 +1140,7 @@ async def fetch_article(args: dict) -> FetchedArticle:
                                     f"https://doi.org/{_ssrn_remap['published_doi']} — "
                                     "try fetch_fulltext on that DOI if available.\n"
                                 )
-                            lines = [
+                            _ssrn_lines = [
                                 f"Could not retrieve {_original_doi} automatically "
                                 "(SSRN blocks bots).\n\n",
                                 "**Surface this clickable link to the user so they can grab it themselves:**\n\n",
@@ -1426,28 +1154,29 @@ async def fetch_article(args: dict) -> FetchedArticle:
                                 _pub_note,
                                 "\nOnce the paper is available, re-run this request.",
                             ]
+                            _ssrn_text = "".join(_ssrn_lines)
+                            result = FetchedArticle(
+                                doi=doi, text=_ssrn_text, source="", error=_ssrn_text,
+                            )
                         else:
                             sources_tried = [c["source"] for c in candidate_urls]
                             doi_url = f"https://doi.org/{doi}"
-                            lines = [
-                                f"Could not retrieve full text for DOI: {doi}\n",
-                                f"Sources tried: {', '.join(sources_tried) or 'none found'}\n",
-                            ]
+                            _hints: list[str] = []
 
                             if not use_proxy and config.gost_proxy_url:
-                                lines.append(
+                                _hints.append(
                                     "\n→ Try with institutional proxy: "
                                     f"fetch_fulltext(doi=\"{doi}\", use_proxy=true)\n"
                                 )
                             elif not config.gost_proxy_url:
-                                lines.append(
+                                _hints.append(
                                     "\n→ No institutional proxy configured. If you have institutional access, "
                                     "configure GOST_PROXY_URL in .env.\n"
                                 )
 
-                            lines.append(f"→ Check available URLs: find_pdf_urls(doi=\"{doi}\")\n")
-                            lines.append(f"→ Verify metadata: get_paper(identifier=\"{doi}\")\n")
-                            lines.append(
+                            _hints.append(f"→ Check available URLs: find_pdf_urls(doi=\"{doi}\")\n")
+                            _hints.append(f"→ Verify metadata: get_paper(identifier=\"{doi}\")\n")
+                            _hints.append(
                                 f"\n**Ask the user to:**\n"
                                 f"1. Open {doi_url} in their browser and download the PDF\n"
                                 f"2. Save it to Zotero, or attach the PDF to this conversation\n"
@@ -1455,12 +1184,20 @@ async def fetch_article(args: dict) -> FetchedArticle:
                             )
 
                             if html and not extraction:
-                                lines.append(
+                                _hints.append(
                                     "\n\nNote: The publisher page was reached but the full article text was not "
                                     "available — likely behind a paywall. Only the abstract could be accessed.\n"
                                 )
 
-                        result = FetchedArticle(doi=doi, text="".join(lines), source="", error="".join(lines))
+                            _sources_str = ", ".join(sources_tried) or "none found"
+                            result = FetchedArticle(
+                                doi=doi,
+                                text="",
+                                source="",
+                                error=f"Could not retrieve full text for DOI: {doi}\nSources tried: {_sources_str}",
+                                failure_hints=_hints,
+                                attempted_sources=sources_tried,
+                            )
     finally:
         # Cleanup: remove the lock if nobody else is waiting on it
         async with _doi_locks_lock:

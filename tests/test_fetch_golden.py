@@ -174,13 +174,20 @@ async def _call_fetch(args: dict, cached) -> str:
     verify the full formatter pipeline, not the raw FetchedArticle.text field.
     """
     from academic_mcp.core import fetch as core_fetch
+    from academic_mcp.core.types import ArticleId
     from academic_mcp import text_cache
     from academic_mcp.server import _format_fetched_for_mcp
 
     with patch.object(text_cache, "get_cached", return_value=cached), \
          patch("academic_mcp.zotero_import.get_auto_import_hint", return_value=None), \
          patch("academic_mcp.config.config.use_pymupdf4llm", False):
-        result = await core_fetch.fetch_article(args)
+        result = await core_fetch.fetch_article(
+            ArticleId(doi=args.get("doi")),
+            mode=args.get("mode", "sections"),
+            section=args.get("section"),
+            range_start=args.get("range_start"),
+            range_end=args.get("range_end"),
+        )
     return _format_fetched_for_mcp(result)[0].text
 
 
@@ -268,6 +275,7 @@ async def test_pdf_full(pdf_cached):
 
 async def test_failure_all_sources():
     from academic_mcp.core import fetch as core_fetch
+    from academic_mcp.core.types import ArticleId
     from academic_mcp import text_cache
     from academic_mcp.server import _format_fetched_for_mcp
 
@@ -283,6 +291,6 @@ async def test_failure_all_sources():
          patch("academic_mcp.config.config.brave_search_api_key", ""), \
          patch("academic_mcp.config.config.ssrn_cookies", ""), \
          patch("academic_mcp.config.config.gost_proxy_url", ""):
-        result = await core_fetch.fetch_article({"doi": _FAIL_DOI})
+        result = await core_fetch.fetch_article(ArticleId(doi=_FAIL_DOI))
 
     _check_or_save("failure", _format_fetched_for_mcp(result)[0].text)
