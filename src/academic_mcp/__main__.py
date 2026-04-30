@@ -232,6 +232,11 @@ def _run_streamable_http(port: int):
 
     @asynccontextmanager
     async def lifespan(app):
+        # Starlette doesn't propagate lifespan to mounted FastAPI sub-apps,
+        # so init the webapp DB explicitly here.
+        if _webapp_enabled:
+            from .http.persistence import init_db as _init_webapp_db
+            await _init_webapp_db()
         async with session_manager.run():
             asyncio.create_task(_startup_sync())
             asyncio.create_task(_nightly_sync_loop())

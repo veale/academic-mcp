@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Link, useSearch } from '@tanstack/react-router'
+import { useSearch, useRouter } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import {
   fetchArticleMeta,
@@ -59,6 +59,18 @@ export function ArticlePage() {
   const { doi, zotero_key, url, q } = useSearch({ from: '/article' })
   const identifier = doi ?? zotero_key ?? url ?? ''
   const toast = useToast()
+  const router = useRouter()
+
+  const goBackToSearch = () => {
+    // Prefer browser back so the previous /?q=... URL (with results, scroll
+    // position, etc.) is restored exactly. Fall back to a fresh search page
+    // if the user landed here directly (no history).
+    if (window.history.length > 1) {
+      router.history.back()
+    } else {
+      void router.navigate({ to: '/' })
+    }
+  }
 
   const { data: meta, isLoading: metaLoading, error: metaError } = useQuery({
     queryKey: ['article-meta', doi, zotero_key, url],
@@ -159,7 +171,7 @@ export function ArticlePage() {
   if (metaError || !meta) {
     return (
       <div className="max-w-3xl mx-auto px-4 py-8">
-        <Link to="/" className="text-sm text-blue-600 hover:underline">← Back</Link>
+        <button onClick={goBackToSearch} className="text-sm text-blue-600 hover:underline">← Back</button>
         <p className="text-sm text-red-600 mt-4">Failed to load article.</p>
       </div>
     )
@@ -191,7 +203,7 @@ export function ArticlePage() {
     <div className="flex flex-col h-screen overflow-hidden">
       {/* Header bar */}
       <header className="flex items-center gap-3 px-4 py-2 border-b bg-white shrink-0 min-w-0">
-        <Link to="/" className="text-sm text-blue-600 hover:underline shrink-0">← Search</Link>
+        <button onClick={goBackToSearch} className="text-sm text-blue-600 hover:underline shrink-0">← Search</button>
         <h1 className="text-sm font-medium truncate min-w-0 flex-1">{title}</h1>
         <div className="flex items-center gap-2 shrink-0">
           {q && (

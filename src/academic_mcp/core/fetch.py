@@ -188,8 +188,8 @@ def _cached_article_result(
         metadata=dict(cached.metadata or {}),
         error=error,
         truncated=truncated,
-        pdf_path=pdf_path,
-        html_path=html_path,
+        pdf_path=pdf_path or cached.pdf_path,
+        html_path=html_path or cached.html_path,
         cache_key=text_cache._cache_key(str(cached.doi or "")),
     )
 
@@ -687,16 +687,23 @@ async def fetch_article(
                             creators = item.get("creators", [])
                             if creators:
                                 zot_meta["authors"] = [c.get("lastName", "") or c.get("firstName", "") for c in creators]
+                        # Capture local PDF path when Zotero has the file on disk —
+                        # the fulltext-text branch shouldn't lose access to the PDF viewer.
+                        _zot_pdf = zot_result.get("pdf_path")
+                        _zot_pdf_str = str(_zot_pdf) if _zot_pdf else None
                         cached_article = text_cache.put_cached(
                             doi, raw_text, zot_result["source"],
                             sections=sections,
                             section_detection="text_heuristic",
                             word_count=len(raw_text.split()),
                             metadata=zot_meta,
+                            pdf_path=_zot_pdf_str,
                         )
                         result = _apply_mode_filter(
                             cached_article, mode, section_name, range_start, range_end
                         )
+                        if _zot_pdf_str:
+                            result.pdf_path = result.pdf_path or _zot_pdf_str
 
                     # Got PDF path from Zotero — extract text from disk
                     elif zot_result.get("pdf_path"):

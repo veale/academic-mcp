@@ -664,6 +664,15 @@ async def get_paper_from_zotero(doi: str) -> dict | None:
         tc = ft.get("totalChars")
         if (ip and tp and ip < tp) or (ic and tc and ic < tc):
             result["truncated"] = True
+        # Also record local PDF path so the webapp can serve it for the
+        # PDF viewer — without this, fulltext-indexed items lose access
+        # to their original PDF.  Best-effort; ignore failures.
+        try:
+            local_pdf = await get_pdf_from_local_storage(att_key)
+            if local_pdf:
+                result["pdf_path"] = local_pdf
+        except Exception as _e:
+            logger.debug("Local PDF lookup failed for %s: %s", att_key, _e)
         # Update cache
         entry["has_fulltext"] = True
         _save_index(index)
@@ -745,6 +754,12 @@ async def get_paper_from_zotero_by_key(key: str) -> dict | None:
         tc = ft.get("totalChars")
         if (ip and tp and ip < tp) or (ic and tc and ic < tc):
             result["truncated"] = True
+        try:
+            local_pdf = await get_pdf_from_local_storage(att_key)
+            if local_pdf:
+                result["pdf_path"] = local_pdf
+        except Exception as _e:
+            logger.debug("Local PDF lookup failed for %s: %s", att_key, _e)
         return result
 
     pdf = await get_pdf_from_local_storage(att_key)
