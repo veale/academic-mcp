@@ -168,15 +168,20 @@ def _check_or_save(name: str, actual: str) -> None:
 
 
 async def _call_fetch(args: dict, cached) -> str:
-    """Call fetch_article with the given cached article injected into the cache."""
+    """Call fetch_article with the given cached article injected into the cache.
+
+    Returns the MCP-formatted text (via _format_fetched_for_mcp) so that goldens
+    verify the full formatter pipeline, not the raw FetchedArticle.text field.
+    """
     from academic_mcp.core import fetch as core_fetch
     from academic_mcp import text_cache
+    from academic_mcp.server import _format_fetched_for_mcp
 
     with patch.object(text_cache, "get_cached", return_value=cached), \
          patch("academic_mcp.zotero_import.get_auto_import_hint", return_value=None), \
          patch("academic_mcp.config.config.use_pymupdf4llm", False):
         result = await core_fetch.fetch_article(args)
-    return result.text
+    return _format_fetched_for_mcp(result)[0].text
 
 
 # ---------------------------------------------------------------------------
@@ -264,6 +269,7 @@ async def test_pdf_full(pdf_cached):
 async def test_failure_all_sources():
     from academic_mcp.core import fetch as core_fetch
     from academic_mcp import text_cache
+    from academic_mcp.server import _format_fetched_for_mcp
 
     with patch.object(text_cache, "get_cached", return_value=None), \
          patch("academic_mcp.zotero.get_paper_from_zotero", new=AsyncMock(return_value=None)), \
@@ -279,4 +285,4 @@ async def test_failure_all_sources():
          patch("academic_mcp.config.config.gost_proxy_url", ""):
         result = await core_fetch.fetch_article({"doi": _FAIL_DOI})
 
-    _check_or_save("failure", result.text)
+    _check_or_save("failure", _format_fetched_for_mcp(result)[0].text)

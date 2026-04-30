@@ -383,9 +383,10 @@ def _apply_mode_filter(
             ]
             text = "".join(lines)
 
-        fa = _cached_article_result(cached, citation_header + text)
+        fa = _cached_article_result(cached, "")
         fa.mode = FetchMode.sections
         fa.available_sections = structured_sections
+        fa.text = ""
         return fa
 
     if mode == "section":
@@ -426,16 +427,10 @@ def _apply_mode_filter(
             return fa
         end = match.get("end") or len(cached.text)
         section_text = cached.text[match["start"]:end]
-        header = (
-            f"Section: {match['title']}\n"
-            f"DOI: {doi}\n"
-            f"Source: {cached.source}\n"
-            + "=" * 60 + "\n\n"
-        )
-        full = header + section_text
-        if len(full) > config.max_context_length:
-            full = full[:config.max_context_length] + "\n\n[... TRUNCATED ...]"
-        fa = _cached_article_result(cached, citation_header + full)
+        # Truncate raw section text if needed (formatter adds header overhead)
+        if len(section_text) > config.max_context_length:
+            section_text = section_text[:config.max_context_length]
+        fa = _cached_article_result(cached, section_text)
         fa.mode = FetchMode.section
         fa.matched_section = Section(
             title=match["title"],
@@ -447,22 +442,15 @@ def _apply_mode_filter(
         return fa
 
     if mode == "preview":
-        lines = [
-            f"Preview for DOI: {doi}\nSource: {cached.source}\n",
-            "=" * 60 + "\n\n",
-        ]
         preview_chunks: list[PreviewChunk] = []
         if not cached.sections:
             # No section data — return first 2 000 chars as a preview
-            lines.append(cached.text[:2000])
             preview_chunks.append(PreviewChunk(
                 section_title=None,
                 text=cached.text[:2000],
                 word_count_total=len(cached.text.split()),
                 word_count_shown=len(cached.text[:2000].split()),
             ))
-            if len(cached.text) > 2000:
-                lines.append(f"\n\n[... {len(cached.text) - 2000} more characters — use mode='full' ...]")
         else:
             abstract_sec = next(
                 (s for s in cached.sections if "abstract" in s["title"].lower()), None
@@ -470,9 +458,6 @@ def _apply_mode_filter(
             if abstract_sec:
                 end = abstract_sec.get("end") or len(cached.text)
                 abs_text = cached.text[abstract_sec["start"]:end]
-                lines.append(f"## {abstract_sec['title']}\n")
-                lines.append(abs_text)
-                lines.append("\n\n")
                 preview_chunks.append(PreviewChunk(
                     section_title=abstract_sec["title"],
                     text=abs_text,
@@ -484,8 +469,6 @@ def _apply_mode_filter(
                 first_start = cached.sections[0]["start"] if cached.sections else len(cached.text)
                 if first_start > 0:
                     preamble = cached.text[:first_start]
-                    lines.append(preamble)
-                    lines.append("\n\n")
                     preview_chunks.append(PreviewChunk(
                         section_title=None,
                         text=preamble,
@@ -498,61 +481,42 @@ def _apply_mode_filter(
                 end = sec.get("end") or len(cached.text)
                 section_text = cached.text[sec["start"]:end]
                 words = section_text.split()
-                lines.append(f"## {sec['title']}\n")
-                lines.append(" ".join(words[:200]))
-                remaining = len(words) - 200
-                if remaining > 0:
-                    lines.append(
-                        f"\n[... {remaining} more words — use mode='section', "
-                        f"section='{sec['title']}' to read in full ...]\n"
-                    )
-                lines.append("\n\n")
                 preview_chunks.append(PreviewChunk(
                     section_title=sec["title"],
                     text=" ".join(words[:200]),
                     word_count_total=len(words),
                     word_count_shown=min(200, len(words)),
                 ))
-        text = "".join(lines)
-        if len(text) > config.max_context_length:
-            text = text[:config.max_context_length] + "\n\n[... TRUNCATED ...]"
-            fa = _cached_article_result(cached, citation_header + text, truncated=True)
-            fa.mode = FetchMode.preview
-            fa.preview_chunks = preview_chunks
-            return fa
-        fa = _cached_article_result(cached, citation_header + text)
+        fa = _cached_article_result(cached, "")
         fa.mode = FetchMode.preview
         fa.preview_chunks = preview_chunks
+        fa.text = ""
         return fa
 
     if mode == "range":
         start = range_start or 0
         end = range_end or min(start + config.max_context_length, len(cached.text))
         snippet = cached.text[start:end]
-        header = (
-            f"Character range [{start}:{end}] for DOI: {doi}\n"
-            f"Source: {cached.source}\n"
-            + "=" * 60 + "\n\n"
-        )
-        fa = _cached_article_result(cached, citation_header + header + snippet)
+        fa = _cached_article_result(cached, snippet)
         fa.mode = FetchMode.range
         fa.range_chars = (start, end)
+        fa.text = snippet
         return fa
 
     # mode == "full" (default)
-    header = (
+    body_text = cached.text
+    truncated = False
+    header_len = len(
         f"Full text (cached) for DOI: {doi}\n"
         f"Source: {cached.source}\n"
         + "=" * 60 + "\n\n"
     )
-    full = header + cached.text
-    if len(full) > config.max_context_length:
-        full = full[:config.max_context_length] + "\n\n[... TRUNCATED ...]"
-        fa = _cached_article_result(cached, citation_header + full, truncated=True)
-        fa.mode = FetchMode.full
-        return fa
-    fa = _cached_article_result(cached, citation_header + full)
+    if header_len + len(body_text) > config.max_context_length:
+        body_text = body_text[:config.max_context_length - header_len]
+        truncated = True
+    fa = _cached_article_result(cached, body_text, truncated=truncated)
     fa.mode = FetchMode.full
+    fa.text = body_text
     return fa
 
 
@@ -629,8 +593,6 @@ def _cache_pdf_and_return(
         if not hint:
             return fa
         fa.auto_import_status = hint
-        if hint not in fa.text:
-            fa.text = fa.text + "\n\n" + hint
         return fa
 
     if pages_str:

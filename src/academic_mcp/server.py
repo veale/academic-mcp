@@ -2061,8 +2061,8 @@ def _format_full_body(fa) -> str:
         + "=" * 60 + "\n\n"
     )
     full = header + fa.text
-    if len(full) > config.max_context_length:
-        full = full[:config.max_context_length] + "\n\n[... TRUNCATED ...]"
+    if fa.truncated:
+        full = full + "\n\n[... TRUNCATED ...]"
     return full
 
 
@@ -2076,7 +2076,11 @@ def _format_failure(fa) -> list[TextContent]:
 def _format_fetched_for_mcp(fa) -> list[TextContent]:
     """Convert a FetchedArticle's structured fields to MCP TextContent."""
     from .core.types import FetchMode
-    if fa.error and not fa.text and not fa.sections:
+    if fa.error and not fa.failure_hints:
+        # Legacy error path: error text is already in fa.text or fa.error
+        return [TextContent(type="text", text=fa.text or fa.error or "")]
+
+    if fa.failure_hints:
         return _format_failure(fa)
 
     parts: list[str] = []
@@ -2095,10 +2099,12 @@ def _format_fetched_for_mcp(fa) -> list[TextContent]:
     else:  # full
         parts.append(_format_full_body(fa))
 
+    # citation already ends with \n\n; mode formatters start without leading \n
+    text = "".join(parts)
     if fa.auto_import_status:
-        parts.append(fa.auto_import_status)
+        text = text + "\n\n" + fa.auto_import_status
 
-    return [TextContent(type="text", text="\n".join(parts))]
+    return [TextContent(type="text", text=text)]
 
 
 async def _handle_fetch_pdf(args: dict) -> list[TextContent]:
@@ -2107,7 +2113,7 @@ async def _handle_fetch_pdf(args: dict) -> list[TextContent]:
     except ImportError:
         from academic_mcp.core import fetch as core_fetch
     article = await core_fetch.fetch_article(args)
-    return [TextContent(type="text", text=article.text)]
+    return _format_fetched_for_mcp(article)
 
 async def _handle_search_and_read(args: dict) -> list[TextContent]:
     query = args["query"]
