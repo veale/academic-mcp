@@ -30,9 +30,10 @@ class _ApiKeyMiddleware(BaseHTTPMiddleware):
         self._expected = expected_key
 
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
-        # Allow the Docker healthcheck to bypass auth.  The healthcheck
-        # endpoint is not exposed outside the container.
-        if request.url.path == "/healthz":
+        path = request.url.path
+        # Only enforce Bearer auth on MCP transport paths; let /healthz,
+        # /webapp/*, and /trigger-sync through without a Bearer token.
+        if not (path == "/mcp" or path.startswith("/mcp/") or path.startswith("/messages")):
             return await call_next(request)
 
         header = request.headers.get("Authorization", "")

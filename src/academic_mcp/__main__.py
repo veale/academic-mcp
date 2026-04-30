@@ -191,8 +191,10 @@ def _run_streamable_http(port: int):
 
     try:
         from .auth import wrap_app
+        from .http.app import create_webapp
     except ImportError:
         from academic_mcp.auth import wrap_app
+        from academic_mcp.http.app import create_webapp
 
     session_manager = StreamableHTTPSessionManager(
         app=server,
@@ -242,14 +244,21 @@ def _run_streamable_http(port: int):
     async def handle_mcp_root(request):
         await handle_mcp(request.scope, request.receive, request._send)
 
+    # Mount the webapp when WEBAPP_ENABLED=true (default: true when MCP_API_KEY is set).
+    _api_key_set = bool(os.getenv("MCP_API_KEY", "").strip())
+    _webapp_enabled = os.getenv("WEBAPP_ENABLED", "true" if _api_key_set else "false").lower() in ("true", "1", "yes")
+    _routes = [
+        Route("/healthz", endpoint=handle_healthz),
+        Route("/trigger-sync", endpoint=handle_trigger_sync),
+        Route("/mcp", endpoint=handle_mcp_root, methods=["GET", "POST", "DELETE"]),
+        Mount("/mcp/", app=handle_mcp),
+    ]
+    if _webapp_enabled:
+        _routes.insert(0, Mount("/webapp", app=create_webapp()))
+
     app = Starlette(
         lifespan=lifespan,
-        routes=[
-            Route("/healthz", endpoint=handle_healthz),
-            Route("/trigger-sync", endpoint=handle_trigger_sync),
-            Route("/mcp", endpoint=handle_mcp_root, methods=["GET", "POST", "DELETE"]),
-            Mount("/mcp/", app=handle_mcp),
-        ],
+        routes=_routes,
     )
     app = wrap_app(app)
 

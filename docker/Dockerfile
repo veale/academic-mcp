@@ -1,3 +1,13 @@
+# ── Frontend builder ─────────────────────────────────────────────────────────
+FROM node:20-alpine AS frontend-builder
+WORKDIR /frontend
+COPY src/academic_mcp/webapp/package.json ./
+RUN npm install
+COPY src/academic_mcp/webapp/ ./
+RUN npm run build
+# outDir is '../webapp_dist' (vite.config.ts), so output lands at /webapp_dist
+
+# ── Runtime image ─────────────────────────────────────────────────────────────
 # ARM64-native image for the academic-mcp server.
 # No browser binaries: Scrapling runs as a separate sidecar container
 # and is reached over HTTP via SCRAPLING_MCP_URL.
@@ -45,6 +55,7 @@ RUN uv sync --frozen --no-install-project --extra semantic --extra semantic-open
 
 # Copy source and install the project itself.
 COPY src/ ./src/
+COPY --from=frontend-builder /webapp_dist/ ./src/academic_mcp/webapp_dist/
 RUN uv sync --frozen --extra semantic --extra semantic-openai --extra fastembed
 
 # Runtime env defaults.  Every one of these is overridable at `docker run` time.

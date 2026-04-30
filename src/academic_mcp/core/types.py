@@ -150,6 +150,22 @@ class InArticleResult(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# PDF highlight geometry
+# ---------------------------------------------------------------------------
+
+class Rect(BaseModel):
+    x0: float
+    y0: float
+    x1: float
+    y1: float
+
+
+class PageRects(BaseModel):
+    page: int        # 0-indexed page number
+    rects: list[Rect]
+
+
+# ---------------------------------------------------------------------------
 # Fetch / article retrieval
 # ---------------------------------------------------------------------------
 

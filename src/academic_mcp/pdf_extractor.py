@@ -2,6 +2,7 @@
 
 import logging
 import re
+import struct
 from collections import Counter
 from pathlib import Path
 
@@ -965,6 +966,108 @@ def extract_text_with_sections(
         "sections": sections,
         "section_detection": "pdf_font_analysis",
     }
+
+
+# ---------------------------------------------------------------------------
+# Per-character charmap for PDF highlight positioning
+# ---------------------------------------------------------------------------
+
+# Binary record layout: big-endian uint16 (page, 0-indexed) + 4 × float32 (x0, y0, x1, y1)
+# = 18 bytes per character.  A 200k-char article occupies ~3.6 MB on disk.
+_CHARMAP_FMT = ">Hffff"
+_CHARMAP_RECORD_SIZE: int = struct.calcsize(_CHARMAP_FMT)   # 18
+_NULL_CHARMAP_RECORD: bytes = bytes(_CHARMAP_RECORD_SIZE)
+# How many rawdict chars to skip over when searching for the next match.
+# Covers filtered-out footnote runs without unbounded backtracking.
+_CHARMAP_LOOKAHEAD = 120
+
+# Matches the page headers injected by both extraction strategies.
+_PAGE_HEADER_RE: re.Pattern[str] = re.compile(r"\n--- Page (\d+) ---\n")
+
+
+def build_charmap_bytes(source: "Path | bytes", text: str) -> bytes:
+    """Build a per-character charmap aligning *text* to PyMuPDF rawdict data.
+
+    Returns a flat bytes object with one ``_CHARMAP_RECORD_SIZE``-byte record
+    per character in *text*: big-endian uint16 page (0-indexed) followed by
+    4 × float32 (x0, y0, x1, y1) in PDF user-space coordinates.  Records for
+    whitespace characters and synthetic characters (page-header lines, spaces
+    inserted between spans) are all-zeros.
+
+    *text* must be the exact string stored in the companion ``.article.json``
+    file so that ``charmap[i]`` corresponds to ``text[i]``.  Call with the
+    text returned by :func:`extract_text_with_sections` immediately after
+    extraction; do not call with text derived from a different extraction pass.
+
+    Uses ``page.get_text("rawdict", sort=True)`` — the same ``sort`` flag as
+    the extraction pipeline — so reading order is consistent.  Ligatures and
+    normalised characters from the extraction pass are handled by the greedy
+    look-ahead: if a PDF char doesn't match the current text char, up to
+    ``_CHARMAP_LOOKAHEAD`` rawdict chars are skipped before giving up and
+    emitting a null record.  This covers filtered-out footnote runs which are
+    present in rawdict but absent from the extracted text.
+    """
+    doc = _open_doc(source)
+
+    # Build per-page char lists: [(char, x0, y0, x1, y1), ...]
+    page_raw: list[list[tuple[str, float, float, float, float]]] = []
+    for page_num in range(len(doc)):
+        chars: list[tuple[str, float, float, float, float]] = []
+        try:
+            for block in doc[page_num].get_text("rawdict", sort=True)["blocks"]:
+                if block.get("type") != 0:
+                    continue
+                for line in block.get("lines", []):
+                    for span in line.get("spans", []):
+                        for ch in span.get("chars", []):
+                            c = ch.get("c", "")
+                            if c:
+                                x0, y0, x1, y1 = ch.get("bbox", (0.0, 0.0, 0.0, 0.0))
+                                chars.append((c, x0, y0, x1, y1))
+        except Exception:
+            pass
+        page_raw.append(chars)
+
+    doc.close()
+
+    out = bytearray()
+    cur_page = 0
+    ri = 0        # index into page_raw[cur_page]
+    pos = 0
+    n = len(text)
+
+    while pos < n:
+        m = _PAGE_HEADER_RE.match(text, pos)
+        if m:
+            # Emit null records for the entire header, then switch page.
+            out.extend(_NULL_CHARMAP_RECORD * (m.end() - m.start()))
+            new_page = int(m.group(1)) - 1   # 0-indexed
+            if new_page != cur_page:
+                cur_page = new_page
+                ri = 0
+            pos = m.end()
+            continue
+
+        tc = text[pos]
+        pos += 1
+
+        if tc in (" ", "\n", "\t", "\r"):
+            out.extend(_NULL_CHARMAP_RECORD)
+            continue
+
+        raw = page_raw[cur_page] if cur_page < len(page_raw) else []
+        found = False
+        for j in range(ri, min(ri + _CHARMAP_LOOKAHEAD, len(raw))):
+            if raw[j][0] == tc:
+                _, x0, y0, x1, y1 = raw[j]
+                out.extend(struct.pack(_CHARMAP_FMT, cur_page, x0, y0, x1, y1))
+                ri = j + 1
+                found = True
+                break
+        if not found:
+            out.extend(_NULL_CHARMAP_RECORD)
+
+    return bytes(out)
 
 
 # ---------------------------------------------------------------------------

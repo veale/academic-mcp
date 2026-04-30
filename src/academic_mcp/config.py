@@ -271,7 +271,7 @@ class Config:
         DOI index JSON or other metadata files.  Files are sorted by
         modification time (oldest first) so recently-used papers survive.
         """
-        evictable_suffixes = {".pdf", ".tmp", ".article.json"}
+        evictable_suffixes = {".pdf", ".tmp", ".article.json", ".charmap.bin"}
         try:
             entries = []
             total = 0

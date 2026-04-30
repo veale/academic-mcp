@@ -11,17 +11,17 @@ from starlette.testclient import TestClient
 
 
 def _make_app() -> Starlette:
-    """Minimal app with a /healthz route and a protected /data route."""
+    """Minimal app with a /healthz route and a protected /mcp route."""
 
     async def healthz(request: Request) -> PlainTextResponse:
         return PlainTextResponse("ok")
 
-    async def data(request: Request) -> PlainTextResponse:
+    async def mcp_handler(request: Request) -> PlainTextResponse:
         return PlainTextResponse("secret")
 
     return Starlette(routes=[
         Route("/healthz", endpoint=healthz),
-        Route("/data", endpoint=data),
+        Route("/mcp", endpoint=mcp_handler),
     ])
 
 
@@ -64,19 +64,19 @@ def protected_client(monkeypatch):
 
 
 def test_missing_header_returns_401_when_configured(protected_client):
-    response = protected_client.get("/data")
+    response = protected_client.get("/mcp")
     assert response.status_code == 401
     assert response.json()["error"] == "missing_or_malformed_authorization_header"
 
 
 def test_wrong_key_returns_401(protected_client):
-    response = protected_client.get("/data", headers={"Authorization": "Bearer wrong"})
+    response = protected_client.get("/mcp", headers={"Authorization": "Bearer wrong"})
     assert response.status_code == 401
     assert response.json()["error"] == "invalid_api_key"
 
 
 def test_correct_key_passes_through(protected_client):
-    response = protected_client.get("/data", headers={"Authorization": "Bearer s3cret"})
+    response = protected_client.get("/mcp", headers={"Authorization": "Bearer s3cret"})
     assert response.status_code == 200
     assert response.text == "secret"
 

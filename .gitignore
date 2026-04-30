@@ -46,3 +46,7 @@ htmlcov/
 .claude
 .personal_deploy/
 /docs
+
+# Frontend build output and dependencies
+src/academic_mcp/webapp_dist/
+src/academic_mcp/webapp/node_modules/

@@ -167,3 +167,25 @@ def put_cached(
     except Exception as exc:
         logger.warning("Failed to write article cache for %s: %s", doi, exc)
     return article
+
+
+def charmap_path(cache_key: str) -> Path:
+    """Return the path to the charmap binary for a given *cache_key*.
+
+    The charmap file is co-located with the ``.article.json`` and uses the
+    same cache key so they are evicted together.
+    """
+    return config.pdf_cache_dir / f"{cache_key}.charmap.bin"
+
+
+def load_by_cache_key(cache_key: str) -> Optional[CachedArticle]:
+    """Return the cached article for a raw SHA-256 *cache_key*, or ``None``."""
+    path = config.pdf_cache_dir / f"{cache_key}.article.json"
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return CachedArticle.from_dict(data)
+    except Exception as exc:
+        logger.debug("Failed to read article cache for key %s: %s", cache_key, exc)
+        return None

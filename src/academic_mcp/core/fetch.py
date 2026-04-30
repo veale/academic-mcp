@@ -474,6 +474,18 @@ def _cache_pdf_and_return(
         metadata=pdf_meta,
     )
 
+    # Build and persist the charmap for PDF highlight positioning.
+    # Only built for file-backed PDFs; bytes sources (tests, ad-hoc) are skipped.
+    # Always rebuilt in sync with .article.json to keep them consistent.
+    if isinstance(pdf_source, Path) and not config.use_pymupdf4llm:
+        ck = text_cache._cache_key(doi)
+        cm_path = text_cache.charmap_path(ck)
+        try:
+            charmap_bytes = pdf_extractor.build_charmap_bytes(pdf_source, raw_text)
+            cm_path.write_bytes(charmap_bytes)
+        except Exception as exc:
+            logger.debug("Charmap build failed for %s: %s", doi, exc)
+
     # Queue for background Zotero import (non-blocking; only when we have a file)
     if isinstance(pdf_source, Path):
         zotero_import.enqueue_zotero_import(doi, pdf_source, cached_article)

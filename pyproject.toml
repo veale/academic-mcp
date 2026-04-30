@@ -18,6 +18,8 @@ dependencies = [
     "trafilatura>=2.0.0",
     "rank-bm25>=0.2.2",
     "pymupdf4llm>=1.27.0",   # Markdown PDF extraction (tables, multi-column, bold/italic)
+    "fastapi>=0.115.0",
+    "itsdangerous>=2.2.0",
 ]
 
 [project.optional-dependencies]
