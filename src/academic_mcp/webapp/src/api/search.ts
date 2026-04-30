@@ -1,9 +1,18 @@
 import { apiFetch } from './client'
 
+export interface ScitePayload {
+  supporting: number
+  contrasting: number
+  mentioning: number
+  citing: number
+  total: number
+  retracted: boolean
+}
+
 export interface SearchResult {
   title: string
   authors: string[]
-  year: string | null
+  year: string | number | null
   doi: string | null
   zotero_key: string | null
   abstract: string | null
@@ -14,8 +23,14 @@ export interface SearchResult {
   has_oa_pdf: boolean
   s2_id: string | null
   url: string | null
-  scite: Record<string, unknown> | null
-  score: number | null
+  work_type: string | null
+  container_title: string | null
+  semantic_similarity: number | null
+  semantic_zotero_score: number | null
+  scite_adjust: number | null
+  primo_proxy_url: string | null
+  primo_oa_url: string | null
+  scite: ScitePayload | null
 }
 
 export interface SearchResponse {

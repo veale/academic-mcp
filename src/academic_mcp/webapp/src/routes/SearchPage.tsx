@@ -1,20 +1,11 @@
 import { useState, useEffect, useRef } from 'react'
-import { Link, useNavigate } from '@tanstack/react-router'
+import { Link, useNavigate, useSearch } from '@tanstack/react-router'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { searchPapers, searchInCitations, type SearchResult, type SearchParams } from '../api/search'
 import { logout } from '../api/auth'
 import { fetchSavedSearches, saveSearch, deleteSavedSearch, type SavedSearch } from '../api/saved'
 import { useToast } from '../components/Toast'
 import { selectUrl as zoteroSelect } from '../lib/zoteroDeeplink'
-
-function useDebounce<T>(value: T, ms: number): T {
-  const [debounced, setDebounced] = useState(value)
-  useEffect(() => {
-    const t = setTimeout(() => setDebounced(value), ms)
-    return () => clearTimeout(t)
-  }, [value, ms])
-  return debounced
-}
 
 const DOMAIN_HINTS = ['general', 'medicine', 'biology', 'cs', 'physics', 'social']
 
@@ -37,28 +28,53 @@ export function SearchPage() {
   const navigate = useNavigate()
   const toast = useToast()
   const qc = useQueryClient()
-  const [q, setQ] = useState('')
-  const [semantic, setSemantic] = useState(false)
-  const [zoteroOnly, setZoteroOnly] = useState(false)
-  const [includeScite, setIncludeScite] = useState(false)
-  const [domainHint, setDomainHint] = useState('general')
+  const urlSearch = useSearch({ from: '/' })
+
+  // Submitted query lives in the URL; the input box holds the in-progress draft.
+  const submittedQ = (urlSearch.q ?? '').trim()
+  const [q, setQ] = useState(urlSearch.q ?? '')
+  const [semantic, setSemantic] = useState(urlSearch.semantic ?? false)
+  const [zoteroOnly, setZoteroOnly] = useState(urlSearch.zotero_only ?? false)
+  const [includeScite, setIncludeScite] = useState(urlSearch.include_scite ?? false)
+  const [domainHint, setDomainHint] = useState(urlSearch.domain_hint ?? 'general')
   const [savedOpen, setSavedOpen] = useState(false)
-  const debouncedQ = useDebounce(q.trim(), 400)
+
+  // Re-sync drafts when the URL changes (browser back/forward, saved-search click)
+  useEffect(() => {
+    setQ(urlSearch.q ?? '')
+    setSemantic(urlSearch.semantic ?? false)
+    setZoteroOnly(urlSearch.zotero_only ?? false)
+    setIncludeScite(urlSearch.include_scite ?? false)
+    setDomainHint(urlSearch.domain_hint ?? 'general')
+  }, [urlSearch.q, urlSearch.semantic, urlSearch.zotero_only, urlSearch.include_scite, urlSearch.domain_hint])
 
   const params: SearchParams = {
-    q: debouncedQ,
+    q: submittedQ,
     limit: 10,
-    zotero_only: zoteroOnly,
-    semantic: semantic || undefined,
-    include_scite: includeScite,
-    domain_hint: domainHint,
+    zotero_only: urlSearch.zotero_only ?? false,
+    semantic: urlSearch.semantic || undefined,
+    include_scite: urlSearch.include_scite ?? false,
+    domain_hint: urlSearch.domain_hint ?? 'general',
   }
 
   const { data, isFetching, error } = useQuery({
     queryKey: ['search', params],
     queryFn: () => searchPapers(params),
-    enabled: debouncedQ.length > 1,
+    enabled: submittedQ.length > 1,
   })
+
+  function submitSearch(query: string) {
+    void navigate({
+      to: '/',
+      search: {
+        q: query.trim() || undefined,
+        semantic: semantic || undefined,
+        zotero_only: zoteroOnly || undefined,
+        include_scite: includeScite || undefined,
+        domain_hint: domainHint !== 'general' ? domainHint : undefined,
+      },
+    })
+  }
 
   const { data: savedSearches } = useQuery({
     queryKey: ['saved-searches'],
@@ -66,7 +82,7 @@ export function SearchPage() {
   })
 
   const saveMut = useMutation({
-    mutationFn: () => saveSearch(debouncedQ, params as unknown as Record<string, unknown>),
+    mutationFn: () => saveSearch(submittedQ, params as unknown as Record<string, unknown>),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['saved-searches'] })
       toast.show('Search saved', 'success')
@@ -92,7 +108,7 @@ export function SearchPage() {
   }, [error, toast])
 
   const alreadySaved =
-    debouncedQ.length > 1 && savedSearches?.some((s) => s.query === debouncedQ)
+    submittedQ.length > 1 && savedSearches?.some((s) => s.query === submittedQ)
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-8 space-y-6">
@@ -111,7 +127,13 @@ export function SearchPage() {
         </div>
       </div>
 
-      <div className="flex gap-2">
+      <form
+        onSubmit={(e) => {
+          e.preventDefault()
+          submitSearch(q)
+        }}
+        className="flex gap-2"
+      >
         <input
           type="search"
           value={q}
@@ -120,8 +142,16 @@ export function SearchPage() {
           className="flex-1 border rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           autoFocus
         />
-        {debouncedQ.length > 1 && (
+        <button
+          type="submit"
+          disabled={q.trim().length < 2}
+          className="bg-blue-600 text-white rounded-lg px-4 py-2.5 text-sm hover:bg-blue-700 disabled:opacity-50"
+        >
+          Search
+        </button>
+        {submittedQ.length > 1 && (
           <button
+            type="button"
             onClick={() => saveMut.mutate()}
             disabled={saveMut.isPending || alreadySaved}
             title={alreadySaved ? 'Already saved' : 'Save this search'}
@@ -137,6 +167,7 @@ export function SearchPage() {
         )}
         {(savedSearches?.length ?? 0) > 0 && (
           <button
+            type="button"
             onClick={() => setSavedOpen((v) => !v)}
             className={[
               'border rounded-lg px-3 py-2.5 text-sm transition-colors',
@@ -147,7 +178,7 @@ export function SearchPage() {
             Saved ({savedSearches!.length})
           </button>
         )}
-      </div>
+      </form>
 
       {savedOpen && savedSearches && savedSearches.length > 0 && (
         <div className="border rounded-lg divide-y">
@@ -157,6 +188,7 @@ export function SearchPage() {
                 onClick={() => {
                   setQ(s.query)
                   setSavedOpen(false)
+                  submitSearch(s.query)
                 }}
                 className="flex-1 text-left text-sm text-blue-600 hover:underline truncate"
               >
@@ -226,11 +258,11 @@ export function SearchPage() {
 
       {!isFetching && !error && data && data.results.length === 0 && (
         <div className="py-12 text-center text-sm text-gray-400">
-          No results for <span className="font-medium">"{debouncedQ}"</span>. Try different keywords.
+          No results for <span className="font-medium">"{submittedQ}"</span>. Try different keywords.
         </div>
       )}
 
-      {!isFetching && !data && debouncedQ.length > 1 && !error && (
+      {!isFetching && !data && submittedQ.length > 1 && !error && (
         <div className="py-12 text-center text-sm text-gray-400 animate-pulse">
           Searching…
         </div>
@@ -264,8 +296,8 @@ function ResultCard({ result: r }: { result: SearchResult }) {
     <li className="border rounded-lg p-4 space-y-1.5">
       <div className="flex items-start justify-between gap-2">
         <p className="font-medium text-sm leading-snug">{r.title || '(no title)'}</p>
-        {r.score != null && (
-          <span className="text-xs text-gray-400 shrink-0">{r.score.toFixed(2)}</span>
+        {r.semantic_similarity != null && (
+          <span className="text-xs text-gray-400 shrink-0">{r.semantic_similarity.toFixed(2)}</span>
         )}
       </div>
 
@@ -463,8 +495,8 @@ function CitationResultRow({ result: r }: { result: SearchResult }) {
     <li className="border rounded p-2.5 space-y-0.5 bg-amber-50/40">
       <div className="flex items-start justify-between gap-2">
         <p className="text-xs font-medium leading-snug">{r.title || '(no title)'}</p>
-        {r.score != null && r.score > 0 && (
-          <span className="text-[10px] text-gray-400 shrink-0">{r.score.toFixed(1)}</span>
+        {r.semantic_similarity != null && r.semantic_similarity > 0 && (
+          <span className="text-[10px] text-gray-400 shrink-0">{r.semantic_similarity.toFixed(1)}</span>
         )}
       </div>
       <p className="text-[11px] text-gray-500">

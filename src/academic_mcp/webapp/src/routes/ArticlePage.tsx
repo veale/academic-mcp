@@ -7,7 +7,6 @@ import {
   fetchHighlights,
   articlePdfUrl,
   articleHtmlUrl,
-  type ArticleMeta,
   type HighlightChunk,
 } from '../api/article'
 import { PdfViewer } from '../components/PdfViewer'

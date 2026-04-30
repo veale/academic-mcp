@@ -501,6 +501,36 @@ def _cache_pdf_and_return(
 
 
 # ---------------------------------------------------------------------------
+# Short DOI resolution
+# ---------------------------------------------------------------------------
+
+def _is_short_doi(doi: str) -> bool:
+    """Return True for short DOIs like '10/gm3p2t' (no period after '10')."""
+    s = doi.strip().lower()
+    return s.startswith("10/") and "." not in s.split("/")[0]
+
+
+async def _resolve_short_doi(doi: str) -> str:
+    """Resolve a short DOI to its canonical form via doi.org content negotiation.
+
+    Returns the canonical DOI string, or the original if resolution fails.
+    """
+    url = f"https://doi.org/{doi}"
+    try:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=8) as client:
+            r = await client.get(url, headers={"Accept": "application/vnd.citationstyles.csl+json"})
+        if r.status_code == 200:
+            data = r.json()
+            canonical = data.get("DOI", "")
+            if canonical:
+                logger.info("Resolved short DOI %s → %s", doi, canonical)
+                return canonical.lower().strip()
+    except Exception as exc:
+        logger.debug("Short DOI resolution failed for %s: %s", doi, exc)
+    return doi
+
+
+# ---------------------------------------------------------------------------
 # Main fetch pipeline
 # ---------------------------------------------------------------------------
 
@@ -535,6 +565,11 @@ async def fetch_article(
         # URL-only: synthesize a stable cache key from the URL hash.
         _url_hash = hashlib.sha256(url.encode("utf-8")).hexdigest()[:16]
         doi = f"url:{_url_hash}"
+
+    # Resolve short DOIs (e.g. '10/gm3p2t') to their canonical form before
+    # any lookup — Zotero, S2, OpenAlex etc. all store the canonical DOI only.
+    if doi and _is_short_doi(doi):
+        doi = await _resolve_short_doi(doi)
     pages_str = pages
     section_name = section
     force_html = source == "html"

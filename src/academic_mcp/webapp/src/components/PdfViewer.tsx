@@ -52,7 +52,7 @@ export function PdfViewer({ url, highlights, pageDimensions, initialPage = 0, on
 
   const renderHighlights = (props: RenderHighlightsProps) =>
     props.pageIndex >= 0 ? (
-      <div>
+      <div style={{ pointerEvents: 'none' }}>
         {highlightAreas
           .filter((area) => area.pageIndex === props.pageIndex)
           .map((area, idx) => (
@@ -62,6 +62,7 @@ export function PdfViewer({ url, highlights, pageDimensions, initialPage = 0, on
                 ...props.getCssProperties(area, props.rotation),
                 backgroundColor: 'rgba(250, 204, 21, 0.45)',
                 mixBlendMode: 'multiply',
+                pointerEvents: 'none',
               }}
             />
           ))}

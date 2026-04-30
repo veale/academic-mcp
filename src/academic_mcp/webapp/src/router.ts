@@ -18,10 +18,25 @@ const loginRoute = createRoute({
   component: LoginPage,
 })
 
+export interface SearchPageParams {
+  q?: string
+  semantic?: boolean
+  zotero_only?: boolean
+  include_scite?: boolean
+  domain_hint?: string
+}
+
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/',
   beforeLoad: requireAuth,
+  validateSearch: (search: Record<string, unknown>): SearchPageParams => ({
+    q: typeof search.q === 'string' ? search.q : undefined,
+    semantic: search.semantic === true || search.semantic === 'true' || undefined,
+    zotero_only: search.zotero_only === true || search.zotero_only === 'true' || undefined,
+    include_scite: search.include_scite === true || search.include_scite === 'true' || undefined,
+    domain_hint: typeof search.domain_hint === 'string' ? search.domain_hint : undefined,
+  }),
   component: SearchPage,
 })
 

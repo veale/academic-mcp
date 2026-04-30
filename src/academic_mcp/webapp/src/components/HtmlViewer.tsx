@@ -3,33 +3,6 @@ import DOMPurify from 'dompurify'
 import { markRangesInRoot, scrollToFirstMark } from '../lib/domHighlight'
 import type { HighlightChunk } from '../api/article'
 
-interface Props {
-  htmlUrl: string
-  highlights: HighlightChunk[]
-  totalChars: number
-}
-
-export function HtmlViewer({ htmlUrl, highlights: _highlights, totalChars: _totalChars }: Props) {
-  const iframeRef = useRef<HTMLIFrameElement>(null)
-
-  // Placeholder: future enhancement — inject highlight marks via contentDocument
-  useEffect(() => {
-    void iframeRef
-  }, [])
-
-  return (
-    <iframe
-      ref={iframeRef}
-      src={htmlUrl}
-      sandbox="allow-same-origin"
-      style={{ width: '100%', height: '100%', border: 'none' }}
-      title="Article HTML"
-    />
-  )
-}
-
-// Standalone HTML renderer with DOM-based highlight marking.
-// Fetches HTML from `htmlUrl`, sanitises it, then marks snippet occurrences.
 interface HtmlDivProps {
   htmlUrl: string
   highlights?: HighlightChunk[]
