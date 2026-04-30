@@ -1,0 +1,14 @@
+── Citation ──
+Title: Improved Transformer Architecture for NLP
+Authors: Alice Smith, Bob Jones
+Year: 2024
+Venue: Journal of Machine Learning Research
+DOI: 10.9999/html.test
+──────────────
+
+Section: Methods
+DOI: 10.9999/html.test
+Source: html_extraction (trafilatura)
+============================================================
+
+The model employs stacked transformer encoder layers with residual connections. Gradient descent with Adam optimiser updates parameters over one hundred training epochs. Dropout regularisation prevents overfitting on small training datasets. Hyperparameter tuning uses a validation set reserved from the corpus.

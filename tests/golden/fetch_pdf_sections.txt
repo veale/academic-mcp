@@ -1,0 +1,13 @@
+Sections for DOI: 10.9999/pdf.test
+Source: zotero_local
+Section detection: pdf_font_analysis (reliable — font-size threshold on spans)
+============================================================
+[0] Abstract  (29 words, chars 0–237)
+    → uncertainty, present, quantification, method, combines
+[1] Methods  (27 words, chars 239–472)
+    → dropout, approximates, monte, carlo, sampling
+[2] Results  (28 words, chars 474–724)
+    → benchmarks, include, uci, cifar, image
+
+→ fetch_fulltext(doi="10.9999/pdf.test", mode="range", range_start=N, range_end=M)
+→ search_in_article(doi="10.9999/pdf.test", terms=["keyword"])

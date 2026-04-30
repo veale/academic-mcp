@@ -1,0 +1,24 @@
+── Citation ──
+Title: Improved Transformer Architecture for NLP
+Authors: Alice Smith, Bob Jones
+Year: 2024
+Venue: Journal of Machine Learning Research
+DOI: 10.9999/html.test
+──────────────
+
+Preview for DOI: 10.9999/html.test
+Source: html_extraction (trafilatura)
+============================================================
+
+## Abstract
+This paper presents a novel approach to deep learning for natural language processing. We introduce a transformer architecture with improved attention mechanisms. Results demonstrate significant performance gains on benchmark datasets. The proposed method is evaluated on GLUE and SQuAD benchmarks.
+
+## Introduction
+Prior work on language models relied on recurrent architectures. Our method addresses the gradient vanishing problem common in deep networks. The introduction of multi-head attention enables parallel sequence processing. We build on BERT and GPT pre-training paradigms for downstream adaptation.
+
+## Methods
+The model employs stacked transformer encoder layers with residual connections. Gradient descent with Adam optimiser updates parameters over one hundred training epochs. Dropout regularisation prevents overfitting on small training datasets. Hyperparameter tuning uses a validation set reserved from the corpus.
+
+## Results
+Experimental results show 94.2 F1 on SQuAD and 88.1 average score on GLUE. Ablation studies confirm each architectural component contributes to accuracy. Our method outperforms the baseline by 3.4 points on the SuperGLUE benchmark. Performance improvements are consistent across all language understanding tasks.
+

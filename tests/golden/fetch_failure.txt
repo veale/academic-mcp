@@ -1,0 +1,12 @@
+Could not retrieve full text for DOI: 10.9999/fail.test
+Sources tried: none found
+
+→ No institutional proxy configured. If you have institutional access, configure GOST_PROXY_URL in .env.
+→ Check available URLs: find_pdf_urls(doi="10.9999/fail.test")
+→ Verify metadata: get_paper(identifier="10.9999/fail.test")
+
+**Ask the user to:**
+1. Open https://doi.org/10.9999/fail.test in their browser and download the PDF
+2. Save it to Zotero, or attach the PDF to this conversation
+
+Once available, re-run this request.

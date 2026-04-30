@@ -1,0 +1,21 @@
+── Citation ──
+Title: Bayesian Deep Learning for Uncertainty Quantification
+Authors: Charlie Brown, Diana Prince, Eve Stone
+Year: 2023
+Venue: NeurIPS 2023
+DOI: 10.9999/pdf.test
+──────────────
+
+Preview for DOI: 10.9999/pdf.test
+Source: zotero_local
+============================================================
+
+## Abstract
+We present a Bayesian framework for uncertainty quantification in neural networks. The method combines variational inference with deep learning architectures. Uncertainty estimates are validated on regression and classification problems.
+
+## Methods
+Variational dropout approximates Bayesian inference in neural networks. Monte Carlo sampling generates uncertainty estimates from posterior distributions. The framework scales to large datasets using stochastic gradient optimisation.
+
+## Results
+Benchmarks include UCI regression datasets and CIFAR image classification tasks. Calibration curves confirm well-calibrated uncertainty across all test conditions. The Bayesian approach reduces overconfident predictions on out-of-distribution inputs.
+

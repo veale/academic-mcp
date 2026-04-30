@@ -1,0 +1,14 @@
+── Citation ──
+Title: Improved Transformer Architecture for NLP
+Authors: Alice Smith, Bob Jones
+Year: 2024
+Venue: Journal of Machine Learning Research
+DOI: 10.9999/html.test
+──────────────
+
+Character range [50:300] for DOI: 10.9999/html.test
+Source: html_extraction (trafilatura)
+============================================================
+
+ing for natural language processing. We introduce a transformer architecture with improved attention mechanisms. Results demonstrate significant performance gains on benchmark datasets. The proposed method is evaluated on GLUE and SQuAD benchmarks.
+

@@ -1,0 +1,15 @@
+Sections for DOI: 10.9999/html.test
+Source: html_extraction (trafilatura)
+Section detection: html_headings (high confidence — publisher <h2>/<h3> tags)
+============================================================
+[0] Abstract  (40 words, chars 0–298)
+    → paper, presents, novel, approach, learning
+[1] Introduction  (40 words, chars 300–595)
+    → prior, work, models, relied, recurrent
+[2] Methods  (40 words, chars 597–908)
+    → training, model, employs, stacked, encoder
+[3] Results  (43 words, chars 910–1,222)
+    → experimental, show, average, score, ablation
+
+→ fetch_fulltext(doi="10.9999/html.test", mode="range", range_start=N, range_end=M)
+→ search_in_article(doi="10.9999/html.test", terms=["keyword"])
