@@ -1257,8 +1257,8 @@ async def _handle_search(args: dict) -> list[TextContent]:
     if include_scite or use_semantic:
         _status_parts: list[str] = []
         if include_scite:
-            _with_doi = sum(1 for r in results if r.get("doi"))
-            _enriched = sum(1 for r in results if r.get("scite"))
+            _with_doi = sum(1 for r in results if r.doi)
+            _enriched = sum(1 for r in results if r.scite)
             _status_parts.append(f"scite: {_enriched}/{_with_doi} enriched")
         _sem_empty_hint = ""
         if use_semantic:
@@ -1316,54 +1316,54 @@ async def _handle_search(args: dict) -> list[TextContent]:
     for i, r in enumerate(results):
         # Header line with index, title, and availability badges
         badges = []
-        if r["in_zotero"]:
+        if r.in_zotero:
             badges.append("★ IN ZOTERO")
-        if r["has_oa_pdf"]:
+        if r.has_oa_pdf:
             badges.append("OA")
-        if (r.get("scite") or {}).get("retracted"):
+        if r.scite and r.scite.retracted:
             badges.append("RETRACTED?")
-        _wt = (r.get("work_type") or "").lower()
+        _wt = (r.work_type or "").lower()
         if _wt == "book-chapter":
             badges.append("CHAPTER")
         elif _wt in ("book", "edited-book", "monograph", "reference-book"):
             badges.append("BOOK")
         badge_str = f"  [{', '.join(badges)}]" if badges else ""
-        text += f"[{i}] {r['title']}{badge_str}\n"
+        text += f"[{i}] {r.title}{badge_str}\n"
 
         # Metadata
-        text += f"    Authors: {_authors_str(r['authors'])}\n"
-        if r.get("year"):
-            text += f"    Year: {r['year']}"
-            if r.get("citations"):
-                text += f"  |  Citations: {r['citations']}"
+        text += f"    Authors: {_authors_str(r.authors)}\n"
+        if r.year:
+            text += f"    Year: {r.year}"
+            if r.citations:
+                text += f"  |  Citations: {r.citations}"
             text += "\n"
-        if r.get("venue"):
-            law_note = "  [law review — via Primo/HeinOnline]" if "primo_law" in r["found_in"] else ""
-            text += f"    Venue: {r['venue']}{law_note}\n"
-        if _wt == "book-chapter" and r.get("container_title") and r.get("container_title") != r.get("venue"):
-            text += f"    In book: {r['container_title']}\n"
-        if r.get("doi"):
-            text += f"    DOI: {r['doi']}\n"
-        text += f"    Sources: {', '.join(r['found_in'])}\n"
-        if r.get("_semantic_similarity") is not None:
-            text += f"    Relevance: {r['_semantic_similarity']:.3f}\n"
-        if r.get("_semantic_zotero_score") is not None:
-            text += f"    Semantic Zotero score: {r['_semantic_zotero_score']:.3f}\n"
-        if r.get("scite"):
-            s = r["scite"]
+        if r.venue:
+            law_note = "  [law review — via Primo/HeinOnline]" if "primo_law" in r.found_in else ""
+            text += f"    Venue: {r.venue}{law_note}\n"
+        if _wt == "book-chapter" and r.container_title and r.container_title != r.venue:
+            text += f"    In book: {r.container_title}\n"
+        if r.doi:
+            text += f"    DOI: {r.doi}\n"
+        text += f"    Sources: {', '.join(r.found_in)}\n"
+        if r.semantic_similarity is not None:
+            text += f"    Relevance: {r.semantic_similarity:.3f}\n"
+        if r.semantic_zotero_score is not None:
+            text += f"    Semantic Zotero score: {r.semantic_zotero_score:.3f}\n"
+        if r.scite:
+            s = r.scite
             text += (
                 "    Scite: "
-                f"citing={s.get('citing', 0)} | "
-                f"supporting={s.get('supporting', 0)} | "
-                f"contrasting={s.get('contrasting', 0)} | "
-                f"mentioning={s.get('mentioning', 0)}"
+                f"citing={s.citing} | "
+                f"supporting={s.supporting} | "
+                f"contrasting={s.contrasting} | "
+                f"mentioning={s.mentioning}"
             )
-            if s.get("retracted"):
+            if s.retracted:
                 text += "  [retraction/correction signal]"
             text += "\n"
 
         # Abstract / Preview
-        abstract = r.get("abstract") or ""
+        abstract = r.abstract or ""
         if abstract:
             # Truncate long abstracts for the listing
             if len(abstract) > 400:
@@ -1372,30 +1372,30 @@ async def _handle_search(args: dict) -> list[TextContent]:
 
         # URL line — shown only for DOI-less items so the LLM can pass it to
         # fetch_fulltext.  When a DOI is present it's already the canonical handle.
-        if r.get("url") and not r.get("doi"):
-            text += f"    URL: {r['url']}\n"
+        if r.url and not r.doi:
+            text += f"    URL: {r.url}\n"
 
         # Follow-up action guidance
         text += "\n    → "
-        if r.get("doi"):
-            if r["in_zotero"]:
-                text += f"Full text available. Call fetch_fulltext(doi=\"{r['doi']}\", mode=\"sections\") to explore."
-            elif r.get("_primo_oa_url"):
-                text += f"Open access via library. Call fetch_fulltext(doi=\"{r['doi']}\", mode=\"sections\") to explore."
-            elif r["has_oa_pdf"]:
-                text += f"Open access PDF available. Call fetch_fulltext(doi=\"{r['doi']}\", mode=\"sections\") to explore."
-            elif r.get("_primo_proxy_url"):
-                text += f"Available via institutional access: {r['_primo_proxy_url']}"
+        if r.doi:
+            if r.in_zotero:
+                text += f"Full text available. Call fetch_fulltext(doi=\"{r.doi}\", mode=\"sections\") to explore."
+            elif r.primo_oa_url:
+                text += f"Open access via library. Call fetch_fulltext(doi=\"{r.doi}\", mode=\"sections\") to explore."
+            elif r.has_oa_pdf:
+                text += f"Open access PDF available. Call fetch_fulltext(doi=\"{r.doi}\", mode=\"sections\") to explore."
+            elif r.primo_proxy_url:
+                text += f"Available via institutional access: {r.primo_proxy_url}"
             else:
-                text += f"May need proxy. Call fetch_fulltext(doi=\"{r['doi']}\", use_proxy=true, mode=\"sections\") to explore."
-        elif r.get("url"):
+                text += f"May need proxy. Call fetch_fulltext(doi=\"{r.doi}\", use_proxy=true, mode=\"sections\") to explore."
+        elif r.url:
             text += (
                 f"No DOI, but URL available. "
-                f"Call fetch_fulltext(url=\"{r['url']}\", mode=\"sections\") to explore."
+                f"Call fetch_fulltext(url=\"{r.url}\", mode=\"sections\") to explore."
             )
-        elif r.get("in_zotero") and r.get("zotero_key"):
+        elif r.in_zotero and r.zotero_key:
             text += (
-                f"No DOI, but in Zotero. Call fetch_fulltext(zotero_key=\"{r['zotero_key']}\", "
+                f"No DOI, but in Zotero. Call fetch_fulltext(zotero_key=\"{r.zotero_key}\", "
                 "mode=\"sections\") to explore."
             )
         else:
@@ -1404,29 +1404,29 @@ async def _handle_search(args: dict) -> list[TextContent]:
         # Expansion hint: for promising older papers, nudge toward citation-graph
         # exploration — often more productive than another keyword search.
         try:
-            _yr = int(r.get("year")) if r.get("year") else None
+            _yr = int(r.year) if r.year else None
         except (TypeError, ValueError):
             _yr = None
-        _sim = r.get("_semantic_similarity")
-        _cites = r.get("citations") or 0
+        _sim = r.semantic_similarity
+        _cites = r.citations or 0
         _looks_strong = (i == 0) or (isinstance(_sim, (int, float)) and _sim >= 0.3) or _cites >= 20
-        if r.get("doi") and _yr and _yr <= _current_year - 1 and _looks_strong:
+        if r.doi and _yr and _yr <= _current_year - 1 and _looks_strong:
             text += (
                 f"\n    ⇢ Promising + {_current_year - _yr}yr old: consider "
-                f"get_citations(doi=\"{r['doi']}\") to see what built on it. "
+                f"get_citations(doi=\"{r.doi}\") to see what built on it. "
                 "Pass exclude_dois=[the DOIs below] to skip results you've already seen, "
                 "and use BROADER keywords than this query to pull in adjacent work."
             )
         # Book/chapter navigation hints
-        if r.get("doi") and _wt == "book-chapter":
+        if r.doi and _wt == "book-chapter":
             text += (
-                f"\n    ⇢ Book chapter: get_book_chapters(doi=\"{r['doi']}\") lists "
+                f"\n    ⇢ Book chapter: get_book_chapters(doi=\"{r.doi}\") lists "
                 "the sibling chapters in the same volume — often a richer topical "
                 "neighbourhood than keyword search."
             )
-        elif r.get("doi") and _wt in ("book", "edited-book", "monograph", "reference-book"):
+        elif r.doi and _wt in ("book", "edited-book", "monograph", "reference-book"):
             text += (
-                f"\n    ⇢ Book: get_book_chapters(doi=\"{r['doi']}\") drills down into "
+                f"\n    ⇢ Book: get_book_chapters(doi=\"{r.doi}\") drills down into "
                 "the individual chapters (each has its own DOI and can be fetched separately). "
                 "Prefer this to fetching the whole book — chapter PDFs are usually the only "
                 "thing publishers host, and sectioning works much better per-chapter."
@@ -1434,7 +1434,7 @@ async def _handle_search(args: dict) -> list[TextContent]:
         text += "\n\n"
 
     # Footer: ready-to-paste exclude_dois list for citation-based widening.
-    _result_dois = [r["doi"] for r in results if r.get("doi")]
+    _result_dois = [r.doi for r in results if r.doi]
     if _result_dois:
         text += "─" * 60 + "\n"
         text += "To widen via citations without repeats, copy this list as exclude_dois:\n"
@@ -2163,9 +2163,9 @@ async def _handle_search_and_read(args: dict) -> list[TextContent]:
         )]
 
     paper = results[result_index]
-    doi = paper.get("doi")
-    title = paper.get("title") or "Untitled"
-    sources = ", ".join(paper.get("found_in") or []) or "?"
+    doi = paper.doi
+    title = paper.title or "Untitled"
+    sources = ", ".join(paper.found_in) or "?"
 
     text = f"Selected paper [{result_index}]: {title}\n"
     text += f"Sources: {sources}\n"
@@ -2173,14 +2173,14 @@ async def _handle_search_and_read(args: dict) -> list[TextContent]:
 
     # If the paper is in Zotero, fetch_fulltext via zotero_key works without a DOI.
     if not doi:
-        zot_key = paper.get("zotero_key")
+        zot_key = paper.zotero_key
         if zot_key:
             fetch_result = await _handle_fetch_pdf({
                 "zotero_key": zot_key,
                 "use_proxy": use_proxy,
             })
             return [TextContent(type="text", text=text + fetch_result[0].text)]
-        url = paper.get("url")
+        url = paper.url
         if url:
             fetch_result = await _handle_fetch_pdf({
                 "url": url,
@@ -2188,8 +2188,8 @@ async def _handle_search_and_read(args: dict) -> list[TextContent]:
             })
             return [TextContent(type="text", text=text + fetch_result[0].text)]
         text += "No DOI / Zotero key / URL found for this paper. Cannot fetch full text.\n"
-        if paper.get("abstract"):
-            text += f"\nAbstract:\n{paper['abstract']}\n"
+        if paper.abstract:
+            text += f"\nAbstract:\n{paper.abstract}\n"
         return [TextContent(type="text", text=text)]
 
     fetch_result = await _handle_fetch_pdf({
@@ -2709,31 +2709,7 @@ async def _handle_search_zotero(args: dict) -> list[TextContent]:
             text += f"    → fetch_fulltext(doi=\"{r['DOI']}\") to read\n"
         text += "\n"
 
-    # Opportunistic embedding: during an active index build, pre-warm items
-    # the user is actively looking at so they appear in semantic_search_zotero
-    # without waiting for the background sync to reach them.
-    try:
-        from .semantic_index import get_semantic_index
-    except ImportError:
-        from academic_mcp.semantic_index import get_semantic_index
-    try:
-        _idx = get_semantic_index()
-        _sem_st = _idx._load_status()
-        if _sem_st.get("in_progress"):
-            _col = _idx._get_chroma_collection()
-            for r in results[:5]:  # cap to avoid runaway latency
-                _key = r.get("key") or ""
-                if not _key:
-                    continue
-                _ex = _col.get(where={"item_key": _key}, include=[])
-                if not _ex.get("ids"):
-                    try:
-                        await _idx.embed_item_now(_key)
-                        logger.debug("hot-path embed completed for %s", _key)
-                    except Exception as _e:
-                        logger.debug("hot-path embed failed for %s: %s", _key, _e)
-    except Exception:
-        pass  # never let opportunistic embedding break the search response
+    # Opportunistic embedding is now handled inside core.search.search_zotero.
 
     return [TextContent(type="text", text=text)]
 

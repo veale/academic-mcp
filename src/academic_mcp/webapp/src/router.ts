@@ -2,6 +2,7 @@ import { createRootRoute, createRoute, createRouter, Outlet, redirect } from '@t
 import { LoginPage } from './routes/LoginPage'
 import { SearchPage } from './routes/SearchPage'
 import { ArticlePage } from './routes/ArticlePage'
+import { HealthPage } from './routes/HealthPage'
 
 function requireAuth() {
   if (localStorage.getItem('wa_logged_in') !== '1') {
@@ -30,15 +31,23 @@ export const articleRoute = createRoute({
   beforeLoad: requireAuth,
   validateSearch: (
     search: Record<string, string>,
-  ): { doi?: string; zotero_key?: string; url?: string } => ({
+  ): { doi?: string; zotero_key?: string; url?: string; q?: string } => ({
     doi: search.doi,
     zotero_key: search.zotero_key,
     url: search.url,
+    q: search.q,
   }),
   component: ArticlePage,
 })
 
-const routeTree = rootRoute.addChildren([loginRoute, indexRoute, articleRoute])
+const healthRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/health',
+  beforeLoad: requireAuth,
+  component: HealthPage,
+})
+
+const routeTree = rootRoute.addChildren([loginRoute, indexRoute, articleRoute, healthRoute])
 
 export const router = createRouter({
   routeTree,

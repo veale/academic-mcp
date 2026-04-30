@@ -37,6 +37,7 @@ import os
 from typing import Any
 
 from .config import config
+from .core.types import SearchHit
 
 logger = logging.getLogger(__name__)
 
@@ -48,18 +49,18 @@ logger = logging.getLogger(__name__)
 _CURRENT_YEAR = 2026
 
 
-def _composite_score(r: dict) -> tuple:
-    zotero_bonus = 1 if r.get("in_zotero") else 0
-    oa_bonus = 1 if r.get("has_oa_pdf") else 0
-    cites = math.log1p(r.get("citations") or 0)
-    year = int(r.get("year") or 0)
+def _composite_score(r: SearchHit) -> tuple:
+    zotero_bonus = 1 if r.in_zotero else 0
+    oa_bonus = 1 if r.has_oa_pdf else 0
+    cites = math.log1p(r.citations or 0)
+    year = int(r.year or 0)
     recency = max(0, 3 - (_CURRENT_YEAR - year)) if year else 0
-    breadth = len(r.get("found_in", []))
+    breadth = len(r.found_in)
     return (zotero_bonus, oa_bonus, breadth, cites, recency)
 
 
-def _result_text(r: dict) -> str:
-    text = r.get("abstract") or r.get("title") or ""
+def _result_text(r: SearchHit) -> str:
+    text = r.abstract or r.title or ""
     if text.startswith("[Preview from"):
         idx = text.find("]: ")
         if idx > 0:
@@ -229,7 +230,7 @@ def _compute_similarities(query: str, texts: list[str]) -> list[float]:
 # Public API
 # ---------------------------------------------------------------------------
 
-async def rerank_results(query: str, results: list[dict]) -> list[dict]:
+async def rerank_results(query: str, results: list[SearchHit]) -> list[SearchHit]:
     """Re-rank search results by relevance to the query.
 
     Zotero items are always promoted to the top tier. Within each tier,
@@ -249,11 +250,11 @@ async def rerank_results(query: str, results: list[dict]) -> list[dict]:
 
     if similarities and len(similarities) == len(results):
         for r, sim in zip(results, similarities):
-            r["_semantic_similarity"] = round(sim, 4)
+            r.semantic_similarity = round(sim, 4)
         results.sort(
             key=lambda r: (
-                1 if r.get("in_zotero") else 0,
-                r.get("_semantic_similarity", 0.0),
+                1 if r.in_zotero else 0,
+                r.semantic_similarity or 0.0,
             ),
             reverse=True,
         )

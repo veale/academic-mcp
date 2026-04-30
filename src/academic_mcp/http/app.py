@@ -83,6 +83,16 @@ def create_webapp() -> FastAPI:
     async def health() -> dict:
         return {"ok": True}
 
+    @app.get("/api/health/status", dependencies=[AuthRequired])
+    async def health_status() -> dict:
+        from ..semantic_index import SemanticIndexUnavailable, get_semantic_index
+
+        try:
+            status = await get_semantic_index().status()
+        except SemanticIndexUnavailable as e:
+            status = {"available": False, "error": str(e)}
+        return status
+
     # ------------------------------------------------------------------
     # /api/auth/login  — no auth
     # ------------------------------------------------------------------
@@ -93,13 +103,14 @@ def create_webapp() -> FastAPI:
         if not ok:
             raise HTTPException(status_code=401, detail="invalid_password")
         token = make_session_cookie()
+        secure = request.url.scheme == "https"
         response.set_cookie(
             key=_COOKIE_NAME,
             value=token,
             max_age=_SESSION_MAX_AGE,
             httponly=True,
             samesite="lax",
-            secure=True,
+            secure=secure,
             path="/webapp",
         )
         return {"ok": True}
@@ -109,8 +120,9 @@ def create_webapp() -> FastAPI:
     # ------------------------------------------------------------------
 
     @app.post("/api/auth/logout", dependencies=[AuthRequired])
-    async def logout(response: Response) -> dict:
-        response.delete_cookie(key=_COOKIE_NAME, path="/webapp")
+    async def logout(request: Request, response: Response) -> dict:
+        secure = request.url.scheme == "https"
+        response.delete_cookie(key=_COOKIE_NAME, path="/webapp", secure=secure)
         return {"ok": True}
 
     # ------------------------------------------------------------------
@@ -121,11 +133,13 @@ def create_webapp() -> FastAPI:
     from .routes_article import router as article_router
     from .routes_citations import router as citations_router
     from .routes_zotero import router as zotero_router
+    from .routes_saved import router as saved_router
 
     app.include_router(search_router)
     app.include_router(article_router)
     app.include_router(citations_router)
     app.include_router(zotero_router)
+    app.include_router(saved_router)
 
     # Static / SPA fallback — must come last so it doesn't shadow API routes.
     from .static import mount_static

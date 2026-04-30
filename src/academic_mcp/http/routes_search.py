@@ -1,14 +1,12 @@
 from __future__ import annotations
 
-from typing import Any
-
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 
 from ..core import search as core_search
 from ..core import semantic as core_semantic
 from ..core import paper as core_paper
-from ..core.types import SemanticHit, PaperInfo
+from ..core.types import SemanticHit, PaperInfo, ScitePayload
 from .app import AuthRequired
 
 router = APIRouter()
@@ -32,8 +30,14 @@ class SearchResult(BaseModel):
     has_oa_pdf: bool = False
     s2_id: str | None = None
     url: str | None = None
-    scite: dict[str, Any] | None = None
+    work_type: str | None = None
+    container_title: str | None = None
+    scite: ScitePayload | None = None
     score: float | None = None
+    semantic_zotero_score: float | None = None
+    scite_adjust: float | None = None
+    primo_proxy_url: str | None = None
+    primo_oa_url: str | None = None
 
 
 class SearchResponse(BaseModel):
@@ -65,23 +69,29 @@ async def search(
     )
     results = [
         SearchResult(
-            title=r.get("title") or "",
-            authors=r.get("authors") or [],
-            year=str(r["year"]) if r.get("year") else None,
-            doi=r.get("doi"),
-            zotero_key=r.get("zotero_key"),
-            abstract=r.get("abstract"),
-            citations=r.get("citations"),
-            venue=r.get("venue"),
-            found_in=r.get("found_in") or [],
-            in_zotero=bool(r.get("in_zotero")),
-            has_oa_pdf=bool(r.get("has_oa_pdf")),
-            s2_id=r.get("s2_id"),
-            url=r.get("url"),
-            scite=r.get("scite"),
-            score=r.get("_semantic_similarity"),
+            title=hit.title,
+            authors=hit.authors,
+            year=str(hit.year) if hit.year is not None else None,
+            doi=hit.doi,
+            zotero_key=hit.zotero_key,
+            abstract=hit.abstract,
+            citations=hit.citations,
+            venue=hit.venue,
+            found_in=hit.found_in,
+            in_zotero=hit.in_zotero,
+            has_oa_pdf=hit.has_oa_pdf,
+            s2_id=hit.s2_id,
+            url=hit.url,
+            work_type=hit.work_type,
+            container_title=hit.container_title,
+            scite=hit.scite,
+            score=hit.semantic_similarity,
+            semantic_zotero_score=hit.semantic_zotero_score,
+            scite_adjust=hit.scite_adjust,
+            primo_proxy_url=hit.primo_proxy_url,
+            primo_oa_url=hit.primo_oa_url,
         )
-        for r in raw
+        for hit in raw
     ]
     return SearchResponse(results=results, query=q)
 

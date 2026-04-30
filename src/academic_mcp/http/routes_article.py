@@ -13,7 +13,6 @@ from ..core import in_article as core_in_article
 from ..core.highlights import offsets_to_pdf_rects
 from ..core.types import ArticleId, FetchMode, InArticleResult, PageRects
 from .app import AuthRequired
-from .article_store import load_paths, store_paths
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +62,7 @@ class HighlightChunk(BaseModel):
 class HighlightsResponse(BaseModel):
     cache_key: str
     chunks: list[HighlightChunk]
+    page_dimensions: dict[int, list[float]] = {}  # page_index -> [width_pts, height_pts]
 
 
 # ---------------------------------------------------------------------------
@@ -87,11 +87,11 @@ async def get_article(
     cache_key = fa.cache_key or tc._cache_key(fa.doi or doi or "")
 
     if fa.pdf_path or fa.html_path:
-        store_paths(cache_key, fa.pdf_path, fa.html_path)
+        tc.update_paths(cache_key, fa.pdf_path, fa.html_path)
 
-    paths = load_paths(cache_key)
-    pdf_available = bool(paths.get("pdf_path") and Path(paths["pdf_path"]).exists())
-    html_available = bool(paths.get("html_path") and Path(paths["html_path"]).exists())
+    art = tc.load_by_cache_key(cache_key)
+    pdf_available = bool(art and art.pdf_path and Path(art.pdf_path).exists())
+    html_available = bool(art and art.html_path and Path(art.html_path).exists())
     text_available = bool(fa.text or fa.word_count)
 
     return ArticleMetaResponse(
@@ -137,8 +137,8 @@ async def get_article_text(cache_key: str = Query(...)) -> ArticleTextResponse:
 
 @router.get("/api/article/html", dependencies=[AuthRequired])
 async def get_article_html(cache_key: str = Query(...)):
-    paths = load_paths(cache_key)
-    html_path = paths.get("html_path")
+    art = tc.load_by_cache_key(cache_key)
+    html_path = art.html_path if art else None
     if not html_path or not Path(html_path).exists():
         raise HTTPException(status_code=404, detail="HTML not available for this article")
     return FileResponse(html_path, media_type="text/html")
@@ -150,8 +150,8 @@ async def get_article_html(cache_key: str = Query(...)):
 
 @router.get("/api/article/pdf", dependencies=[AuthRequired])
 async def get_article_pdf(request: Request, cache_key: str = Query(...)):
-    paths = load_paths(cache_key)
-    pdf_path = paths.get("pdf_path")
+    art = tc.load_by_cache_key(cache_key)
+    pdf_path = art.pdf_path if art else None
     if not pdf_path or not Path(pdf_path).exists():
         raise HTTPException(status_code=404, detail="PDF not available for this article")
     return FileResponse(
@@ -200,7 +200,28 @@ async def get_article_highlights(
             ))
 
     chunks.sort(key=lambda c: c.score, reverse=True)
-    return HighlightsResponse(cache_key=cache_key, chunks=chunks[:k])
+    top_chunks = chunks[:k]
+
+    page_dimensions: dict[int, list[float]] = {}
+    pdf_path = article.pdf_path
+    if pdf_path and Path(pdf_path).exists():
+        try:
+            import fitz  # PyMuPDF
+            referenced = {r.page for c in top_chunks for r in c.page_rects}
+            doc = fitz.open(pdf_path)
+            for p in referenced:
+                if 0 <= p < len(doc):
+                    r = doc[p].rect
+                    page_dimensions[p] = [r.width, r.height]
+            doc.close()
+        except Exception:
+            pass
+
+    return HighlightsResponse(
+        cache_key=cache_key,
+        chunks=top_chunks,
+        page_dimensions=page_dimensions,
+    )
 
 
 # ---------------------------------------------------------------------------

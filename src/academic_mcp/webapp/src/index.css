@@ -1,3 +1,9 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+mark.search-highlight {
+  background-color: rgb(253 224 71 / 0.45); /* yellow-300/45 */
+  color: inherit;
+  mix-blend-mode: multiply;
+}

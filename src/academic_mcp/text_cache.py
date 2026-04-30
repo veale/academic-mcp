@@ -96,6 +96,8 @@ class CachedArticle:
     cached_at: str = field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
+    pdf_path: Optional[str] = None
+    html_path: Optional[str] = None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -107,6 +109,8 @@ class CachedArticle:
         d.setdefault("section_detection", "unknown")
         d.setdefault("word_count", len(d.get("text", "").split()))
         d.setdefault("metadata", {})
+        d.setdefault("pdf_path", None)
+        d.setdefault("html_path", None)
         return cls(**d)
 
 
@@ -140,6 +144,8 @@ def put_cached(
     section_detection: str = "unknown",
     word_count: int = 0,
     metadata: dict | None = None,
+    pdf_path: str | None = None,
+    html_path: str | None = None,
 ) -> CachedArticle:
     """Write *text* and *sections* to the article cache for *doi*.
 
@@ -156,6 +162,8 @@ def put_cached(
         section_detection=section_detection,
         word_count=wc,
         metadata=meta,
+        pdf_path=pdf_path,
+        html_path=html_path,
     )
     path = _cache_path(doi)
     try:
@@ -189,3 +197,32 @@ def load_by_cache_key(cache_key: str) -> Optional[CachedArticle]:
     except Exception as exc:
         logger.debug("Failed to read article cache for key %s: %s", cache_key, exc)
         return None
+
+
+def update_paths(
+    cache_key: str,
+    pdf_path: str | None = None,
+    html_path: str | None = None,
+) -> None:
+    """Update pdf_path / html_path on an existing cached article in-place.
+
+    No-op if the article isn't cached yet.  Cleans up any legacy
+    ``.paths.json`` sidecar file that was written by the old article_store.
+    """
+    art = load_by_cache_key(cache_key)
+    if not art:
+        return
+    if pdf_path is not None:
+        art.pdf_path = pdf_path
+    if html_path is not None:
+        art.html_path = html_path
+    path = config.pdf_cache_dir / f"{cache_key}.article.json"
+    try:
+        path.write_text(
+            json.dumps(art.to_dict(), ensure_ascii=False), encoding="utf-8"
+        )
+    except Exception as exc:
+        logger.warning("Failed to update paths for %s: %s", cache_key, exc)
+    # Lazy migration: remove the legacy sidecar if it exists
+    sidecar = config.pdf_cache_dir / f"{cache_key}.paths.json"
+    sidecar.unlink(missing_ok=True)

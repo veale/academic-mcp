@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from enum import Enum
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 
 # ---------------------------------------------------------------------------
@@ -42,6 +42,46 @@ class DoiSearchResult(BaseModel):
     abstract: str | None = None
     key: str | None = None
     url: str | None = None
+
+
+# ---------------------------------------------------------------------------
+# Search results
+# ---------------------------------------------------------------------------
+
+class ScitePayload(BaseModel):
+    supporting: int = 0
+    contrasting: int = 0
+    mentioning: int = 0
+    citing: int = 0
+    total: int = 0
+    retracted: bool = False
+
+
+class SearchHit(BaseModel):
+    title: str
+    authors: list[str] = Field(default_factory=list)
+    year: str | int | None = None
+    doi: str | None = None
+    zotero_key: str | None = None
+    abstract: str | None = None
+    citations: int | None = None
+    venue: str | None = None
+    found_in: list[str] = Field(default_factory=list)
+    in_zotero: bool = False
+    has_oa_pdf: bool = False
+    s2_id: str | None = None
+    url: str | None = None
+    work_type: str | None = None
+    container_title: str | None = None
+    # Internal signals (underscore-prefixed in legacy dict form)
+    semantic_similarity: float | None = None
+    semantic_zotero_score: float | None = None
+    scite_adjust: float | None = None
+    primo_proxy_url: str | None = None
+    primo_oa_url: str | None = None
+    scite: ScitePayload | None = None
+
+    model_config = ConfigDict(extra="forbid")
 
 
 # ---------------------------------------------------------------------------

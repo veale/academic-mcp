@@ -12,7 +12,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from .types import DoiSearchResult
+from .types import DoiSearchResult, ScitePayload, SearchHit
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +32,41 @@ def reconstruct_abstract(inverted_index: dict | None) -> str:
 async def search_zotero(query: str, limit: int = 10) -> list[dict]:
     """Lexical search over the Zotero library (user + groups)."""
     from .. import zotero
-    return await zotero.search_zotero(query, limit=limit)
+    results = await zotero.search_zotero(query, limit=limit)
+    await warm_semantic_for_results(results)
+    return results
+
+
+async def warm_semantic_for_results(results: list[dict], cap: int = 5) -> None:
+    """Best-effort hot-path embedding while a background sync is in progress.
+
+    During an active semantic index build, any item the user just looked at is
+    pre-embedded so it surfaces immediately in ``semantic_search_zotero``
+    without waiting for the background sync to reach it.
+
+    Zotero raw items use ``key``; post-fetch_zotero_lex records use
+    ``zotero_key`` — this helper handles both.
+    """
+    try:
+        from ..semantic_index import get_semantic_index
+        idx = get_semantic_index()
+        st = idx._load_status()
+        if not st.get("in_progress"):
+            return
+        col = idx._get_chroma_collection()
+        for r in results[:cap]:
+            key = r.get("key") or r.get("zotero_key") or ""
+            if not key:
+                continue
+            ex = col.get(where={"item_key": key}, include=[])
+            if not ex.get("ids"):
+                try:
+                    await idx.embed_item_now(key)
+                    logger.debug("hot-path embed completed for %s", key)
+                except Exception as e:
+                    logger.debug("hot-path embed failed for %s: %s", key, e)
+    except Exception:
+        pass  # never let opportunistic embedding break the caller
 
 
 async def search_by_doi(doi: str) -> DoiSearchResult | None:
@@ -86,7 +120,7 @@ async def search_papers(
     domain_hint: str = "general",
     include_scite: bool = False,
     semantic: bool | None = None,
-) -> list[dict]:
+) -> list[SearchHit]:
     """Run the unified parallel-search pipeline and return merged, reranked results.
 
     This is the extracted body of the former ``_collect_search_results`` helper.
@@ -120,8 +154,8 @@ async def search_papers(
 
     # ── Per-source fetchers ─────────────────────────────────────────
 
-    async def fetch_zotero_lex() -> list[dict]:
-        out: list[dict] = []
+    async def fetch_zotero_lex() -> list[SearchHit]:
+        out: list[SearchHit] = []
         zot_results = await zotero.search_zotero(
             query, limit=per_source_limit,
             start_year=start_year, end_year=end_year,
@@ -135,24 +169,24 @@ async def search_papers(
                     if name:
                         author_names.append(name)
             doi = (item.get("DOI") or "").strip()
-            out.append({
-                "title": item.get("title") or "Untitled",
-                "authors": author_names,
-                "year": (item.get("date") or "")[:4] or None,
-                "doi": doi or None,
-                "zotero_key": item.get("key") or None,
-                "abstract": (item.get("abstractNote") or "").strip() or None,
-                "citations": None,
-                "venue": item.get("publicationTitle") or None,
-                "found_in": ["zotero"],
-                "in_zotero": True,
-                "has_oa_pdf": True,
-                "s2_id": None,
-                "url": (item.get("url") or "").strip() or None,
-            })
+            out.append(SearchHit(
+                title=item.get("title") or "Untitled",
+                authors=author_names,
+                year=(item.get("date") or "")[:4] or None,
+                doi=doi or None,
+                zotero_key=item.get("key") or None,
+                abstract=(item.get("abstractNote") or "").strip() or None,
+                citations=None,
+                venue=item.get("publicationTitle") or None,
+                found_in=["zotero"],
+                in_zotero=True,
+                has_oa_pdf=True,
+                s2_id=None,
+                url=(item.get("url") or "").strip() or None,
+            ))
         return out
 
-    async def fetch_semantic_zotero() -> list[dict]:
+    async def fetch_semantic_zotero() -> list[SearchHit]:
         from ..semantic_index import SemanticIndexUnavailable, get_semantic_index
         from ..cross_reranker import rerank as _cross_rerank
         from .background import _ensure_semantic_background_sync
@@ -197,7 +231,7 @@ async def search_papers(
             if len(unique_hits) >= per_source_limit:
                 break
 
-        out: list[dict] = []
+        out: list[SearchHit] = []
         for hit in unique_hits:
             key = hit.get("item_key")
             if not key:
@@ -211,26 +245,26 @@ async def search_papers(
                 if nm:
                     author_names.append(nm)
             score = hit.get("rerank_score", hit.get("score"))
-            out.append({
-                "title": item.title or hit.get("title") or "Untitled",
-                "authors": author_names,
-                "year": (item.date or "")[:4] or None,
-                "doi": item.DOI or hit.get("doi") or None,
-                "zotero_key": item.key,
-                "abstract": item.abstractNote or hit.get("snippet") or None,
-                "citations": None,
-                "venue": item.publicationTitle or None,
-                "found_in": ["semantic_zotero", "zotero"],
-                "in_zotero": True,
-                "has_oa_pdf": True,
-                "s2_id": None,
-                "_semantic_zotero_score": score,
-                "url": (item.url or "").strip() or None,
-            })
+            out.append(SearchHit(
+                title=item.title or hit.get("title") or "Untitled",
+                authors=author_names,
+                year=(item.date or "")[:4] or None,
+                doi=item.DOI or hit.get("doi") or None,
+                zotero_key=item.key,
+                abstract=item.abstractNote or hit.get("snippet") or None,
+                citations=None,
+                venue=item.publicationTitle or None,
+                found_in=["semantic_zotero", "zotero"],
+                in_zotero=True,
+                has_oa_pdf=True,
+                s2_id=None,
+                semantic_zotero_score=score,
+                url=(item.url or "").strip() or None,
+            ))
         return out
 
-    async def fetch_s2() -> list[dict]:
-        out: list[dict] = []
+    async def fetch_s2() -> list[SearchHit]:
+        out: list[SearchHit] = []
         s2 = await apis.s2_search(
             query, limit=per_source_limit,
             start_year=start_year, end_year=end_year,
@@ -239,23 +273,23 @@ async def search_papers(
             doi = apis.extract_doi(paper)
             doi_norm = zotero._normalize_doi(doi) if doi else None
             in_zot = doi_norm in zot_index if doi_norm else False
-            out.append({
-                "title": paper.get("title") or "Untitled",
-                "authors": [a.get("name", "") for a in (paper.get("authors") or [])[:5]],
-                "year": paper.get("year"),
-                "doi": doi,
-                "abstract": (paper.get("abstract") or "").strip() or None,
-                "citations": paper.get("citationCount"),
-                "venue": paper.get("venue") or None,
-                "found_in": ["semantic_scholar"],
-                "in_zotero": in_zot,
-                "has_oa_pdf": bool((paper.get("openAccessPdf") or {}).get("url")),
-                "s2_id": paper.get("paperId"),
-            })
+            out.append(SearchHit(
+                title=paper.get("title") or "Untitled",
+                authors=[a.get("name", "") for a in (paper.get("authors") or [])[:5]],
+                year=paper.get("year"),
+                doi=doi,
+                abstract=(paper.get("abstract") or "").strip() or None,
+                citations=paper.get("citationCount"),
+                venue=paper.get("venue") or None,
+                found_in=["semantic_scholar"],
+                in_zotero=in_zot,
+                has_oa_pdf=bool((paper.get("openAccessPdf") or {}).get("url")),
+                s2_id=paper.get("paperId"),
+            ))
         return out
 
-    async def fetch_openalex() -> list[dict]:
-        out: list[dict] = []
+    async def fetch_openalex() -> list[SearchHit]:
+        out: list[SearchHit] = []
         oa = await apis.openalex_search(
             query, limit=per_source_limit,
             start_year=start_year, end_year=end_year, venue=venue,
@@ -277,53 +311,76 @@ async def search_papers(
             _oa_source = _primary_loc.get("source") or {}
             _oa_type = (work.get("type") or "").lower()
             _oa_url = _primary_loc.get("pdf_url") or _primary_loc.get("landing_page_url") or None
-            out.append({
-                "title": work.get("title") or "Untitled",
-                "authors": authors,
-                "year": work.get("publication_year"),
-                "doi": doi,
-                "abstract": reconstruct_abstract(work.get("abstract_inverted_index")) or None,
-                "citations": work.get("cited_by_count"),
-                "venue": _oa_source.get("display_name") or None,
-                "found_in": ["openalex"],
-                "in_zotero": in_zot,
-                "has_oa_pdf": (work.get("open_access") or {}).get("is_oa", False),
-                "s2_id": None,
-                "work_type": _oa_type or None,
-                "container_title": _oa_source.get("display_name") if _oa_type in ("book-chapter",) else None,
-                "url": _oa_url,
-            })
+            out.append(SearchHit(
+                title=work.get("title") or "Untitled",
+                authors=authors,
+                year=work.get("publication_year"),
+                doi=doi,
+                abstract=reconstruct_abstract(work.get("abstract_inverted_index")) or None,
+                citations=work.get("cited_by_count"),
+                venue=_oa_source.get("display_name") or None,
+                found_in=["openalex"],
+                in_zotero=in_zot,
+                has_oa_pdf=(work.get("open_access") or {}).get("is_oa", False),
+                s2_id=None,
+                work_type=_oa_type or None,
+                container_title=_oa_source.get("display_name") if _oa_type in ("book-chapter",) else None,
+                url=_oa_url,
+            ))
         return out
 
-    async def fetch_primo() -> list[dict]:
+    async def fetch_primo() -> list[SearchHit]:
         primo_results = await apis.primo_search(
             query, limit=per_source_limit,
             start_year=start_year, end_year=end_year,
         )
-        out: list[dict] = []
+        out: list[SearchHit] = []
         for r in primo_results:
             doi = (r.get("doi") or "").strip()
             doi_norm = zotero._normalize_doi(doi) if doi else None
-            r["in_zotero"] = doi_norm in zot_index if doi_norm else False
-            out.append(r)
+            in_zot = doi_norm in zot_index if doi_norm else False
+            out.append(SearchHit(
+                title=r.get("title") or "Untitled",
+                authors=r.get("authors") or [],
+                year=r.get("year"),
+                doi=doi or None,
+                abstract=r.get("abstract"),
+                citations=None,
+                venue=r.get("venue"),
+                found_in=r.get("found_in") or ["primo"],
+                in_zotero=in_zot,
+                has_oa_pdf=bool(r.get("has_oa_pdf")),
+                s2_id=None,
+                primo_oa_url=r.get("_primo_oa_url"),
+                primo_proxy_url=r.get("_primo_proxy_url"),
+            ))
         return out
 
-    async def fetch_primo_law() -> list[dict]:
+    async def fetch_primo_law() -> list[SearchHit]:
         law_results = await apis.primo_search_law_reviews(
             query, limit=per_source_limit,
             start_year=start_year, end_year=end_year,
         )
-        out: list[dict] = []
+        out: list[SearchHit] = []
         for r in law_results:
             doi = (r.get("doi") or "").strip()
             doi_norm = zotero._normalize_doi(doi) if doi else None
             in_zot = doi_norm in zot_index if doi_norm else False
-            if in_zot:
-                r["in_zotero"] = True
-                r["has_oa_pdf"] = True
-            else:
-                r["in_zotero"] = False
-            out.append(r)
+            out.append(SearchHit(
+                title=r.get("title") or "Untitled",
+                authors=r.get("authors") or [],
+                year=r.get("year"),
+                doi=doi or None,
+                abstract=r.get("abstract"),
+                citations=None,
+                venue=r.get("venue"),
+                found_in=r.get("found_in") or ["primo_law"],
+                in_zotero=in_zot,
+                has_oa_pdf=bool(r.get("has_oa_pdf")) or in_zot,
+                s2_id=None,
+                primo_oa_url=r.get("_primo_oa_url"),
+                primo_proxy_url=r.get("_primo_proxy_url"),
+            ))
         return out
 
     # ── Schedule fetchers in parallel ───────────────────────────────
@@ -347,7 +404,7 @@ async def search_papers(
 
     if tasks:
         gathered = await asyncio.gather(*tasks.values(), return_exceptions=True)
-        by_source: dict[str, list[dict]] = {}
+        by_source: dict[str, list[SearchHit]] = {}
         for src_name, res in zip(tasks.keys(), gathered):
             if isinstance(res, Exception):
                 logger.warning("%s search failed: %s", src_name, res)
@@ -367,51 +424,51 @@ async def search_papers(
         "primo_law",
     ]
 
-    results: list[dict] = []
+    results: list[SearchHit] = []
     seen_dois: set[str] = set()
     seen_zot_keys: set[str] = set()
 
-    def _find_existing(rec: dict) -> dict | None:
-        d = rec.get("doi")
+    def _find_existing(rec: SearchHit) -> SearchHit | None:
+        d = rec.doi
         dn = zotero._normalize_doi(d) if d else None
-        zk = rec.get("zotero_key")
+        zk = rec.zotero_key
         if dn and dn in seen_dois:
             for r in results:
-                if r.get("doi") and zotero._normalize_doi(r["doi"]) == dn:
+                if r.doi and zotero._normalize_doi(r.doi) == dn:
                     return r
         if zk and zk in seen_zot_keys:
             for r in results:
-                if r.get("zotero_key") == zk:
+                if r.zotero_key == zk:
                     return r
         return None
 
-    def _merge_into(existing: dict, rec: dict) -> None:
-        for s in rec.get("found_in", []):
-            if s not in existing["found_in"]:
-                existing["found_in"].append(s)
-        if not existing.get("citations") and rec.get("citations"):
-            existing["citations"] = rec["citations"]
-        if not existing.get("abstract") and rec.get("abstract"):
-            existing["abstract"] = rec["abstract"]
-        if not existing.get("s2_id") and rec.get("s2_id"):
-            existing["s2_id"] = rec["s2_id"]
-        if not existing.get("url") and rec.get("url"):
-            existing["url"] = rec["url"]
-        if not existing.get("venue") and rec.get("venue"):
-            existing["venue"] = rec["venue"]
-        if not existing.get("work_type") and rec.get("work_type"):
-            existing["work_type"] = rec["work_type"]
-        if not existing.get("container_title") and rec.get("container_title"):
-            existing["container_title"] = rec["container_title"]
-        if rec.get("_primo_proxy_url") and not existing.get("_primo_proxy_url"):
-            existing["_primo_proxy_url"] = rec["_primo_proxy_url"]
-        if rec.get("_primo_oa_url") and not existing.get("_primo_oa_url"):
-            existing["_primo_oa_url"] = rec["_primo_oa_url"]
-            existing["has_oa_pdf"] = existing.get("has_oa_pdf") or rec.get("has_oa_pdf", False)
-        if rec.get("_semantic_zotero_score") is not None and existing.get("_semantic_zotero_score") is None:
-            existing["_semantic_zotero_score"] = rec["_semantic_zotero_score"]
-        if rec.get("in_zotero") and not existing.get("in_zotero"):
-            existing["in_zotero"] = True
+    def _merge_into(existing: SearchHit, rec: SearchHit) -> None:
+        for s in rec.found_in:
+            if s not in existing.found_in:
+                existing.found_in.append(s)
+        if not existing.citations and rec.citations:
+            existing.citations = rec.citations
+        if not existing.abstract and rec.abstract:
+            existing.abstract = rec.abstract
+        if not existing.s2_id and rec.s2_id:
+            existing.s2_id = rec.s2_id
+        if not existing.url and rec.url:
+            existing.url = rec.url
+        if not existing.venue and rec.venue:
+            existing.venue = rec.venue
+        if not existing.work_type and rec.work_type:
+            existing.work_type = rec.work_type
+        if not existing.container_title and rec.container_title:
+            existing.container_title = rec.container_title
+        if rec.primo_proxy_url and not existing.primo_proxy_url:
+            existing.primo_proxy_url = rec.primo_proxy_url
+        if rec.primo_oa_url and not existing.primo_oa_url:
+            existing.primo_oa_url = rec.primo_oa_url
+            existing.has_oa_pdf = existing.has_oa_pdf or rec.has_oa_pdf
+        if rec.semantic_zotero_score is not None and existing.semantic_zotero_score is None:
+            existing.semantic_zotero_score = rec.semantic_zotero_score
+        if rec.in_zotero and not existing.in_zotero:
+            existing.in_zotero = True
 
     for src_name in priority:
         for rec in by_source.get(src_name, []):
@@ -419,26 +476,26 @@ async def search_papers(
             if existing is not None:
                 _merge_into(existing, rec)
                 continue
-            d = rec.get("doi")
+            d = rec.doi
             dn = zotero._normalize_doi(d) if d else None
             if dn:
                 seen_dois.add(dn)
-            zk = rec.get("zotero_key")
+            zk = rec.zotero_key
             if zk:
                 seen_zot_keys.add(zk)
             results.append(rec)
 
     # ── For Zotero items without abstracts, try getting a preview ──
     for r in results:
-        if r["in_zotero"] and not r["abstract"] and r.get("doi"):
+        if r.in_zotero and not r.abstract and r.doi:
             try:
-                zot_result = await zotero.get_paper_from_zotero(r["doi"])
+                zot_result = await zotero.get_paper_from_zotero(r.doi)
                 if zot_result and zot_result.get("text"):
                     preview = zot_result["text"][:600].strip()
                     last_period = preview.rfind(".")
                     if last_period > 300:
                         preview = preview[:last_period + 1]
-                    r["abstract"] = f"[Preview from Zotero fulltext]: {preview}"
+                    r.abstract = f"[Preview from Zotero fulltext]: {preview}"
                 elif zot_result and zot_result.get("pdf_path"):
                     page1 = pdf_extractor.extract_text_by_pages(zot_result["pdf_path"], 1, 1)
                     if page1.strip():
@@ -446,9 +503,9 @@ async def search_papers(
                         last_period = preview.rfind(".")
                         if last_period > 200:
                             preview = preview[:last_period + 1]
-                        r["abstract"] = f"[Preview from PDF page 1]: {preview}"
+                        r.abstract = f"[Preview from PDF page 1]: {preview}"
             except Exception as e:
-                logger.debug("Preview extraction failed for %s: %s", r["doi"], e)
+                logger.debug("Preview extraction failed for %s: %s", r.doi, e)
 
     # ── Semantic re-ranking ─────────────────────────────────────────
     results = await rerank_results(query, results)
@@ -457,13 +514,13 @@ async def search_papers(
     if include_scite:
         from .. import scite as scite_module
 
-        dois = [zotero._normalize_doi(r["doi"]) for r in results if r.get("doi")]
+        dois = [zotero._normalize_doi(r.doi) for r in results if r.doi]
         if dois:
             tallies_by_doi = await scite_module.get_scite_tallies_batch(dois)
             papers_by_doi = await scite_module.get_scite_papers_batch(dois)
 
             for r in results:
-                _doi = r.get("doi")
+                _doi = r.doi
                 if not _doi:
                     continue
                 doi_norm = zotero._normalize_doi(_doi)
@@ -473,38 +530,89 @@ async def search_papers(
                 if tally:
                     tally = dict(tally)
                     tally["retracted"] = is_retracted
-                    r["scite"] = tally
+                    r.scite = ScitePayload(**tally)
                 elif is_retracted:
-                    r["scite"] = {
-                        "supporting": 0,
-                        "contrasting": 0,
-                        "mentioning": 0,
-                        "citing": 0,
-                        "total": 0,
-                        "retracted": True,
-                    }
+                    r.scite = ScitePayload(retracted=True)
 
-            def _scite_adjust(rr: dict) -> float:
-                s = rr.get("scite") or {}
+            def _scite_adjust(rr: SearchHit) -> float:
+                s = rr.scite
                 if not s:
                     return 0.0
-                if s.get("retracted"):
+                if s.retracted:
                     return -0.25
-                citing = max(1, int(s.get("citing") or 0))
-                supporting = int(s.get("supporting") or 0)
+                citing = max(1, s.citing)
+                supporting = s.supporting
                 return min(0.08, (supporting / citing) * 0.08)
 
             for r in results:
-                r["_scite_adjust"] = _scite_adjust(r)
+                r.scite_adjust = _scite_adjust(r)
 
             results.sort(
                 key=lambda r: (
-                    0 if (r.get("scite") or {}).get("retracted") else 1,
-                    1 if r.get("in_zotero") else 0,
-                    (r.get("_semantic_similarity") or 0.0) + (r.get("_scite_adjust") or 0.0),
-                    r.get("citations") or 0,
+                    0 if r.scite and r.scite.retracted else 1,
+                    1 if r.in_zotero else 0,
+                    (r.semantic_similarity or 0.0) + (r.scite_adjust or 0.0),
+                    r.citations or 0,
                 ),
                 reverse=True,
             )
 
     return results
+
+
+def search_in_corpus(
+    query: str,
+    candidates: list,
+    limit: int = 25,
+) -> list[SearchHit]:
+    """Rank *candidates* (CitationWorkItem instances) by relevance to *query*.
+
+    Scoring is purely lexical: query terms are matched against the title
+    (weight 2) and abstract (weight 1) of each candidate.  Items already in
+    Zotero receive a small boost so they appear above equal-score items that
+    are not locally accessible.
+
+    Returns a list of SearchHit objects sorted by descending score, capped at *limit*.
+    """
+    terms = [t.lower() for t in query.split() if t]
+    if not terms:
+        items = candidates[:limit]
+        return [_corpus_item_to_hit(c, 0.0) for c in items]
+
+    scored: list[tuple[float, object]] = []
+    for c in candidates:
+        title_lc = (c.title or "").lower()
+        abstract_lc = (c.abstract or "").lower()
+        score = sum(
+            2.0 * title_lc.count(t) + abstract_lc.count(t)
+            for t in terms
+        )
+        if c.in_zotero:
+            score += 0.5
+        scored.append((score, c))
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return [_corpus_item_to_hit(c, s) for s, c in scored[:limit]]
+
+
+def _corpus_item_to_hit(item: object, score: float) -> SearchHit:
+    """Convert a CitationWorkItem to a SearchHit."""
+    from .types import CitationWorkItem
+    c: CitationWorkItem = item  # type: ignore[assignment]
+    return SearchHit(
+        title=c.title or "Untitled",
+        authors=list(c.authors),
+        year=str(c.year) if c.year else None,
+        doi=c.doi,
+        zotero_key=None,
+        abstract=c.abstract,
+        citations=c.cited_by_count or None,
+        venue=c.venue,
+        found_in=["openalex"],
+        in_zotero=c.in_zotero,
+        has_oa_pdf=False,
+        s2_id=None,
+        url=None,
+        semantic_similarity=score,
+    )
+

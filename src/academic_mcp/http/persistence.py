@@ -1,8 +1,8 @@
 """Saved-search persistence layer backed by a single SQLite database.
 
-The database lives at ``WEBAPP_DB`` (env) or ``~/.cache/academic-mcp/webapp.sqlite``
-by default.  On production the env var should be set to something under
-``/var/cache/academic-mcp/``.
+The database lives at ``WEBAPP_DB`` (env) or ``/var/cache/academic-mcp/webapp.sqlite``
+by default, with a fallback to ``~/.cache/academic-mcp/webapp.sqlite`` when the
+production path is not writable (e.g. dev on macOS).
 
 Public surface:
     init_db()                               — called once at app startup
@@ -14,6 +14,7 @@ Public surface:
 from __future__ import annotations
 
 import json
+import logging
 import os
 from datetime import datetime, timezone
 from pathlib import Path
@@ -21,16 +22,34 @@ from pathlib import Path
 import aiosqlite
 from pydantic import BaseModel
 
+logger = logging.getLogger(__name__)
+
 # ---------------------------------------------------------------------------
 # DB path
 # ---------------------------------------------------------------------------
 
-_DEFAULT_DB = Path("~/.cache/academic-mcp/webapp.sqlite").expanduser()
+_PREFERRED_DB = Path("/var/cache/academic-mcp/webapp.sqlite")
+_FALLBACK_DB = Path("~/.cache/academic-mcp/webapp.sqlite").expanduser()
 
 
 def _db_path() -> Path:
     raw = os.getenv("WEBAPP_DB", "")
-    return Path(raw).expanduser() if raw else _DEFAULT_DB
+    if raw:
+        return Path(raw).expanduser()
+    # Try the production path first; fall back to user-local if not writable.
+    try:
+        _PREFERRED_DB.parent.mkdir(parents=True, exist_ok=True)
+        # Touch to verify write access without clobbering an existing DB.
+        if not _PREFERRED_DB.exists():
+            _PREFERRED_DB.touch()
+        return _PREFERRED_DB
+    except (PermissionError, OSError):
+        logger.info(
+            "Cannot write to %s — using fallback DB at %s",
+            _PREFERRED_DB,
+            _FALLBACK_DB,
+        )
+        return _FALLBACK_DB
 
 
 # ---------------------------------------------------------------------------

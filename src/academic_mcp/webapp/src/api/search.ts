@@ -42,3 +42,13 @@ export async function searchPapers(params: SearchParams): Promise<SearchResponse
   if (params.domain_hint) qs.set('domain_hint', params.domain_hint)
   return apiFetch<SearchResponse>(`/search?${qs}`)
 }
+
+export async function searchInCitations(
+  doi: string,
+  q: string,
+  direction: 'in' | 'out' = 'out',
+  limit = 25,
+): Promise<SearchResponse> {
+  const qs = new URLSearchParams({ doi, q, direction, limit: String(limit) })
+  return apiFetch<SearchResponse>(`/citations/search?${qs}`)
+}
