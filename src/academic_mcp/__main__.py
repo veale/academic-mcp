@@ -186,7 +186,7 @@ def _run_streamable_http(port: int):
     from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
     from starlette.applications import Starlette
     from starlette.routing import Mount, Route
-    from starlette.responses import PlainTextResponse
+    from starlette.responses import PlainTextResponse, Response
     import uvicorn
 
     try:
@@ -241,8 +241,19 @@ def _run_streamable_http(port: int):
     # clients work with or without the trailing slash. Starlette's Mount
     # with prefix `/mcp` only matches `/mcp/...`, not `/mcp` exactly, so
     # we add an explicit Route for the bare path.
+    #
+    # `handle_mcp` is a raw ASGI callable — it sends the response directly
+    # via the `send` callable rather than returning a Starlette Response
+    # object.  Starlette's `Route` machinery expects an endpoint to *return*
+    # a Response, so we wrap it in a sentinel that satisfies that contract
+    # without trying to send a second response.
+    class _AlreadySentResponse(Response):
+        async def __call__(self, scope, receive, send) -> None:
+            pass  # response already sent by the session manager
+
     async def handle_mcp_root(request):
         await handle_mcp(request.scope, request.receive, request._send)
+        return _AlreadySentResponse()
 
     # Mount the webapp when WEBAPP_ENABLED=true (default: true when MCP_API_KEY is set).
     _api_key_set = bool(os.getenv("MCP_API_KEY", "").strip())
