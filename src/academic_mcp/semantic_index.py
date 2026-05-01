@@ -37,6 +37,7 @@ import asyncio
 import json
 import logging
 import warnings
+from collections import OrderedDict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -51,6 +52,26 @@ logger = logging.getLogger(__name__)
 
 class SemanticIndexUnavailable(RuntimeError):
     pass
+
+
+# Tiny LRU for interactive query embeddings.  Both search() and
+# search_within_item() pay an embedder round-trip on the same query string;
+# this cache lets a follow-up call (e.g. opening an article from search results)
+# reuse the just-computed embedding without another network hop.
+_QUERY_EMBED_CACHE_MAX = 64
+_query_embed_cache: "OrderedDict[tuple[str, str], Any]" = OrderedDict()
+
+
+def _embed_query_cached(embedder: "Embedder", query: str) -> Any:
+    key = (f"{embedder.provider}:{embedder.model}", query)
+    if key in _query_embed_cache:
+        _query_embed_cache.move_to_end(key)
+        return _query_embed_cache[key]
+    emb = embedder.encode_query([query])[0]
+    _query_embed_cache[key] = emb
+    if len(_query_embed_cache) > _QUERY_EMBED_CACHE_MAX:
+        _query_embed_cache.popitem(last=False)
+    return emb
 
 
 # Separator between item_key and chunk index in composite Chroma IDs.
@@ -521,7 +542,7 @@ class SemanticIndex:
 
         def _search_blocking() -> list[dict[str, Any]]:
             col = self._get_chroma_collection()
-            emb = embedder.encode_query([query])[0]
+            emb = _embed_query_cached(embedder, query)
             res = col.query(query_embeddings=[emb], n_results=max(1, min(k, 200)))
 
             ids = (res.get("ids") or [[]])[0]
@@ -543,6 +564,56 @@ class SemanticIndex:
                         "title": md.get("title") or "",
                         "score": round(score, 4),
                         "snippet": doc[:300],
+                        "char_start": int(md.get("char_start") or 0),
+                        "char_end": int(md.get("char_end") or 0),
+                        "chunk_source": md.get("chunk_source") or "unknown",
+                        "chunk_idx": int(md.get("chunk_idx") or 0),
+                        "chunk_count": int(md.get("chunk_count") or 1),
+                    }
+                )
+            return out
+
+        return await asyncio.to_thread(_search_blocking)
+
+    async def search_within_item(
+        self, query: str, item_key: str, k: int = 20,
+    ) -> list[dict[str, Any]]:
+        """Return chunks for *item_key* ranked by relevance to *query*.
+
+        Same shape as :meth:`search`, but restricted to a single Zotero item.
+        Used by the webapp's per-article semantic heatmap.
+        """
+        if not item_key:
+            return []
+        embedder = self._get_embedder(mode="interactive")
+        self._assert_compatible(embedder)
+
+        def _search_blocking() -> list[dict[str, Any]]:
+            col = self._get_chroma_collection()
+            emb = _embed_query_cached(embedder, query)
+            res = col.query(
+                query_embeddings=[emb],
+                n_results=max(1, min(k, 200)),
+                where={"item_key": item_key},
+            )
+            ids = (res.get("ids") or [[]])[0]
+            dists = (res.get("distances") or [[]])[0]
+            metas = (res.get("metadatas") or [[]])[0]
+            docs = (res.get("documents") or [[]])[0]
+            out: list[dict[str, Any]] = []
+            for idx, chunk_id in enumerate(ids):
+                md = metas[idx] if idx < len(metas) else {}
+                doc = docs[idx] if idx < len(docs) else ""
+                dist = dists[idx] if idx < len(dists) else 1.0
+                score = 1.0 - float(dist)
+                out.append(
+                    {
+                        "item_key": md.get("item_key") or _item_key_from_chunk_id(chunk_id),
+                        "chunk_id": chunk_id,
+                        "doi": md.get("doi") or "",
+                        "title": md.get("title") or "",
+                        "score": round(score, 4),
+                        "snippet": doc[:600],
                         "char_start": int(md.get("char_start") or 0),
                         "char_end": int(md.get("char_end") or 0),
                         "chunk_source": md.get("chunk_source") or "unknown",

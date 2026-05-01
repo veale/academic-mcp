@@ -57,6 +57,7 @@ class HighlightChunk(BaseModel):
     char_end: int
     snippet: str
     page_rects: list[PageRects] = []
+    match_type: str = "lexical"  # "semantic" | "lexical"
 
 
 class HighlightsResponse(BaseModel):
@@ -178,39 +179,118 @@ async def get_article_pdf(request: Request, cache_key: str = Query(...)):
 # GET /api/article/highlights
 # ---------------------------------------------------------------------------
 
+async def _resolve_item_key(article, explicit: str | None) -> str | None:
+    """Resolve a Zotero item_key for a cached article (best-effort)."""
+    if explicit:
+        return explicit
+    md_key = article.metadata.get("key") if article.metadata else None
+    if md_key:
+        return str(md_key)
+    doi = article.doi or ""
+    if doi.startswith(("zotero:", "url:")):
+        if doi.startswith("zotero:"):
+            return doi.split(":", 1)[1] or None
+        return None
+    if not doi:
+        return None
+    try:
+        from .. import zotero as zotero_mod
+        idx = await zotero_mod.get_doi_index()
+        entry = idx.get(zotero_mod._normalize_doi(doi))
+        if entry:
+            return entry.get("item_key")
+    except Exception:
+        return None
+    return None
+
+
+def _align_offsets_to_text(
+    text: str, snippet: str, fallback: tuple[int, int],
+) -> tuple[int, int] | None:
+    """Find *snippet* in *text*; fall back to *fallback* offsets if they fit.
+
+    Returns None when nothing aligns — caller should drop the chunk.
+    """
+    cs, ce = fallback
+    if 0 <= cs < ce <= len(text):
+        return cs, ce
+    probe = (snippet or "").strip()[:80]
+    if not probe:
+        return None
+    found = text.find(probe)
+    if found < 0:
+        return None
+    return found, found + len(probe)
+
+
 @router.get("/api/article/highlights", dependencies=[AuthRequired])
 async def get_article_highlights(
     cache_key: str = Query(...),
     q: str = Query(..., min_length=1),
-    k: int = Query(10, ge=1, le=50),
+    k: int = Query(20, ge=1, le=50),
+    zotero_key: str | None = Query(None),
 ) -> HighlightsResponse:
     article = tc.load_by_cache_key(cache_key)
     if not article:
         raise HTTPException(status_code=404, detail="Article not in cache")
 
-    try:
-        result = await core_in_article.search_in_article(
-            doi=article.doi,
-            terms=[q],
-            context_chars=300,
-            max_matches=k,
-        )
-    except LookupError:
-        raise HTTPException(status_code=404, detail="Article not in cache")
-
+    text = article.text or ""
     chunks: list[HighlightChunk] = []
-    for term_result in result.term_results:
-        for match in term_result.matches:
-            page_rects = offsets_to_pdf_rects(
-                cache_key, [(match.char_start, match.char_end)]
+
+    # ── Tier 1: semantic chunks from the Zotero index ──────────────────
+    item_key = await _resolve_item_key(article, zotero_key)
+    if item_key and text:
+        try:
+            from ..semantic_index import get_semantic_index, SemanticIndexUnavailable
+            idx = get_semantic_index()
+            sem = await idx.search_within_item(q, item_key, k=k)
+            for c in sem:
+                aligned = _align_offsets_to_text(
+                    text, c.get("snippet", ""),
+                    (c["char_start"], c["char_end"]),
+                )
+                if not aligned:
+                    continue
+                cs, ce = aligned
+                snippet_for_ui = (c.get("snippet") or text[cs:ce])[:300]
+                rects = offsets_to_pdf_rects(cache_key, [(cs, ce)])
+                chunks.append(HighlightChunk(
+                    score=float(c.get("score") or 0.0),
+                    char_start=cs,
+                    char_end=ce,
+                    snippet=snippet_for_ui,
+                    page_rects=rects,
+                    match_type="semantic",
+                ))
+        except SemanticIndexUnavailable:
+            pass
+        except Exception as exc:
+            logger.debug("Semantic highlight tier failed for %s: %s", cache_key, exc)
+
+    # ── Tier 2: BM25 fallback (when semantic tier returned nothing) ────
+    if not chunks:
+        try:
+            result = await core_in_article.search_in_article(
+                doi=article.doi,
+                terms=[q],
+                context_chars=300,
+                max_matches=k,
             )
-            chunks.append(HighlightChunk(
-                score=match.bm25_score or 1.0,
-                char_start=match.char_start,
-                char_end=match.char_end,
-                snippet=match.snippet,
-                page_rects=page_rects,
-            ))
+            for term_result in result.term_results:
+                for match in term_result.matches:
+                    rects = offsets_to_pdf_rects(
+                        cache_key, [(match.char_start, match.char_end)]
+                    )
+                    chunks.append(HighlightChunk(
+                        score=float(match.bm25_score or 1.0),
+                        char_start=match.char_start,
+                        char_end=match.char_end,
+                        snippet=match.snippet,
+                        page_rects=rects,
+                        match_type="lexical",
+                    ))
+        except LookupError:
+            pass
 
     chunks.sort(key=lambda c: c.score, reverse=True)
     top_chunks = chunks[:k]

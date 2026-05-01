@@ -56,6 +56,7 @@ export interface HighlightChunk {
   char_end: number
   snippet: string
   page_rects: PageRects[]
+  match_type: 'semantic' | 'lexical'
 }
 
 export interface HighlightsResponse {
@@ -82,8 +83,14 @@ export async function fetchArticleText(cacheKey: string): Promise<ArticleText> {
   return apiFetch<ArticleText>(`/article/text?cache_key=${encodeURIComponent(cacheKey)}`)
 }
 
-export async function fetchHighlights(cacheKey: string, q: string, k = 20): Promise<HighlightsResponse> {
+export async function fetchHighlights(
+  cacheKey: string,
+  q: string,
+  k = 20,
+  zoteroKey?: string,
+): Promise<HighlightsResponse> {
   const qs = new URLSearchParams({ cache_key: cacheKey, q, k: String(k) })
+  if (zoteroKey) qs.set('zotero_key', zoteroKey)
   return apiFetch<HighlightsResponse>(`/article/highlights?${qs}`)
 }
 

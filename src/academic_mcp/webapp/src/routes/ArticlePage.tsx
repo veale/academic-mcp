@@ -107,8 +107,8 @@ export function ArticlePage() {
 
   // Highlights when q is present
   const { data: highlightsData } = useQuery({
-    queryKey: ['highlights', meta?.cache_key, q],
-    queryFn: () => fetchHighlights(meta!.cache_key, q!),
+    queryKey: ['highlights', meta?.cache_key, q, zotero_key],
+    queryFn: () => fetchHighlights(meta!.cache_key, q!, 20, zotero_key),
     enabled: !!(meta?.cache_key && q),
   })
 
