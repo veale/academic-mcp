@@ -121,11 +121,24 @@ async def get_article_text(cache_key: str = Query(...)) -> ArticleTextResponse:
     article = tc.load_by_cache_key(cache_key)
     if not article:
         raise HTTPException(status_code=404, detail="Article not in cache")
+    # Cached sections use start/end; the wire schema uses char_start/char_end.
+    sections = [
+        {
+            "title": s.get("title", ""),
+            "char_start": s.get("char_start", s.get("start", 0)),
+            "char_end": s.get("char_end", s.get("end", 0)),
+            "level": s.get("level", 2),
+            "keywords": s.get("keywords", []),
+            "word_count": s.get("word_count", 0),
+            "is_infill": s.get("is_infill", False),
+        }
+        for s in (article.sections or [])
+    ]
     return ArticleTextResponse(
         doi=article.doi,
         cache_key=cache_key,
         text=article.text,
-        sections=article.sections,
+        sections=sections,
         section_detection=article.section_detection,
         word_count=article.word_count,
     )
