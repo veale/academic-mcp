@@ -43,6 +43,8 @@ import os
 import shutil
 import sqlite3
 import tempfile
+import threading
+import time
 import zipfile
 from pathlib import Path
 from typing import Optional
@@ -123,8 +125,19 @@ def _shadow_path() -> Path:
     return app_config.pdf_cache_dir.parent / "zotero-shadow.sqlite"
 
 
+# Backup throttle: a shadow copy is a fallback for when Zotero is locked, so
+# being a few minutes stale is fine.  Without coalescing, a hot search path
+# makes one connection per result and stacks dozens of multi-MB backups in
+# parallel — enough to OOM the container.
+_SHADOW_REFRESH_INTERVAL_SEC = 300.0
+_shadow_last_refresh: float = 0.0
+_shadow_refresh_in_flight: bool = False
+_shadow_lock = threading.Lock()
+
+
 def _do_backup(src_path: str, dst_path: Path) -> None:
     """Synchronous SQLite backup — runs in a thread."""
+    global _shadow_last_refresh, _shadow_refresh_in_flight
     dst_path.parent.mkdir(parents=True, exist_ok=True)
     tmp = dst_path.with_suffix(".tmp")
     try:
@@ -138,6 +151,34 @@ def _do_backup(src_path: str, dst_path: Path) -> None:
     except Exception as e:
         logger.debug("Shadow copy failed (non-fatal): %s", e)
         tmp.unlink(missing_ok=True)
+    finally:
+        with _shadow_lock:
+            _shadow_last_refresh = time.monotonic()
+            _shadow_refresh_in_flight = False
+
+
+def _maybe_schedule_shadow_refresh(src_path: str, dst_path: Path) -> None:
+    """Fire a shadow backup at most once per ``_SHADOW_REFRESH_INTERVAL_SEC``.
+
+    Coalesces concurrent callers and skips when the shadow is already fresh
+    enough — without this, a single user search can stack dozens of parallel
+    multi-MB backups and OOM the container.
+    """
+    global _shadow_refresh_in_flight
+    now = time.monotonic()
+    with _shadow_lock:
+        if _shadow_refresh_in_flight:
+            return
+        if now - _shadow_last_refresh < _SHADOW_REFRESH_INTERVAL_SEC:
+            return
+        _shadow_refresh_in_flight = True
+    try:
+        asyncio.get_event_loop().run_in_executor(
+            None, _do_backup, src_path, dst_path,
+        )
+    except Exception:
+        with _shadow_lock:
+            _shadow_refresh_in_flight = False
 
 
 # ---------------------------------------------------------------------------
@@ -168,9 +209,8 @@ async def _get_connection() -> aiosqlite.Connection:
         # simple PRAGMAs, so without this the fallback never fires.
         await conn.execute("SELECT 1 FROM libraries LIMIT 1")
         # Primary is genuinely readable — schedule shadow refresh in background
-        asyncio.get_event_loop().run_in_executor(
-            None, _do_backup, sqlite_config.db_path, shadow
-        )
+        # (throttled + coalesced so a hot search path doesn't OOM the container).
+        _maybe_schedule_shadow_refresh(sqlite_config.db_path, shadow)
         return conn
     except Exception as e:
         if conn is not None:

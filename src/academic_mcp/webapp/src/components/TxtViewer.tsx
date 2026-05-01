@@ -45,44 +45,82 @@ function buildSegments(text: string, sections: ArticleSection[]): Segment[] {
   return segs
 }
 
+// Map a normalised [0..1] score to a warm-yellow→deep-orange shade for
+// semantic chunks, or a cool blue for literal lexical matches.  The intensity
+// makes the body text itself act as a heatmap.
+function scoreColor(scoreNorm: number, matchType: 'semantic' | 'lexical'): string {
+  const opacity = 0.25 + 0.6 * scoreNorm
+  if (matchType === 'semantic') {
+    const r = 250
+    const g = Math.round(220 - 130 * scoreNorm)
+    const b = 60
+    return `rgba(${r}, ${g}, ${b}, ${opacity})`
+  }
+  return `rgba(96, 165, 250, ${opacity})`
+}
+
+interface LocalRange {
+  s: number
+  e: number
+  score: number
+  matchType: 'semantic' | 'lexical'
+}
+
 // Mark highlight ranges in a string, returning React-compatible spans
 function markText(
   content: string,
   globalOffset: number,
   highlights: HighlightChunk[],
+  scoreMin: number,
+  scoreRange: number,
 ): React.ReactNode[] {
-  // Collect all (start, end) ranges that overlap this segment
-  const local: Array<[number, number]> = []
+  // Collect ranges that overlap this segment, carrying score + match_type.
+  const local: LocalRange[] = []
   for (const chunk of highlights) {
     const s = chunk.char_start - globalOffset
     const e = chunk.char_end - globalOffset
     if (e > 0 && s < content.length) {
-      local.push([Math.max(0, s), Math.min(content.length, e)])
+      local.push({
+        s: Math.max(0, s),
+        e: Math.min(content.length, e),
+        score: chunk.score,
+        matchType: chunk.match_type,
+      })
     }
   }
   if (local.length === 0) return [content]
 
-  // Sort and merge overlapping ranges
-  local.sort((a, b) => a[0] - b[0])
-  const merged: Array<[number, number]> = []
-  for (const [s, e] of local) {
-    if (merged.length && s <= merged[merged.length - 1][1]) {
-      merged[merged.length - 1][1] = Math.max(merged[merged.length - 1][1], e)
+  // Sort and merge overlapping ranges, taking the max-score contributor for colour.
+  local.sort((a, b) => a.s - b.s)
+  const merged: LocalRange[] = []
+  for (const r of local) {
+    const last = merged[merged.length - 1]
+    if (last && r.s <= last.e) {
+      last.e = Math.max(last.e, r.e)
+      if (r.score > last.score) {
+        last.score = r.score
+        last.matchType = r.matchType
+      }
     } else {
-      merged.push([s, e])
+      merged.push({ ...r })
     }
   }
 
   const nodes: React.ReactNode[] = []
   let cursor = 0
-  for (const [s, e] of merged) {
-    if (s > cursor) nodes.push(content.slice(cursor, s))
+  for (const r of merged) {
+    if (r.s > cursor) nodes.push(content.slice(cursor, r.s))
+    const norm = (r.score - scoreMin) / scoreRange
     nodes.push(
-      <mark key={s} className="bg-yellow-200 rounded-sm">
-        {content.slice(s, e)}
+      <mark
+        key={r.s}
+        style={{ backgroundColor: scoreColor(norm, r.matchType) }}
+        className="rounded-sm"
+      >
+        {content.slice(r.s, r.e)}
       </mark>,
     )
-    cursor = e
+    cursor = r.e
   }
   if (cursor < content.length) nodes.push(content.slice(cursor))
   return nodes
@@ -91,6 +129,17 @@ function markText(
 export function TxtViewer({ text, sections, highlights, scrollToChar }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const segments = useMemo(() => buildSegments(text, sections), [text, sections])
+
+  // Normalise scores once per highlight set so each mark's colour reflects
+  // its rank within this article (not raw cosine similarity, which compresses
+  // into a tiny visible range).
+  const { scoreMin, scoreRange } = useMemo(() => {
+    if (highlights.length === 0) return { scoreMin: 0, scoreRange: 1 }
+    const scores = highlights.map((h) => h.score)
+    const lo = Math.min(...scores)
+    const hi = Math.max(...scores)
+    return { scoreMin: lo, scoreRange: Math.max(1e-6, hi - lo) }
+  }, [highlights])
 
   useEffect(() => {
     if (scrollToChar == null || !containerRef.current) return
@@ -127,7 +176,7 @@ export function TxtViewer({ text, sections, highlights, scrollToChar }: Props) {
         }
         return (
           <span key={i} data-char={seg.charStart}>
-            {markText(seg.content, seg.charStart, highlights)}
+            {markText(seg.content, seg.charStart, highlights, scoreMin, scoreRange)}
           </span>
         )
       })}

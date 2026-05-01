@@ -204,23 +204,44 @@ async def _resolve_item_key(article, explicit: str | None) -> str | None:
     return None
 
 
-def _align_offsets_to_text(
-    text: str, snippet: str, fallback: tuple[int, int],
-) -> tuple[int, int] | None:
-    """Find *snippet* in *text*; fall back to *fallback* offsets if they fit.
+def _strip_chunk_prefix(snippet: str) -> str:
+    """Remove the chunking-prefix (title / section header) from a chunk snippet.
 
-    Returns None when nothing aligns — caller should drop the chunk.
+    `chunking._section_chunks` and the ft_cache path both prepend a
+    ``"{header}\\n\\n{body}"`` block.  Strip everything up to the first ``\\n\\n``
+    to get back to text that exists in cached.text.
+    """
+    if not snippet:
+        return ""
+    parts = snippet.split("\n\n", 1)
+    return parts[1] if len(parts) == 2 else snippet
+
+
+def _align_offsets_to_text(
+    text: str, snippet: str, source: str, fallback: tuple[int, int],
+) -> tuple[int, int] | None:
+    """Map a chunk's offsets onto *text* (the cached.text body).
+
+    - ``article_section`` chunks already use cached.text coordinates — trust
+      the recorded ``char_start``/``char_end`` directly.
+    - Everything else (ft_cache slices, abstract-only chunks) was indexed
+      against a different text source, so we string-search the snippet body
+      (sans prefix) inside cached.text and recover a real range.
+
+    Returns ``None`` when no alignment can be found — caller drops the chunk.
     """
     cs, ce = fallback
-    if 0 <= cs < ce <= len(text):
+    if source == "article_section" and 0 <= cs < ce <= len(text):
         return cs, ce
-    probe = (snippet or "").strip()[:80]
-    if not probe:
+    body = _strip_chunk_prefix(snippet).strip()
+    if not body:
         return None
+    probe = body[:80]
     found = text.find(probe)
     if found < 0:
         return None
-    return found, found + len(probe)
+    span_len = max(ce - cs, len(probe))
+    return found, min(found + span_len, len(text))
 
 
 @router.get("/api/article/highlights", dependencies=[AuthRequired])
@@ -247,12 +268,15 @@ async def get_article_highlights(
             for c in sem:
                 aligned = _align_offsets_to_text(
                     text, c.get("snippet", ""),
+                    c.get("chunk_source", ""),
                     (c["char_start"], c["char_end"]),
                 )
                 if not aligned:
                     continue
                 cs, ce = aligned
-                snippet_for_ui = (c.get("snippet") or text[cs:ce])[:300]
+                # Show the body without the chunk prefix in the UI.
+                snippet_body = _strip_chunk_prefix(c.get("snippet", "")) or text[cs:ce]
+                snippet_for_ui = snippet_body[:300]
                 rects = offsets_to_pdf_rects(cache_key, [(cs, ce)])
                 chunks.append(HighlightChunk(
                     score=float(c.get("score") or 0.0),
