@@ -169,6 +169,31 @@ def _fuzzy_match_section(query: str, sections: list[dict]) -> dict | None:
     return None
 
 
+async def _backfill_zotero_pdf_path(
+    doi: str | None, zotero_key: str | None,
+) -> str | None:
+    """Try to find the local Zotero PDF path for an article without one cached.
+
+    Returns the path string when Zotero has a local PDF for this item, else None.
+    Cheap: SQLite lookup + a filesystem stat.  Best-effort — never raises.
+    """
+    try:
+        if zotero_key:
+            zr = await zotero.get_paper_from_zotero_by_key(zotero_key)
+        elif doi and not doi.startswith(("zotero:", "url:")):
+            zr = await zotero.get_paper_from_zotero(doi)
+        else:
+            return None
+        if not zr:
+            return None
+        pdf = zr.get("pdf_path")
+        if pdf and Path(str(pdf)).exists():
+            return str(pdf)
+    except Exception as exc:
+        logger.debug("PDF backfill failed for doi=%r key=%r: %s", doi, zotero_key, exc)
+    return None
+
+
 def _cached_article_result(
     cached: "text_cache.CachedArticle",
     text: str,
@@ -583,6 +608,18 @@ async def fetch_article(
     cached_article = text_cache.get_cached(doi) if not force_html else None
     if cached_article:
         logger.debug("Article cache hit for %s", doi)
+        # Backfill pdf_path for cache entries written before path persistence
+        # was added.  Cheap: SQLite lookup + filesystem stat.
+        if not cached_article.pdf_path:
+            _backfilled = await _backfill_zotero_pdf_path(
+                cached_article.doi, zotero_key,
+            )
+            if _backfilled:
+                text_cache.update_paths(
+                    text_cache._cache_key(cached_article.doi),
+                    pdf_path=_backfilled,
+                )
+                cached_article.pdf_path = _backfilled
         # Re-run text heuristic when sections are empty OR when the cached
         # article used the text_heuristic path (may have been populated by an
         # older version of the heuristic that lacked footnote/running-header
