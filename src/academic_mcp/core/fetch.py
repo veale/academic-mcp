@@ -203,6 +203,9 @@ def _cached_article_result(
     pdf_path: str | None = None,
     html_path: str | None = None,
 ) -> FetchedArticle:
+    # Cached fields may be missing on test mocks; coerce to str|None defensively.
+    _c_pdf = getattr(cached, "pdf_path", None)
+    _c_html = getattr(cached, "html_path", None)
     return FetchedArticle(
         doi=str(cached.doi or ""),
         text=text,
@@ -213,8 +216,8 @@ def _cached_article_result(
         metadata=dict(cached.metadata or {}),
         error=error,
         truncated=truncated,
-        pdf_path=pdf_path or cached.pdf_path,
-        html_path=html_path or cached.html_path,
+        pdf_path=pdf_path or (_c_pdf if isinstance(_c_pdf, str) else None),
+        html_path=html_path or (_c_html if isinstance(_c_html, str) else None),
         cache_key=text_cache._cache_key(str(cached.doi or "")),
     )
 

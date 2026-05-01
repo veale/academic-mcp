@@ -389,6 +389,54 @@ def _get_pdf_path_from_local_storage(attachment_key: str) -> Optional[Path]:
     return None
 
 
+# Zotero linkMode constants — see Zotero source: chrome/content/zotero/xpcom/data/item.js
+_LINK_MODE_IMPORTED_FILE = 0
+_LINK_MODE_IMPORTED_URL = 1
+_LINK_MODE_LINKED_FILE = 2  # file lives at an absolute path; Zotero just references it
+_LINK_MODE_LINKED_URL = 3
+
+
+def _resolve_attachment_pdf_path(att: "AttachmentInfo") -> Optional[Path]:
+    """Resolve the PDF path for an attachment, handling all linkMode flavours.
+
+    - linkMode 0/1 (IMPORTED_FILE / IMPORTED_URL): file in storage/{key}/.
+      Path column may carry a ``storage:filename.pdf`` hint we prefer; otherwise
+      we pick the first PDF in the directory.
+    - linkMode 2 (LINKED_FILE): file lives at the absolute path stored in the
+      ``path`` column (sometimes prefixed ``attachments:``).  Zotero/storage
+      will not contain the file at all.
+    - linkMode 3 (LINKED_URL): nothing on disk, give up.
+    """
+    if att.linkMode == _LINK_MODE_LINKED_URL:
+        return None
+    if att.linkMode == _LINK_MODE_LINKED_FILE and att.path:
+        raw = att.path
+        if raw.startswith("attachments:"):
+            raw = raw[len("attachments:"):]
+        p = Path(raw).expanduser()
+        try:
+            if p.is_file() and p.suffix.lower() == ".pdf":
+                return p
+        except OSError:
+            pass
+        return None
+    # IMPORTED_FILE / IMPORTED_URL — in storage/{key}/
+    storage_dir = Path(sqlite_config.storage_path) / att.key
+    try:
+        if not storage_dir.exists():
+            return None
+        if att.path and att.path.startswith("storage:"):
+            named = storage_dir / att.path[len("storage:"):]
+            if named.is_file() and named.suffix.lower() == ".pdf":
+                return named
+        for f in storage_dir.iterdir():
+            if f.suffix.lower() == ".pdf" and f.is_file():
+                return f
+    except OSError as e:
+        logger.debug("Failed to find local PDF for %s: %s", att.key, e)
+    return None
+
+
 # Maximum bytes we'll extract from a single zip member.  Anything larger
 # than this is almost certainly not a legitimate academic PDF (or is a
 # zip bomb).  150 MB is generous — most papers are well under 50 MB.
@@ -870,37 +918,45 @@ async def get_paper_content(item: ZoteroItem) -> PaperContent:
             result.source = "sqlite_metadata_only"
             return result
 
-        # 1. ft-cache (fastest — plain-text file, no PDF parsing)
+        # Resolve a PDF path through the full fallback chain so callers always
+        # know where the file lives, regardless of whether we also have text:
+        #   1) local storage  →  2) local WebDAV dir  →  3) WebDAV over HTTP
+        # Each tier returns the first hit; later tiers are skipped.  The text
+        # path runs in parallel because text-and-PDF are not mutually exclusive
+        # (Zotero indexes the body, the PDF still lives on disk).
+        # Local-storage tier: handles imported files in storage/{key}/ AND
+        # linked-file attachments stored at arbitrary paths on disk.
+        pdf_path: Optional[Path] = _resolve_attachment_pdf_path(att)
+        pdf_source: Optional[str] = "sqlite_local_pdf" if pdf_path else None
+        if not pdf_path:
+            pdf_path = _get_pdf_path_from_webdav_local(att.key)
+            if pdf_path:
+                pdf_source = "sqlite_webdav_local_pdf"
+        if not pdf_path:
+            pdf_path = await _get_pdf_path_from_webdav_http(att.key)
+            if pdf_path:
+                pdf_source = "sqlite_webdav_http_pdf"
+
+        # 1. ft-cache (fastest text — plain-text file, no PDF parsing)
         cached = _get_fulltext_from_cache(att.key)
         if cached:
             result.text = cached
-            result.source = "sqlite_ft_cache"
             ft = await _get_fulltext_info(conn, att.itemID)
             if ft:
                 result.indexed_pages = ft.indexedPages
                 result.total_pages = ft.totalPages
                 result.truncated = ft.is_truncated
+            if pdf_path:
+                result.pdf_path = pdf_path
+                result.source = pdf_source or "sqlite_ft_cache"
+            else:
+                result.source = "sqlite_ft_cache"
             return result
 
-        # 2. Local PDF — return Path directly (zero RAM)
-        pdf_path = _get_pdf_path_from_local_storage(att.key)
+        # No text — PDF-only paths
         if pdf_path:
             result.pdf_path = pdf_path
-            result.source = "sqlite_local_pdf"
-            return result
-
-        # 3. Local WebDAV dir (no HTTP!) — extract zip to cache, return Path
-        pdf_path = _get_pdf_path_from_webdav_local(att.key)
-        if pdf_path:
-            result.pdf_path = pdf_path
-            result.source = "sqlite_webdav_local_pdf"
-            return result
-
-        # 4. WebDAV over HTTP — stream zip to disk, extract, return Path
-        pdf_path = await _get_pdf_path_from_webdav_http(att.key)
-        if pdf_path:
-            result.pdf_path = pdf_path
-            result.source = "sqlite_webdav_http_pdf"
+            result.source = pdf_source
             return result
 
         result.source = "sqlite_metadata_only"
