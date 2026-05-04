@@ -174,23 +174,29 @@ async def _backfill_zotero_pdf_path(
 ) -> str | None:
     """Try to find the local Zotero PDF path for an article without one cached.
 
-    Returns the path string when Zotero has a local PDF for this item, else None.
-    Cheap: SQLite lookup + a filesystem stat.  Best-effort — never raises.
+    Tries both lookup paths in order: by zotero_key (most reliable), then
+    by doi (fallback when only the DOI is known or short-DOI resolution
+    drifted from the SQLite-stored DOI).  Returns the first path that
+    points to an existing file.  Best-effort — never raises.
     """
-    try:
-        if zotero_key:
-            zr = await zotero.get_paper_from_zotero_by_key(zotero_key)
-        elif doi and not doi.startswith(("zotero:", "url:")):
-            zr = await zotero.get_paper_from_zotero(doi)
-        else:
-            return None
-        if not zr:
-            return None
-        pdf = zr.get("pdf_path")
-        if pdf and Path(str(pdf)).exists():
-            return str(pdf)
-    except Exception as exc:
-        logger.debug("PDF backfill failed for doi=%r key=%r: %s", doi, zotero_key, exc)
+    candidates: list[tuple[str, str]] = []
+    if zotero_key:
+        candidates.append(("by_key", zotero_key))
+    if doi and not doi.startswith(("zotero:", "url:")):
+        candidates.append(("by_doi", doi))
+    for kind, value in candidates:
+        try:
+            if kind == "by_key":
+                zr = await zotero.get_paper_from_zotero_by_key(value)
+            else:
+                zr = await zotero.get_paper_from_zotero(value)
+            if not zr:
+                continue
+            pdf = zr.get("pdf_path")
+            if pdf and Path(str(pdf)).exists():
+                return str(pdf)
+        except Exception as exc:
+            logger.debug("PDF backfill via %s=%r failed: %s", kind, value, exc)
     return None
 
 

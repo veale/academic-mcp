@@ -36,8 +36,14 @@ class FakeCollection:
         # Each entry is a dict with the kwargs passed to upsert().
         self.upsert_calls: list[dict] = []
 
-    def get(self, include=None):
+    def get(self, include=None, limit=None, offset=None, where=None):
         ids = list(self._store.keys())
+        if where:
+            ids = [i for i in ids if all(self._store[i]["metadata"].get(k) == v for k, v in where.items())]
+        if offset:
+            ids = ids[offset:]
+        if limit is not None:
+            ids = ids[:limit]
         metas = [self._store[i]["metadata"] for i in ids]
         docs = [self._store[i]["doc"] for i in ids]
         return {"ids": ids, "documents": docs, "metadatas": metas}

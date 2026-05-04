@@ -47,16 +47,31 @@ _STRIDE_CHARS = _CHUNK_CHARS - _OVERLAP_CHARS              # 1400
 
 # Upper bound on how much ft-cache to consider per item.
 #
-# ``None`` = no cap.  Long monographs are indexed in full, which matters
-# for humanities/policy libraries where readers genuinely care about
-# content past page 125.  Storage impact is bounded by the size of the
-# Zotero ft-cache files themselves, which are themselves capped by
-# Zotero's PDF indexing settings — typically a few MB per item even for
-# 800-page volumes.
+# Long monographs are indexed in full, which matters for humanities /
+# policy libraries where readers genuinely care about content past page
+# 125. But OCR'd textbooks can produce 50–100 MB ft-cache files — read
+# uncapped, that one item alone can OOM a small box (the file plus its
+# ~32 k overlapping chunk slices).
 #
-# Set to an integer (e.g. ``200_000`` for ~125 pages) if you need to
-# bound the chunk count for cost/time reasons.
-_MAX_FT_CHARS: int | None = None
+# Default: 2 000 000 chars (~1 250 pages, ~5 MB), generous enough for
+# a full monograph but a hard ceiling against OCR pathologies.
+# Override with ``SEMANTIC_FT_MAX_CHARS`` in env; set ``0`` (or any
+# non-positive int) to remove the cap entirely.
+import os as _os
+
+
+def _resolve_ft_cap() -> int | None:
+    raw = _os.getenv("SEMANTIC_FT_MAX_CHARS", "").strip()
+    if not raw:
+        return 2_000_000
+    try:
+        v = int(raw)
+    except ValueError:
+        return 2_000_000
+    return None if v <= 0 else v
+
+
+_MAX_FT_CHARS: int | None = _resolve_ft_cap()
 
 
 @dataclass

@@ -354,10 +354,12 @@ class SemanticIndex:
             elif force_rebuild and all_ids:
                 _chroma_delete_in_chunks(col, all_ids)
 
+            # First pass: identify items that need (re)indexing and chunks
+            # that need deletion.  We do NOT chunk yet — chunking + embed +
+            # upsert happens in a streaming second pass below so peak RAM
+            # stays bounded by ``batch_size``, not by total library size.
             seen_keys: set[str] = set()
-            to_upsert_ids: list[str] = []
-            to_upsert_docs: list[str] = []
-            to_upsert_metas: list[dict] = []
+            items_to_index: list[dict] = []
             to_delete_ids: list[str] = []
 
             for it in items:
@@ -369,42 +371,12 @@ class SemanticIndex:
                 date_mod = it.get("dateModified") or ""
                 prev = prior_items.get(item_key)
 
-                # Skip unchanged items.
                 if prev is not None and prev["dateModified"] == date_mod:
                     continue
-
-                # If the item changed, mark its old chunks for deletion.
                 if prev is not None:
                     to_delete_ids.extend(prev["chunk_ids"])
+                items_to_index.append(it)
 
-                chunks = chunk_item(it)
-                if not chunks:
-                    continue
-
-                title = (it.get("title") or "").strip()
-                doi = (it.get("doi") or "").strip()
-
-                for idx, chunk in enumerate(chunks):
-                    chunk_id = _make_chunk_id(item_key, idx)
-                    meta = {
-                        "item_key": item_key,
-                        "doi": doi,
-                        "title": title[:400],
-                        "dateModified": date_mod,
-                        "chunk_idx": idx,
-                        "chunk_count": len(chunks),
-                        "char_start": chunk.char_start,
-                        "char_end": chunk.char_end,
-                        "chunk_source": chunk.source,
-                        "provider": embedder.provider,
-                        "model": embedder.model,
-                        "text_format": 2,
-                    }
-                    to_upsert_ids.append(chunk_id)
-                    to_upsert_docs.append(chunk.text)
-                    to_upsert_metas.append(meta)
-
-            # Delete item chunks that are no longer present in Zotero.
             stale_item_keys = [ik for ik in prior_items if ik not in seen_keys]
             for ik in stale_item_keys:
                 to_delete_ids.extend(prior_items[ik]["chunk_ids"])
@@ -413,7 +385,8 @@ class SemanticIndex:
                 _chroma_delete_in_chunks(col, to_delete_ids)
 
             upserted = 0
-            total_pending = len(to_upsert_ids)
+            items_indexed = 0
+            total_items_to_index = len(items_to_index)
             batch_size = _get_upsert_batch_size()
             started_at = datetime.now(timezone.utc).isoformat()
 
@@ -429,8 +402,12 @@ class SemanticIndex:
                     "model": embedder.model,
                     "dim": embedder.dim,
                     "sqlite_items_seen": len(items),
+                    "items_to_index": total_items_to_index,
+                    "items_indexed": items_indexed,
                     "upserted": upserted,
-                    "pending": max(0, total_pending - upserted),
+                    # ``pending`` here is items not yet processed — chunk count
+                    # is unknown until each item is actually chunked.
+                    "pending": max(0, total_items_to_index - items_indexed),
                     "deleted": (
                         len(to_delete_ids) if not force_rebuild else len(all_ids)
                     ),
@@ -442,83 +419,115 @@ class SemanticIndex:
                     # Never fail the sync for a status-write hiccup; log and keep going.
                     logger.warning("semantic_index: status write failed: %s", e)
 
-            if total_pending:
+            _MAX_EMBED_RETRIES = 3
+            _EMBED_RETRY_DELAY = 5.0  # seconds between retries
+
+            # Streaming buffers — flushed when full or at end of run.
+            ids_buf: list[str] = []
+            docs_buf: list[str] = []
+            metas_buf: list[dict] = []
+
+            def _flush_buffers() -> None:
+                """Embed and upsert whatever's currently buffered, then clear."""
+                nonlocal upserted, ids_buf, docs_buf, metas_buf
+                if not ids_buf:
+                    return
+                ids_b, docs_b, metas_b = ids_buf, docs_buf, metas_buf
+                # Reset early so a raise from encode/upsert can't double-flush.
+                ids_buf, docs_buf, metas_buf = [], [], []
+
+                embs_b: list[list[float]] = []
+                for attempt in range(1, _MAX_EMBED_RETRIES + 1):
+                    try:
+                        embs_b = embedder.encode(docs_b)
+                        break
+                    except Exception as embed_exc:
+                        if attempt < _MAX_EMBED_RETRIES:
+                            logger.warning(
+                                "semantic_index: embed attempt %d/%d failed "
+                                "(%d chunks): %r — retrying in %.0fs",
+                                attempt, _MAX_EMBED_RETRIES, len(docs_b),
+                                embed_exc, _EMBED_RETRY_DELAY,
+                            )
+                            import time
+                            time.sleep(_EMBED_RETRY_DELAY)
+                        else:
+                            logger.error(
+                                "semantic_index: embed failed after %d attempts "
+                                "(%d chunks): %r — aborting sync",
+                                _MAX_EMBED_RETRIES, len(docs_b), embed_exc,
+                            )
+                            raise
+
+                if len(embs_b) != len(docs_b):
+                    logger.error(
+                        "semantic_index: embedder returned %d vectors for %d "
+                        "documents; dropping this batch",
+                        len(embs_b), len(docs_b),
+                    )
+                    return
+
+                col.upsert(ids=ids_b, documents=docs_b, embeddings=embs_b, metadatas=metas_b)
+                upserted += len(ids_b)
                 logger.info(
-                    "semantic_index: beginning streamed upsert of %d chunks "
-                    "(batch_size=%d, provider=%s, model=%s)",
-                    total_pending, batch_size, embedder.provider, embedder.model,
+                    "semantic_index: upserted %d chunks (%d / %d items processed)",
+                    upserted, items_indexed, total_items_to_index,
                 )
-                # Write an initial status.json so external pollers can see a build is
-                # under way before the first batch finishes.
                 _write_progress_status(done=False)
 
-                _MAX_EMBED_RETRIES = 3
-                _EMBED_RETRY_DELAY = 5.0  # seconds between retries
+            if total_items_to_index:
+                logger.info(
+                    "semantic_index: beginning streamed sync of %d items "
+                    "(batch_size=%d chunks, provider=%s, model=%s)",
+                    total_items_to_index, batch_size,
+                    embedder.provider, embedder.model,
+                )
+                _write_progress_status(done=False)
 
-                try:
-                    for start in range(0, total_pending, batch_size):
-                        end = min(start + batch_size, total_pending)
-                        ids_batch = to_upsert_ids[start:end]
-                        docs_batch = to_upsert_docs[start:end]
-                        metas_batch = to_upsert_metas[start:end]
+                # NOTE: no try/finally that writes a terminal status here.
+                # On exception we want the last successful per-batch write
+                # to remain on disk (in_progress=True) so callers can detect
+                # an incomplete sync.  The outer terminal write below only
+                # fires on the clean path.
+                for it in items_to_index:
+                    item_key = it.get("item_key") or ""
+                    if not item_key:
+                        continue
+                    chunks = chunk_item(it)
+                    items_indexed += 1
+                    if not chunks:
+                        continue
 
-                        embs_batch: list[list[float]] = []
-                        for attempt in range(1, _MAX_EMBED_RETRIES + 1):
-                            try:
-                                embs_batch = embedder.encode(docs_batch)
-                                break
-                            except Exception as embed_exc:
-                                if attempt < _MAX_EMBED_RETRIES:
-                                    logger.warning(
-                                        "semantic_index: embed attempt %d/%d failed "
-                                        "(chunks %d-%d): %r — retrying in %.0fs",
-                                        attempt, _MAX_EMBED_RETRIES, start, end,
-                                        embed_exc, _EMBED_RETRY_DELAY,
-                                    )
-                                    import time
-                                    time.sleep(_EMBED_RETRY_DELAY)
-                                else:
-                                    logger.error(
-                                        "semantic_index: embed failed after %d attempts "
-                                        "(chunks %d-%d): %r — aborting sync",
-                                        _MAX_EMBED_RETRIES, start, end, embed_exc,
-                                    )
-                                    raise
+                    title = (it.get("title") or "").strip()
+                    doi = (it.get("doi") or "").strip()
+                    date_mod = it.get("dateModified") or ""
 
-                        # If the embedder returned fewer vectors than documents (rare but
-                        # possible if the backend silently drops inputs), skip this batch
-                        # and log — persisting a mismatched upsert would corrupt Chroma.
-                        if len(embs_batch) != len(docs_batch):
-                            logger.error(
-                                "semantic_index: embedder returned %d vectors for %d "
-                                "documents; skipping batch %d-%d",
-                                len(embs_batch), len(docs_batch), start, end,
-                            )
-                            continue
+                    for idx, chunk in enumerate(chunks):
+                        ids_buf.append(_make_chunk_id(item_key, idx))
+                        docs_buf.append(chunk.text)
+                        metas_buf.append({
+                            "item_key": item_key,
+                            "doi": doi,
+                            "title": title[:400],
+                            "dateModified": date_mod,
+                            "chunk_idx": idx,
+                            "chunk_count": len(chunks),
+                            "char_start": chunk.char_start,
+                            "char_end": chunk.char_end,
+                            "chunk_source": chunk.source,
+                            "provider": embedder.provider,
+                            "model": embedder.model,
+                            "text_format": 2,
+                        })
+                        if len(ids_buf) >= batch_size:
+                            _flush_buffers()
+                    # Drop the local chunks list so even huge per-item
+                    # chunk arrays are eligible for GC immediately.
+                    del chunks
+                # Final flush for any tail-end partial batch.
+                _flush_buffers()
 
-                        col.upsert(
-                            ids=ids_batch,
-                            documents=docs_batch,
-                            embeddings=embs_batch,
-                            metadatas=metas_batch,
-                        )
-                        upserted += len(ids_batch)
-
-                        logger.info(
-                            "semantic_index: upserted %d / %d chunks (%.1f%%)",
-                            upserted, total_pending,
-                            100.0 * upserted / max(1, total_pending),
-                        )
-                        _write_progress_status(done=False)
-                finally:
-                    # Always write a terminal status so in_progress never stays True
-                    # after the sync exits (whether cleanly or via exception).
-                    _write_progress_status(done=True)
-            else:
-                # Nothing to upsert — still mark done.
-                pass
-
-            # Final status — consistent even if no upserts happened.
+            # Terminal status — only reached on the clean exit path.
             _write_progress_status(done=True)
 
             status = self._load_status()

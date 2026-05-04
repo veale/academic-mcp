@@ -73,9 +73,11 @@ export interface ArticleIdentifier {
 
 export async function fetchArticleMeta(id: ArticleIdentifier): Promise<ArticleMeta> {
   const qs = new URLSearchParams()
+  // Always send every identifier we have — short-DOI resolution can mismatch
+  // SQLite, so the zotero_key is the most reliable way to find the PDF.
   if (id.doi) qs.set('doi', id.doi)
-  else if (id.zotero_key) qs.set('zotero_key', id.zotero_key)
-  else if (id.url) qs.set('url', id.url)
+  if (id.zotero_key) qs.set('zotero_key', id.zotero_key)
+  if (id.url) qs.set('url', id.url)
   return apiFetch<ArticleMeta>(`/article?${qs}`)
 }
 
