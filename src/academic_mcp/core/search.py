@@ -120,17 +120,36 @@ async def search_papers(
     domain_hint: str = "general",
     include_scite: bool = False,
     semantic: bool | None = None,
+    semantic_query: str | list[str] | None = None,
 ) -> list[SearchHit]:
     """Run the unified parallel-search pipeline and return merged, reranked results.
 
     This is the extracted body of the former ``_collect_search_results`` helper.
     Used by search_papers (formatting) and search_and_read (pick one result).
+
+    ``query`` is the *lexical* recall query (keywords) sent to the external
+    APIs and the Zotero lexical index. ``semantic_query`` is the
+    natural-language statement of intent that drives the local embedding
+    search and the cross-encoder reranker; it may be a single string or a
+    list of paraphrases / sub-questions (multi-query fan-out over the local
+    index, fused via reciprocal-rank fusion). When omitted it falls back to
+    ``query`` so the single-string call still works.
     """
     from .. import apis, zotero, zotero_sqlite, pdf_extractor
     from ..config import config
     from ..reranker import rerank_results
 
     limit = min(limit, 20)
+
+    # Normalise the semantic query into a list of non-empty strings. The
+    # lexical query stays a single keyword string; only the local semantic
+    # pipeline fans out across multiple formulations.
+    if semantic_query is None:
+        semantic_queries = [query]
+    elif isinstance(semantic_query, str):
+        semantic_queries = [semantic_query] if semantic_query.strip() else [query]
+    else:
+        semantic_queries = [q for q in semantic_query if q and q.strip()] or [query]
 
     # When a reranker is configured, over-fetch from each source so the
     # reranker has a wider candidate pool.
@@ -205,37 +224,67 @@ async def search_papers(
             except Exception:
                 pass
             fetch_n = max(per_source_limit, config.cross_reranker_fetch or 50)
-            chunks = await idx.search(query, k=fetch_n)
+            # Fan out across every semantic formulation. The local index is
+            # free and fast, so multiple paraphrases cost little; each gets its
+            # own bi-encoder retrieval + cross-encoder rerank against that exact
+            # phrasing, then the per-query lists are fused with RRF below.
+            ranked_lists: list[list[dict]] = []
+            for q in semantic_queries:
+                try:
+                    chunks = await idx.search(q, k=fetch_n)
+                except Exception as e:
+                    logger.warning("Semantic Zotero search failed for %r: %s", q, e)
+                    continue
+                if not chunks:
+                    continue
+                try:
+                    reranked = await _cross_rerank(q, chunks, top_k=len(chunks))
+                except Exception as e:
+                    logger.warning(
+                        "Cross-reranker failed for %r, using bi-encoder order: %s", q, e
+                    )
+                    reranked = chunks
+                ranked_lists.append(reranked)
         except SemanticIndexUnavailable:
             return []
         except Exception as e:
             logger.warning("Semantic Zotero search failed: %s", e)
             return []
 
-        if not chunks:
+        if not ranked_lists:
             return []
 
-        try:
-            reranked = await _cross_rerank(query, chunks, top_k=len(chunks))
-        except Exception as e:
-            logger.warning("Cross-reranker failed, falling back to bi-encoder order: %s", e)
-            reranked = chunks
+        # Reciprocal-rank fusion across the per-query ranked lists. For a
+        # single query this preserves the cross-encoder order exactly; for
+        # several it rewards items that surface near the top for more than one
+        # formulation. The displayed score is the best cross-encoder score the
+        # item earned across queries (interpretable, unlike the RRF magnitude).
+        _RRF_K = 60
+        fused_score: dict[str, float] = {}
+        best_rerank: dict[str, float] = {}
+        first_hit: dict[str, dict] = {}
+        for rl in ranked_lists:
+            seen_in_list: set[str] = set()
+            rank = 0
+            for h in rl:
+                ik = h.get("item_key") or ""
+                if not ik or ik in seen_in_list:
+                    continue
+                seen_in_list.add(ik)
+                rank += 1
+                fused_score[ik] = fused_score.get(ik, 0.0) + 1.0 / (_RRF_K + rank)
+                sc = h.get("rerank_score", h.get("score"))
+                if sc is not None and (ik not in best_rerank or sc > best_rerank[ik]):
+                    best_rerank[ik] = sc
+                first_hit.setdefault(ik, h)
 
-        seen_keys: set[str] = set()
-        unique_hits: list[dict] = []
-        for h in reranked:
-            ik = h.get("item_key") or ""
-            if ik and ik not in seen_keys:
-                seen_keys.add(ik)
-                unique_hits.append(h)
-            if len(unique_hits) >= per_source_limit:
-                break
+        ordered_keys = sorted(
+            fused_score, key=lambda k: fused_score[k], reverse=True
+        )[:per_source_limit]
 
         out: list[SearchHit] = []
-        for hit in unique_hits:
-            key = hit.get("item_key")
-            if not key:
-                continue
+        for key in ordered_keys:
+            hit = first_hit.get(key, {})
             item = await zotero_sqlite.search_by_key(key)
             if not item:
                 continue
@@ -244,7 +293,7 @@ async def search_papers(
                 nm = c.display_name.strip()
                 if nm:
                     author_names.append(nm)
-            score = hit.get("rerank_score", hit.get("score"))
+            score = best_rerank.get(key, hit.get("score"))
             out.append(SearchHit(
                 title=item.title or hit.get("title") or "Untitled",
                 authors=author_names,
@@ -508,7 +557,10 @@ async def search_papers(
                 logger.debug("Preview extraction failed for %s: %s", r.doi, e)
 
     # ── Semantic re-ranking ─────────────────────────────────────────
-    results = await rerank_results(query, results)
+    # The cross-encoder is the final quality gate over the merged pool, so it
+    # sees the natural-language intent (semantic_queries) — never the keyword
+    # recall string, which would score relevance poorly.
+    results = await rerank_results(semantic_queries, results)
 
     # ── Optional Scite enrichment + retraction-aware re-sort ────────
     if include_scite:

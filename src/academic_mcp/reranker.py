@@ -230,8 +230,15 @@ def _compute_similarities(query: str, texts: list[str]) -> list[float]:
 # Public API
 # ---------------------------------------------------------------------------
 
-async def rerank_results(query: str, results: list[SearchHit]) -> list[SearchHit]:
+async def rerank_results(
+    query: str | list[str], results: list[SearchHit]
+) -> list[SearchHit]:
     """Re-rank search results by relevance to the query.
+
+    ``query`` may be a single string or a list of natural-language
+    formulations. With several, each result is scored against every query and
+    keeps its best (max) similarity, so an item that strongly matches any one
+    formulation ranks highly.
 
     Zotero items are always promoted to the top tier. Within each tier,
     results are sorted by the configured rerank provider's score; if all
@@ -240,12 +247,25 @@ async def rerank_results(query: str, results: list[SearchHit]) -> list[SearchHit
     if not results:
         return results
 
+    queries = [query] if isinstance(query, str) else [q for q in query if q]
+    if not queries:
+        queries = [""]
+
     texts = [_result_text(r) for r in results]
 
-    try:
-        similarities = await asyncio.to_thread(_compute_similarities, query, texts)
-    except Exception as e:
-        logger.warning("reranker: scoring failed, using composite: %s", e)
+    per_query: list[list[float]] = []
+    for q in queries:
+        try:
+            sims = await asyncio.to_thread(_compute_similarities, q, texts)
+        except Exception as e:
+            logger.warning("reranker: scoring failed for %r, skipping: %s", q, e)
+            continue
+        if sims and len(sims) == len(results):
+            per_query.append(sims)
+
+    if per_query:
+        similarities = [max(col) for col in zip(*per_query)]
+    else:
         similarities = []
 
     if similarities and len(similarities) == len(results):

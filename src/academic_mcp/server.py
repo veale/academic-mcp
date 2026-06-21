@@ -43,15 +43,22 @@ TOOLS = [
         description=(
             "Search for academic papers across Zotero, Semantic Scholar, and OpenAlex. "
             "Returns a ranked list with metadata, abstracts, and retrieval options.\n\n"
-            "QUERY TIPS: Write a hybrid query — a few technical keywords AND a short "
-            "natural-language clause stating the question or scope. The lexical sources "
-            "match on keywords; the semantic embedder and cross-encoder reranker score "
-            "the full intent. "
-            "Example: 'How do bees navigate using magnetic fields?' → "
-            "'magnetoreception honeybee navigation geomagnetic — how bees orient using magnetic fields'. "
-            "Avoid pure prose ('How do bees…?') and avoid keyword soup ('bee magnetic') — "
-            "the hybrid form serves both retrieval pipelines. "
-            "Use author:LastName to search by author.\n\n"
+            "QUERY TIPS: This tool runs TWO retrieval pipelines that reward different "
+            "phrasings, so give each its own form via two parameters:\n"
+            "• query — KEYWORDS for the lexical sources (Semantic Scholar, OpenAlex, "
+            "Zotero, Primo). A few precise technical terms. Adding prose here only "
+            "dilutes term matching. Example: 'magnetoreception honeybee navigation geomagnetic'.\n"
+            "• semantic_query — the NATURAL-LANGUAGE question/intent for the local "
+            "embedding index + cross-encoder reranker (which also reranks the whole "
+            "merged pool). A full sentence works best here. Example: 'how do honeybees "
+            "use the geomagnetic field to orient during navigation?'.\n"
+            "semantic_query also accepts a LIST of paraphrases or sub-questions — the "
+            "local index is fanned out across all of them and fused, which materially "
+            "improves recall for broad or ambiguous topics (e.g. a literature review). "
+            "Use 2–4 genuinely distinct angles, not trivial reworordings. "
+            "If you omit semantic_query, query is used for both pipelines (still works, "
+            "but keyword-soup scores relevance worse). "
+            "Use author:LastName in query to search by author.\n\n"
             "NEXT STEP: Pass the DOIs from results to batch_sections to survey the "
             "structure of multiple papers at once, or fetch_fulltext(mode='sections') "
             "for a single paper. Results without a DOI show a url field — pass that "
@@ -82,19 +89,30 @@ TOOLS = [
                 "query": {
                     "type": "string",
                     "description": (
-                        "Search query. The system runs lexical sources (Semantic Scholar, "
-                        "OpenAlex, Zotero) AND semantic sources (ChromaDB embeddings + "
-                        "cross-encoder rerank) over the same string, so write queries that "
-                        "serve both: a few precise technical keywords plus a short clause "
-                        "stating intent or scope. "
-                        "Example: 'magnetoreception honeybee navigation — how do bees use "
-                        "magnetic fields to orient'. "
-                        "The keywords drive lexical recall; the trailing clause gives the "
-                        "semantic embedder and reranker enough signal to score relevance "
-                        "well. Avoid pure prose questions ('How do bees…?') — the keyword "
-                        "head still matters. Avoid keyword-only soup ('bee magnetic') — the "
-                        "reranker scores worse without context. "
-                        "Use author:LastName to search by author."
+                        "LEXICAL recall query — a few precise technical keywords sent to "
+                        "the keyword/inverted-index sources (Semantic Scholar, OpenAlex, "
+                        "Zotero, Primo). Keep it terse; prose dilutes term matching. "
+                        "Example: 'magnetoreception honeybee navigation geomagnetic'. "
+                        "When semantic_query is omitted, this string also drives the "
+                        "semantic pipeline. Use author:LastName to search by author."
+                    ),
+                },
+                "semantic_query": {
+                    "anyOf": [
+                        {"type": "string"},
+                        {"type": "array", "items": {"type": "string"}},
+                    ],
+                    "description": (
+                        "NATURAL-LANGUAGE intent for the semantic pipeline (local "
+                        "ChromaDB embeddings + cross-encoder reranker). A full question "
+                        "or descriptive sentence scores far better here than keywords. "
+                        "Example: 'how do honeybees use the geomagnetic field to orient "
+                        "during navigation?'. "
+                        "May be a LIST of 2–4 distinct paraphrases or sub-questions — the "
+                        "local index is searched for each and the results are fused via "
+                        "reciprocal-rank fusion, improving recall on broad topics. "
+                        "External APIs still receive only the single keyword `query` (to "
+                        "respect their rate limits). Optional; defaults to `query`."
                     ),
                 },
                 "limit": {
@@ -565,14 +583,29 @@ TOOLS = [
             "  search_papers → batch_sections(dois=[...]) → search_in_article or "
             "  fetch_fulltext(mode='section').\n"
             "This avoids loading the entire text into context.\n\n"
-            "QUERY TIPS: Write a hybrid query — keywords plus a short clause stating "
-            "intent. Both retrieval pipelines (lexical + semantic+reranker) are run. "
-            "Example: 'CRISPR gene editing advances — recent breakthroughs in clinical applications'."
+            "QUERY TIPS: Pass KEYWORDS in query (for the lexical APIs) and the "
+            "NATURAL-LANGUAGE intent in semantic_query (for the embedder + reranker), "
+            "exactly as for search_papers. "
+            "Example: query='CRISPR gene editing clinical trials', "
+            "semantic_query='recent clinical breakthroughs using CRISPR gene editing in patients'."
         ),
         inputSchema={
             "type": "object",
             "properties": {
-                "query": {"type": "string", "description": "Search query"},
+                "query": {
+                    "type": "string",
+                    "description": "Lexical keyword query for the external APIs.",
+                },
+                "semantic_query": {
+                    "anyOf": [
+                        {"type": "string"},
+                        {"type": "array", "items": {"type": "string"}},
+                    ],
+                    "description": (
+                        "Natural-language intent for the semantic pipeline (string or "
+                        "list of paraphrases). Optional; defaults to query."
+                    ),
+                },
                 "result_index": {
                     "type": "integer",
                     "description": "Which search result to fetch (0-indexed, default 0)",
@@ -1223,6 +1256,7 @@ async def _collect_search_results(args: dict) -> list[dict]:
         domain_hint=args.get("domain_hint", "general"),
         include_scite=bool(args.get("include_scite", False)),
         semantic=args.get("semantic"),
+        semantic_query=args.get("semantic_query"),
     )
 
 
@@ -2149,6 +2183,7 @@ async def _handle_search_and_read(args: dict) -> list[TextContent]:
             limit=5,
             source="all",
             semantic=args.get("semantic"),
+            semantic_query=args.get("semantic_query"),
         )
     except Exception as e:
         return [TextContent(type="text", text=f"Search failed: {e}")]
