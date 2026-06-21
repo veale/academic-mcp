@@ -11,6 +11,77 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
+# Zotero item types that are legal materials. These often lack a `date` field
+# (cases carry `dateDecided`, statutes `dateEnacted`), so they must not be
+# excluded by a year filter, and their metadata lives in type-specific fields.
+LEGAL_ITEM_TYPES = frozenset({"case", "statute", "bill", "hearing"})
+
+
+def _clean_zotero_date(value: str) -> str:
+    """Zotero stores dates as ``"YYYY-MM-DD <user text>"``; show the user text."""
+    value = (value or "").strip()
+    if not value:
+        return ""
+    parts = value.split(" ", 1)
+    # Leading token looks like an ISO/SQL date → prefer the human-entered tail.
+    if len(parts) == 2 and len(parts[0]) >= 4 and parts[0][:4].isdigit():
+        return parts[1].strip() or parts[0]
+    return value
+
+
+def legal_reference_note(item_type: str, fields: dict[str, str]) -> str:
+    """Build a free-text citation line for legal materials.
+
+    Metadata for cases/legislation/bills lives in inconsistent, type-specific
+    fields, so rather than mapping each to a fixed slot we surface whatever is
+    present as a compact ``label: value`` line shown before the abstract.
+    """
+    def g(*names: str) -> str:
+        for n in names:
+            v = (fields.get(n) or "").strip()
+            if v:
+                return v
+        return ""
+
+    parts: list[str] = []
+    it = (item_type or "").lower()
+    if it == "case":
+        if (v := _clean_zotero_date(g("dateDecided"))):
+            parts.append(f"Decided: {v}")
+        if (v := g("docketNumber")):
+            parts.append(f"Docket: {v}")
+        if (v := g("reporter")):
+            parts.append(f"Reporter: {v}")
+        if (v := g("court")):
+            parts.append(f"Court: {v}")
+    elif it == "statute":
+        if (v := _clean_zotero_date(g("dateEnacted"))):
+            parts.append(f"Enacted: {v}")
+        code = " ".join(x for x in (g("code"), g("codeNumber")) if x)
+        if code:
+            parts.append(f"Code: {code}")
+        if (v := g("section")):
+            parts.append(f"§ {v}")
+        if (v := g("publicLawNumber")):
+            parts.append(f"Public Law: {v}")
+    elif it == "bill":
+        if (v := g("billNumber")):
+            parts.append(f"Bill No.: {v}")
+        if (v := g("legislativeBody")):
+            parts.append(v)
+        if (v := g("session")):
+            parts.append(f"Session: {v}")
+        if (v := _clean_zotero_date(g("date"))):
+            parts.append(v)
+    elif it == "hearing":
+        if (v := g("committee")):
+            parts.append(v)
+        if (v := g("legislativeBody")):
+            parts.append(v)
+        if (v := _clean_zotero_date(g("date"))):
+            parts.append(v)
+    return " · ".join(parts)
+
 
 @dataclass
 class Creator:
@@ -45,7 +116,13 @@ class ZoteroItem:
     extra: str = ""
     dateAdded: str = ""
     dateModified: str = ""
+    fields: dict[str, str] = field(default_factory=dict)  # raw type-specific fields
     _match_type: str = ""       # "metadata" or "fulltext" (for search results)
+
+    @property
+    def reference_note(self) -> str:
+        """Free-text legal citation line (empty for non-legal items)."""
+        return legal_reference_note(self.itemType, self.fields)
 
     def to_search_result(self) -> dict:
         """Convert to the dict format expected by server.py search handlers."""
@@ -63,6 +140,7 @@ class ZoteroItem:
             "abstractNote": self.abstractNote,
             "publicationTitle": self.publicationTitle,
             "itemType": self.itemType,
+            "referenceNote": self.reference_note,
             "libraryName": self.libraryName,
             "libraryType": self.libraryType,
             "groupID": self.groupID,

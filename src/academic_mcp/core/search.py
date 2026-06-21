@@ -202,6 +202,8 @@ async def search_papers(
                 has_oa_pdf=True,
                 s2_id=None,
                 url=(item.get("url") or "").strip() or None,
+                work_type=item.get("itemType") or None,
+                reference_note=(item.get("referenceNote") or "").strip() or None,
                 zotero_library_type=item.get("libraryType") or None,
                 zotero_group_id=item.get("groupID"),
             ))
@@ -262,15 +264,20 @@ async def search_papers(
         # formulation. The displayed score is the best cross-encoder score the
         # item earned across queries (interpretable, unlike the RRF magnitude).
         _RRF_K = 60
+        _MAX_PASSAGES = 4  # 1 preview + 3 behind "see more"
         fused_score: dict[str, float] = {}
         best_rerank: dict[str, float] = {}
         first_hit: dict[str, dict] = {}
+        chunks_by_key: dict[str, list[dict]] = {}  # all chunk hits → passages
         for rl in ranked_lists:
             seen_in_list: set[str] = set()
             rank = 0
             for h in rl:
                 ik = h.get("item_key") or ""
-                if not ik or ik in seen_in_list:
+                if not ik:
+                    continue
+                chunks_by_key.setdefault(ik, []).append(h)
+                if ik in seen_in_list:
                     continue
                 seen_in_list.add(ik)
                 rank += 1
@@ -280,6 +287,26 @@ async def search_papers(
                     best_rerank[ik] = sc
                 first_hit.setdefault(ik, h)
 
+        def _passages_for(key: str) -> list[str]:
+            """Top distinct passages for an item — already retrieved, no extra cost."""
+            seen: set[str] = set()
+            scored: list[tuple[float, str]] = []
+            for c in chunks_by_key.get(key, []):
+                snip = (c.get("snippet") or "").strip()
+                if "\n\n" in snip:  # strip the "{header}\n\n{body}" chunk prefix
+                    snip = snip.split("\n\n", 1)[1].strip()
+                snip = snip[:280]
+                if not snip:
+                    continue
+                dedup = snip[:60].lower()
+                if dedup in seen:
+                    continue
+                seen.add(dedup)
+                sc = c.get("rerank_score", c.get("score")) or 0.0
+                scored.append((float(sc), snip))
+            scored.sort(key=lambda x: x[0], reverse=True)
+            return [s for _, s in scored[:_MAX_PASSAGES]]
+
         ordered_keys = sorted(
             fused_score, key=lambda k: fused_score[k], reverse=True
         )[:per_source_limit]
@@ -287,6 +314,7 @@ async def search_papers(
         out: list[SearchHit] = []
         for key in ordered_keys:
             hit = first_hit.get(key, {})
+            semantic_snippets = _passages_for(key)
             item = await zotero_sqlite.search_by_key(key)
             if not item:
                 continue
@@ -310,7 +338,10 @@ async def search_papers(
                 has_oa_pdf=True,
                 s2_id=None,
                 semantic_zotero_score=score,
+                semantic_snippets=semantic_snippets,
                 url=(item.url or "").strip() or None,
+                work_type=item.itemType or None,
+                reference_note=item.reference_note or None,
                 zotero_library_type=item.libraryType or None,
                 zotero_group_id=item.groupID,
             ))
@@ -338,6 +369,7 @@ async def search_papers(
                 in_zotero=in_zot,
                 has_oa_pdf=bool((paper.get("openAccessPdf") or {}).get("url")),
                 s2_id=paper.get("paperId"),
+                work_type=(paper.get("publicationTypes") or [None])[0],
             ))
         return out
 
@@ -520,6 +552,14 @@ async def search_papers(
             existing.has_oa_pdf = existing.has_oa_pdf or rec.has_oa_pdf
         if rec.semantic_zotero_score is not None and existing.semantic_zotero_score is None:
             existing.semantic_zotero_score = rec.semantic_zotero_score
+        if rec.semantic_snippets and not existing.semantic_snippets:
+            existing.semantic_snippets = rec.semantic_snippets
+        if rec.reference_note and not existing.reference_note:
+            existing.reference_note = rec.reference_note
+        if rec.zotero_library_type and not existing.zotero_library_type:
+            existing.zotero_library_type = rec.zotero_library_type
+        if rec.zotero_group_id is not None and existing.zotero_group_id is None:
+            existing.zotero_group_id = rec.zotero_group_id
         if rec.in_zotero and not existing.in_zotero:
             existing.in_zotero = True
 

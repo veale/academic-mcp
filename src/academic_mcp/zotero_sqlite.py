@@ -55,7 +55,7 @@ import httpx
 
 from .config import config as app_config
 from .models import (
-    AttachmentInfo, Creator, FulltextInfo, LibraryInfo,
+    AttachmentInfo, Creator, FulltextInfo, LEGAL_ITEM_TYPES, LibraryInfo,
     PaperContent, ZoteroItem,
 )
 
@@ -599,6 +599,18 @@ async def _build_item(conn: aiosqlite.Connection, item_id: int) -> Optional[Zote
     """, (item_row["libraryID"],))
     lib_row = await cursor.fetchone()
 
+    # Title and date live in type-specific fields for some item types: legal
+    # cases use caseName/dateDecided, statutes nameOfAct/dateEnacted. Fall back
+    # through these so legal materials get a proper title and a date when one
+    # was entered (without being excluded when it wasn't).
+    title = fields.get("title") or fields.get("caseName") or fields.get("nameOfAct") or ""
+    date = (
+        fields.get("date")
+        or fields.get("dateDecided")
+        or fields.get("dateEnacted")
+        or ""
+    )
+
     return ZoteroItem(
         itemID=item_id, key=item_row["key"],
         libraryID=item_row["libraryID"],
@@ -606,17 +618,29 @@ async def _build_item(conn: aiosqlite.Connection, item_id: int) -> Optional[Zote
         libraryType=lib_row["type"] if lib_row else "unknown",
         groupID=lib_row["groupID"] if lib_row else None,
         itemType=item_row["typeName"],
-        title=fields.get("title", ""),
+        title=title,
         DOI=fields.get("DOI", ""),
         url=fields.get("url", ""),
-        date=fields.get("date", ""),
+        date=date,
         abstractNote=fields.get("abstractNote", ""),
         publicationTitle=fields.get("publicationTitle", ""),
         creators=creators, tags=tags,
         extra=fields.get("extra", ""),
         dateAdded=item_row["dateAdded"],
         dateModified=item_row["dateModified"],
+        fields=fields,
     )
+
+
+async def _legal_type_ids(conn: aiosqlite.Connection) -> list[int]:
+    """itemTypeIDs for legal materials (case/statute/bill/hearing)."""
+    ph = ",".join("?" * len(LEGAL_ITEM_TYPES))
+    cursor = await conn.execute(
+        f"SELECT itemTypeID FROM itemTypes WHERE typeName IN ({ph})",
+        tuple(LEGAL_ITEM_TYPES),
+    )
+    rows = await cursor.fetchall()
+    return [r["itemTypeID"] for r in rows]
 
 
 async def _excluded_type_ids(conn: aiosqlite.Connection) -> list[int]:
@@ -749,52 +773,63 @@ async def search_items(
             date_fid = await _get_field_id(conn, "date")
             if date_fid:
                 if start_year and end_year:
-                    year_filter = (
-                        "AND i.itemID IN ("
-                        "  SELECT id2.itemID FROM itemData id2"
-                        "  JOIN itemDataValues idv2 ON id2.valueID = idv2.valueID"
-                        "  WHERE id2.fieldID = ?"
-                        "    AND CAST(SUBSTR(idv2.value, 1, 4) AS INTEGER) BETWEEN ? AND ?"
-                        ")"
-                    )
-                    year_params = [date_fid, start_year, end_year]
+                    range_cond = "CAST(SUBSTR(idv2.value, 1, 4) AS INTEGER) BETWEEN ? AND ?"
+                    range_params = [date_fid, start_year, end_year]
                 elif start_year:
-                    year_filter = (
-                        "AND i.itemID IN ("
-                        "  SELECT id2.itemID FROM itemData id2"
-                        "  JOIN itemDataValues idv2 ON id2.valueID = idv2.valueID"
-                        "  WHERE id2.fieldID = ?"
-                        "    AND CAST(SUBSTR(idv2.value, 1, 4) AS INTEGER) >= ?"
-                        ")"
-                    )
-                    year_params = [date_fid, start_year]
-                elif end_year:
-                    year_filter = (
-                        "AND i.itemID IN ("
-                        "  SELECT id2.itemID FROM itemData id2"
-                        "  JOIN itemDataValues idv2 ON id2.valueID = idv2.valueID"
-                        "  WHERE id2.fieldID = ?"
-                        "    AND CAST(SUBSTR(idv2.value, 1, 4) AS INTEGER) <= ?"
-                        ")"
-                    )
-                    year_params = [date_fid, end_year]
+                    range_cond = "CAST(SUBSTR(idv2.value, 1, 4) AS INTEGER) >= ?"
+                    range_params = [date_fid, start_year]
+                else:
+                    range_cond = "CAST(SUBSTR(idv2.value, 1, 4) AS INTEGER) <= ?"
+                    range_params = [date_fid, end_year]
+
+                # An item passes the year filter if EITHER its date is in range,
+                # OR it has no `date` value at all (undated items must never be
+                # penalised), OR it is a legal item type (cases/statutes/bills
+                # carry their date in type-specific fields, when at all).
+                legal_ids = await _legal_type_ids(conn)
+                legal_clause = ""
+                if legal_ids:
+                    legal_ph = ",".join("?" * len(legal_ids))
+                    legal_clause = f" OR i.itemTypeID IN ({legal_ph})"
+                year_filter = (
+                    "AND ("
+                    "  i.itemID IN ("
+                    "    SELECT id2.itemID FROM itemData id2"
+                    "    JOIN itemDataValues idv2 ON id2.valueID = idv2.valueID"
+                    f"   WHERE id2.fieldID = ? AND {range_cond}"
+                    "  )"
+                    "  OR i.itemID NOT IN ("
+                    "    SELECT id3.itemID FROM itemData id3 WHERE id3.fieldID = ?"
+                    "  )"
+                    f"{legal_clause}"
+                    ")"
+                )
+                year_params = range_params + [date_fid] + list(legal_ids)
 
         meta: set[int] = set()
         ft: set[int] = set()
 
-        # Phase 1: Title
-        title_fid = await _get_field_id(conn, "title")
-        if title_fid:
+        # Phase 1: Title (incl. legal title fields — cases store their name in
+        # caseName, statutes in nameOfAct, so a search by case name still hits).
+        title_fids = [
+            fid for fid in (
+                await _get_field_id(conn, "title"),
+                await _get_field_id(conn, "caseName"),
+                await _get_field_id(conn, "nameOfAct"),
+            ) if fid is not None
+        ]
+        if title_fids:
+            title_ph = ",".join("?" * len(title_fids))
             like_parts = " AND ".join(["LOWER(idv.value) LIKE ?"] * len(terms))
             cursor = await conn.execute(f"""
                 SELECT DISTINCT id.itemID FROM itemData id
                 JOIN itemDataValues idv ON id.valueID = idv.valueID
                 JOIN items i ON id.itemID = i.itemID
-                WHERE id.fieldID = ? AND {like_parts}
+                WHERE id.fieldID IN ({title_ph}) AND {like_parts}
                   AND i.itemTypeID NOT IN ({type_ph}) {lib_filter}
                   {year_filter}
                 LIMIT ?
-            """, [title_fid] + [f"%{t}%" for t in terms] + excl + lib_params + year_params + [limit * 3])
+            """, title_fids + [f"%{t}%" for t in terms] + excl + lib_params + year_params + [limit * 3])
             rows = await cursor.fetchall()
             meta.update(r["itemID"] for r in rows)
 

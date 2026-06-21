@@ -39,7 +39,14 @@ const indexRoute = createRoute({
   beforeLoad: requireAuth,
   validateSearch: (search: Record<string, unknown>): SearchPageParams => ({
     q: typeof search.q === 'string' ? search.q : undefined,
-    semantic: search.semantic === true || search.semantic === 'true' || undefined,
+    // Tri-state: semantic defaults ON, so we only record an explicit `false`
+    // in the URL when the user turns it off (undefined = use the default).
+    semantic:
+      search.semantic === false || search.semantic === 'false'
+        ? false
+        : search.semantic === true || search.semantic === 'true'
+          ? true
+          : undefined,
     zotero_only: search.zotero_only === true || search.zotero_only === 'true' || undefined,
     include_scite: search.include_scite === true || search.include_scite === 'true' || undefined,
     domain_hint: typeof search.domain_hint === 'string' ? search.domain_hint : undefined,

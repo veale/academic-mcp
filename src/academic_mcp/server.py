@@ -1396,6 +1396,10 @@ async def _handle_search(args: dict) -> list[TextContent]:
                 text += "  [retraction/correction signal]"
             text += "\n"
 
+        # Legal citation line (cases/legislation/bills) — free text before abstract.
+        if r.reference_note:
+            text += f"    {r.reference_note}\n"
+
         # Abstract / Preview
         abstract = r.abstract or ""
         if abstract:
@@ -1403,6 +1407,12 @@ async def _handle_search(args: dict) -> list[TextContent]:
             if len(abstract) > 400:
                 abstract = abstract[:400] + "..."
             text += f"\n    {abstract}\n"
+
+        # Best-matching passages from semantic search (no extra compute).
+        if r.semantic_snippets:
+            text += f"\n    ❝ {r.semantic_snippets[0]} ❞\n"
+            for extra in r.semantic_snippets[1:]:
+                text += f"    ❝ {extra} ❞\n"
 
         # URL line — shown only for DOI-less items so the LLM can pass it to
         # fetch_fulltext.  When a DOI is present it's already the canonical handle.

@@ -25,6 +25,8 @@ export interface SearchResult {
   url: string | null
   work_type: string | null
   container_title: string | null
+  reference_note: string | null
+  semantic_snippets: string[]
   zotero_library_type: string | null
   zotero_group_id: number | null
   semantic_similarity: number | null
@@ -56,7 +58,10 @@ export async function searchPapers(params: SearchParams): Promise<SearchResponse
   qs.set('q', params.q)
   if (params.limit !== undefined) qs.set('limit', String(params.limit))
   if (params.zotero_only) qs.set('zotero_only', 'true')
+  // Always send the explicit value so the user can actually turn semantic OFF
+  // (the server otherwise defaults it ON).
   if (params.semantic != null) qs.set('semantic', String(params.semantic))
+  else qs.set('semantic', 'true')
   if (params.include_scite) qs.set('include_scite', 'true')
   if (params.domain_hint) qs.set('domain_hint', params.domain_hint)
   if (params.start_year != null) qs.set('start_year', String(params.start_year))

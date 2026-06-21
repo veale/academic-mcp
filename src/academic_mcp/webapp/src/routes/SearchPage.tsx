@@ -6,17 +6,22 @@ import { logout } from '../api/auth'
 import { fetchSavedSearches, saveSearch, deleteSavedSearch, type SavedSearch } from '../api/saved'
 import { useToast } from '../components/Toast'
 import { selectUrl as zoteroSelect } from '../lib/zoteroDeeplink'
-import { YearRangeSlider } from '../components/YearRangeSlider'
+import { YearHistogramSlider } from '../components/YearHistogramSlider'
 
 const DOMAIN_HINTS = ['general', 'medicine', 'biology', 'cs', 'physics', 'social']
 
 const YEAR_MIN = 1900
 const YEAR_MAX = new Date().getFullYear()
 
-/** Human-readable label for an OpenAlex/Crossref work type. */
+/**
+ * Human-readable label for a work/item type. Handles OpenAlex/Crossref
+ * (hyphenated), Zotero (camelCase) and Semantic Scholar (PascalCase) forms —
+ * all keyed lowercase.
+ */
 function workTypeLabel(workType: string | null): string | null {
   if (!workType) return null
   const map: Record<string, string> = {
+    // OpenAlex / Crossref
     'journal-article': 'Article',
     article: 'Article',
     'proceedings-article': 'Conference',
@@ -35,9 +40,52 @@ function workTypeLabel(workType: string | null): string | null {
     review: 'Review',
     standard: 'Standard',
     'peer-review': 'Peer review',
+    // Zotero (camelCase → lowercased)
+    journalarticle: 'Article',
+    conferencepaper: 'Conference',
+    booksection: 'Chapter',
+    case: 'Case',
+    statute: 'Legislation',
+    bill: 'Bill',
+    hearing: 'Hearing',
+    newspaperarticle: 'News',
+    magazinearticle: 'Magazine',
+    blogpost: 'Blog',
+    webpage: 'Web',
+    manuscript: 'Manuscript',
+    presentation: 'Talk',
+    document: 'Document',
+    // Semantic Scholar (PascalCase → lowercased)
+    editorial: 'Editorial',
+    lettersandcomments: 'Letter',
+    news: 'News',
+    studyregistry: 'Registry',
+    clinicaltrial: 'Clinical trial',
   }
   const key = workType.toLowerCase()
   return map[key] ?? workType.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+}
+
+/**
+ * Wrap occurrences of the query's words in <mark>. Semantic search may surface
+ * passages with NO literal term overlap — highlighting makes that visible (and
+ * intuitive) by showing which words, if any, actually matched.
+ */
+function highlightTerms(text: string, query: string) {
+  const terms = (query.match(/\w+/g) ?? [])
+    .filter((t) => t.length > 1)
+    .map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+  if (terms.length === 0) return text
+  const re = new RegExp(`(${terms.join('|')})`, 'gi')
+  return text.split(re).map((part, i) =>
+    i % 2 === 1 ? (
+      <mark key={i} className="bg-yellow-200 text-inherit rounded px-0.5">
+        {part}
+      </mark>
+    ) : (
+      part
+    ),
+  )
 }
 
 function ResultSkeletons() {
@@ -64,7 +112,7 @@ export function SearchPage() {
   // Submitted query lives in the URL; the input box holds the in-progress draft.
   const submittedQ = (urlSearch.q ?? '').trim()
   const [q, setQ] = useState(urlSearch.q ?? '')
-  const [semantic, setSemantic] = useState(urlSearch.semantic ?? false)
+  const [semantic, setSemantic] = useState(urlSearch.semantic ?? true)
   const [zoteroOnly, setZoteroOnly] = useState(urlSearch.zotero_only ?? false)
   const [includeScite, setIncludeScite] = useState(urlSearch.include_scite ?? false)
   const [domainHint, setDomainHint] = useState(urlSearch.domain_hint ?? 'general')
@@ -75,7 +123,7 @@ export function SearchPage() {
   // Re-sync drafts when the URL changes (browser back/forward, saved-search click)
   useEffect(() => {
     setQ(urlSearch.q ?? '')
-    setSemantic(urlSearch.semantic ?? false)
+    setSemantic(urlSearch.semantic ?? true)
     setZoteroOnly(urlSearch.zotero_only ?? false)
     setIncludeScite(urlSearch.include_scite ?? false)
     setDomainHint(urlSearch.domain_hint ?? 'general')
@@ -87,7 +135,7 @@ export function SearchPage() {
     q: submittedQ,
     limit: 10,
     zotero_only: urlSearch.zotero_only ?? false,
-    semantic: urlSearch.semantic || undefined,
+    semantic: urlSearch.semantic ?? true,
     include_scite: urlSearch.include_scite ?? false,
     domain_hint: urlSearch.domain_hint ?? 'general',
     start_year: urlSearch.start_year,
@@ -100,12 +148,18 @@ export function SearchPage() {
     enabled: submittedQ.length > 1,
   })
 
+  // Years present in the current results — drives the histogram x-axis.
+  const resultYears = (data?.results ?? [])
+    .map((r) => (typeof r.year === 'number' ? r.year : parseInt(String(r.year ?? ''), 10)))
+    .filter((y) => Number.isFinite(y))
+
   function submitSearch(query: string) {
     void navigate({
       to: '/',
       search: {
         q: query.trim() || undefined,
-        semantic: semantic || undefined,
+        // Default is ON, so only persist the off state.
+        semantic: semantic ? undefined : false,
         zotero_only: zoteroOnly || undefined,
         include_scite: includeScite || undefined,
         domain_hint: domainHint !== 'general' ? domainHint : undefined,
@@ -307,8 +361,9 @@ export function SearchPage() {
         </p>
 
         <div className="max-w-md">
-          <YearRangeSlider
-            min={YEAR_MIN}
+          <YearHistogramSlider
+            years={resultYears}
+            fallbackMin={YEAR_MIN}
             max={YEAR_MAX}
             from={startYear}
             to={endYear}
@@ -319,8 +374,8 @@ export function SearchPage() {
           />
           <p className="text-[11px] text-gray-400 mt-0.5">
             {startYear || endYear
-              ? `Limiting to ${startYear ?? YEAR_MIN}–${endYear ?? YEAR_MAX}. Press Search to apply.`
-              : 'Drag to limit by publication year. Press Search to apply.'}
+              ? `Limiting to ${startYear ?? '…'}–${endYear ?? YEAR_MAX}. Press Search to apply.`
+              : 'Bars show years in the current results. Drag to limit, then press Search.'}
           </p>
         </div>
       </div>
@@ -346,7 +401,7 @@ export function SearchPage() {
       {data && data.results.length > 0 && (
         <ul className="space-y-4">
           {data.results.map((r, i) => (
-            <ResultCard key={r.doi ?? r.s2_id ?? i} result={r} />
+            <ResultCard key={r.doi ?? r.s2_id ?? i} result={r} query={submittedQ} />
           ))}
         </ul>
       )}
@@ -354,7 +409,7 @@ export function SearchPage() {
   )
 }
 
-function ResultCard({ result: r }: { result: SearchResult }) {
+function ResultCard({ result: r, query }: { result: SearchResult; query: string }) {
   const articleSearch = {
     doi: r.doi ?? undefined,
     zotero_key: r.zotero_key ?? undefined,
@@ -371,6 +426,9 @@ function ResultCard({ result: r }: { result: SearchResult }) {
     open: false,
     direction: 'out',
   })
+  const [showAllPassages, setShowAllPassages] = useState(false)
+  const passages = r.semantic_snippets ?? []
+  const shownPassages = showAllPassages ? passages : passages.slice(0, 1)
 
   const typeLabel = workTypeLabel(r.work_type)
 
@@ -397,8 +455,52 @@ function ResultCard({ result: r }: { result: SearchResult }) {
         {r.venue ? ` · ${r.venue}` : ''}
       </p>
 
+      {r.reference_note && (
+        <p className="text-xs text-gray-600">{r.reference_note}</p>
+      )}
+
       {r.abstract && (
         <p className="text-xs text-gray-600 line-clamp-3">{r.abstract}</p>
+      )}
+
+      {passages.length > 0 && (
+        <div className="mt-1 space-y-1">
+          {shownPassages.map((p, i) => {
+            const body = (
+              <blockquote className="border-l-2 border-blue-300 bg-blue-50/50 pl-2.5 py-1 text-xs italic text-gray-600">
+                “{highlightTerms(p, query)}…”
+                {i === 0 && (
+                  <span className="ml-1 not-italic text-[10px] text-gray-400">best match</span>
+                )}
+              </blockquote>
+            )
+            // Clicking a passage opens the article and jumps to that passage
+            // (the article page locates it via its highlight search).
+            return hasIdentifier ? (
+              <Link
+                key={i}
+                to="/article"
+                search={{ ...articleSearch, q: p }}
+                title="Open and jump to this passage"
+                className="block group"
+              >
+                <div className="group-hover:brightness-95">{body}</div>
+              </Link>
+            ) : (
+              <div key={i}>{body}</div>
+            )
+          })}
+          {passages.length > 1 && (
+            <button
+              onClick={() => setShowAllPassages((v) => !v)}
+              className="text-[11px] text-blue-600 hover:underline"
+            >
+              {showAllPassages
+                ? 'Show less'
+                : `See ${passages.length - 1} more passage${passages.length - 1 === 1 ? '' : 's'}`}
+            </button>
+          )}
+        </div>
       )}
 
       <div className="flex flex-wrap items-center gap-2 pt-1">

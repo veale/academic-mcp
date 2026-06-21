@@ -73,6 +73,13 @@ class SearchHit(BaseModel):
     url: str | None = None
     work_type: str | None = None
     container_title: str | None = None
+    # Free-text legal citation line (cases/legislation/bills) shown before the
+    # abstract; empty for non-legal items.
+    reference_note: str | None = None
+    # Top matching passages from the semantic (embedding) search, shown as
+    # inset quotes (first as a preview, the rest behind "see more"). Already
+    # retrieved for the query, so no extra compute. Semantic_zotero hits only.
+    semantic_snippets: list[str] = Field(default_factory=list)
     # Zotero library context — needed for group-aware zotero:// deep links.
     zotero_library_type: str | None = None  # "user" | "group"
     zotero_group_id: int | None = None

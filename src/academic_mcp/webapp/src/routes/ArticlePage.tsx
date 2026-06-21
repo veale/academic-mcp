@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useSearch, useRouter } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import {
@@ -119,6 +119,22 @@ export function ArticlePage() {
 
   const highlights: HighlightChunk[] = highlightsData?.chunks ?? []
   const pageDimensions = highlightsData?.page_dimensions ?? {}
+
+  // When arriving with a query (e.g. clicking a passage card on the search
+  // page), auto-jump to the top match once it's located in the text/PDF.
+  const didAutoJump = useRef<string | null>(null)
+  useEffect(() => {
+    if (!q || highlights.length === 0 || !viewer) return
+    const token = `${meta?.cache_key}|${q}`
+    if (didAutoJump.current === token) return
+    didAutoJump.current = token
+    const top = highlights[0]
+    if (viewer === 'pdf' && top.page_rects.length > 0) {
+      setCurrentPage(top.page_rects[0].page)
+    } else {
+      setScrollToChar(top.char_start)
+    }
+  }, [highlights, viewer, q, meta?.cache_key])
 
   // Figure out Zotero deep-link
   const zoteroKey = (meta?.metadata?.key as string | undefined) ?? zotero_key
