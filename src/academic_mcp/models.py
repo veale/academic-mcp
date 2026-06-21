@@ -32,6 +32,7 @@ class ZoteroItem:
     libraryID: int = 0
     libraryName: str = ""
     libraryType: str = "user"   # "user" or "group"
+    groupID: Optional[int] = None  # numeric group ID (group libraries only)
     itemType: str = ""
     title: str = ""
     DOI: str = ""
@@ -64,6 +65,7 @@ class ZoteroItem:
             "itemType": self.itemType,
             "libraryName": self.libraryName,
             "libraryType": self.libraryType,
+            "groupID": self.groupID,
             "_match_type": self._match_type,
         }
 

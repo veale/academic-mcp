@@ -7,3 +7,30 @@ mark.search-highlight {
   color: inherit;
   mix-blend-mode: multiply;
 }
+
+/* Dual-thumb year slider: the <input> is pointer-events-none so the two
+   overlaid tracks don't block each other; only the thumbs stay interactive. */
+.year-thumb::-webkit-slider-thumb {
+  pointer-events: auto;
+  appearance: none;
+  -webkit-appearance: none;
+  height: 16px;
+  width: 16px;
+  border-radius: 9999px;
+  background: #2563eb; /* blue-600 */
+  border: 2px solid white;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.15);
+  cursor: pointer;
+}
+.year-thumb::-moz-range-thumb {
+  pointer-events: auto;
+  height: 16px;
+  width: 16px;
+  border-radius: 9999px;
+  background: #2563eb;
+  border: 2px solid white;
+  cursor: pointer;
+}
+.year-thumb::-moz-range-track {
+  background: transparent;
+}

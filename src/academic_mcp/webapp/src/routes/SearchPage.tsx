@@ -6,8 +6,39 @@ import { logout } from '../api/auth'
 import { fetchSavedSearches, saveSearch, deleteSavedSearch, type SavedSearch } from '../api/saved'
 import { useToast } from '../components/Toast'
 import { selectUrl as zoteroSelect } from '../lib/zoteroDeeplink'
+import { YearRangeSlider } from '../components/YearRangeSlider'
 
 const DOMAIN_HINTS = ['general', 'medicine', 'biology', 'cs', 'physics', 'social']
+
+const YEAR_MIN = 1900
+const YEAR_MAX = new Date().getFullYear()
+
+/** Human-readable label for an OpenAlex/Crossref work type. */
+function workTypeLabel(workType: string | null): string | null {
+  if (!workType) return null
+  const map: Record<string, string> = {
+    'journal-article': 'Article',
+    article: 'Article',
+    'proceedings-article': 'Conference',
+    'book-chapter': 'Chapter',
+    book: 'Book',
+    'edited-book': 'Book',
+    monograph: 'Book',
+    'reference-book': 'Book',
+    dataset: 'Dataset',
+    dissertation: 'Thesis',
+    thesis: 'Thesis',
+    report: 'Report',
+    'posted-content': 'Preprint',
+    preprint: 'Preprint',
+    'review-article': 'Review',
+    review: 'Review',
+    standard: 'Standard',
+    'peer-review': 'Peer review',
+  }
+  const key = workType.toLowerCase()
+  return map[key] ?? workType.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+}
 
 function ResultSkeletons() {
   return (
@@ -37,6 +68,8 @@ export function SearchPage() {
   const [zoteroOnly, setZoteroOnly] = useState(urlSearch.zotero_only ?? false)
   const [includeScite, setIncludeScite] = useState(urlSearch.include_scite ?? false)
   const [domainHint, setDomainHint] = useState(urlSearch.domain_hint ?? 'general')
+  const [startYear, setStartYear] = useState<number | undefined>(urlSearch.start_year)
+  const [endYear, setEndYear] = useState<number | undefined>(urlSearch.end_year)
   const [savedOpen, setSavedOpen] = useState(false)
 
   // Re-sync drafts when the URL changes (browser back/forward, saved-search click)
@@ -46,7 +79,9 @@ export function SearchPage() {
     setZoteroOnly(urlSearch.zotero_only ?? false)
     setIncludeScite(urlSearch.include_scite ?? false)
     setDomainHint(urlSearch.domain_hint ?? 'general')
-  }, [urlSearch.q, urlSearch.semantic, urlSearch.zotero_only, urlSearch.include_scite, urlSearch.domain_hint])
+    setStartYear(urlSearch.start_year)
+    setEndYear(urlSearch.end_year)
+  }, [urlSearch.q, urlSearch.semantic, urlSearch.zotero_only, urlSearch.include_scite, urlSearch.domain_hint, urlSearch.start_year, urlSearch.end_year])
 
   const params: SearchParams = {
     q: submittedQ,
@@ -55,6 +90,8 @@ export function SearchPage() {
     semantic: urlSearch.semantic || undefined,
     include_scite: urlSearch.include_scite ?? false,
     domain_hint: urlSearch.domain_hint ?? 'general',
+    start_year: urlSearch.start_year,
+    end_year: urlSearch.end_year,
   }
 
   const { data, isFetching, error } = useQuery({
@@ -72,6 +109,8 @@ export function SearchPage() {
         zotero_only: zoteroOnly || undefined,
         include_scite: includeScite || undefined,
         domain_hint: domainHint !== 'general' ? domainHint : undefined,
+        start_year: startYear,
+        end_year: endYear,
       },
     })
   }
@@ -209,45 +248,81 @@ export function SearchPage() {
         </div>
       )}
 
-      <div className="flex flex-wrap gap-4 text-sm text-gray-700">
-        <label className="flex items-center gap-1.5 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={zoteroOnly}
-            onChange={(e) => setZoteroOnly(e.target.checked)}
-          />
-          Zotero only
-        </label>
-        <label className="flex items-center gap-1.5 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={semantic}
-            onChange={(e) => setSemantic(e.target.checked)}
-          />
-          Semantic
-        </label>
-        <label className="flex items-center gap-1.5 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={includeScite}
-            onChange={(e) => setIncludeScite(e.target.checked)}
-          />
-          Include scite
-        </label>
-        <label className="flex items-center gap-1.5">
-          Domain:
-          <select
-            value={domainHint}
-            onChange={(e) => setDomainHint(e.target.value)}
-            className="border rounded px-1.5 py-0.5"
+      <div className="space-y-2.5">
+        <div className="flex flex-wrap items-center gap-4 text-sm text-gray-700">
+          <label
+            className="flex items-center gap-1.5 cursor-pointer"
+            title="Only return papers already in your Zotero library (skips the external databases)."
           >
-            {DOMAIN_HINTS.map((d) => (
-              <option key={d} value={d}>
-                {d}
-              </option>
-            ))}
-          </select>
-        </label>
+            <input
+              type="checkbox"
+              checked={zoteroOnly}
+              onChange={(e) => setZoteroOnly(e.target.checked)}
+            />
+            Zotero only
+          </label>
+          <label
+            className="flex items-center gap-1.5 cursor-pointer"
+            title="Adds AI meaning-based search of your Zotero library (embeddings + reranker) to the keyword results, so papers that match the idea rank highly even when they don't share your exact words. Slightly slower."
+          >
+            <input
+              type="checkbox"
+              checked={semantic}
+              onChange={(e) => setSemantic(e.target.checked)}
+            />
+            Semantic
+            <span className="text-gray-400 cursor-help" aria-hidden>ⓘ</span>
+          </label>
+          <label
+            className="flex items-center gap-1.5 cursor-pointer"
+            title="Enrich results with Scite citation tallies and flag possible retractions/corrections."
+          >
+            <input
+              type="checkbox"
+              checked={includeScite}
+              onChange={(e) => setIncludeScite(e.target.checked)}
+            />
+            Include scite
+          </label>
+          <label className="flex items-center gap-1.5" title="Specialised search strategy for a discipline (e.g. legal databases for law).">
+            Domain:
+            <select
+              value={domainHint}
+              onChange={(e) => setDomainHint(e.target.value)}
+              className="border rounded px-1.5 py-0.5"
+            >
+              {DOMAIN_HINTS.map((d) => (
+                <option key={d} value={d}>
+                  {d}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+
+        <p className="text-xs text-gray-400">
+          <span className="font-medium text-gray-500">Semantic</span> = AI meaning-based
+          search of your Zotero library, blended with the keyword results so relevant
+          papers surface even when the wording differs.
+        </p>
+
+        <div className="max-w-md">
+          <YearRangeSlider
+            min={YEAR_MIN}
+            max={YEAR_MAX}
+            from={startYear}
+            to={endYear}
+            onChange={(f, t) => {
+              setStartYear(f)
+              setEndYear(t)
+            }}
+          />
+          <p className="text-[11px] text-gray-400 mt-0.5">
+            {startYear || endYear
+              ? `Limiting to ${startYear ?? YEAR_MIN}–${endYear ?? YEAR_MAX}. Press Search to apply.`
+              : 'Drag to limit by publication year. Press Search to apply.'}
+          </p>
+        </div>
       </div>
 
       {isFetching && !data && <ResultSkeletons />}
@@ -286,16 +361,30 @@ function ResultCard({ result: r }: { result: SearchResult }) {
     url: r.url ?? undefined,
   }
   const hasIdentifier = !!(r.doi ?? r.zotero_key ?? r.url)
-  const zoteroUrl = r.zotero_key ? zoteroSelect(r.zotero_key) : null
+  const zoteroUrl = r.zotero_key
+    ? zoteroSelect(r.zotero_key, {
+        libraryType: r.zotero_library_type,
+        groupId: r.zotero_group_id,
+      })
+    : null
   const [citSearch, setCitSearch] = useState<{ open: boolean; direction: 'in' | 'out' }>({
     open: false,
     direction: 'out',
   })
 
+  const typeLabel = workTypeLabel(r.work_type)
+
   return (
     <li className="border rounded-lg p-4 space-y-1.5">
       <div className="flex items-start justify-between gap-2">
-        <p className="font-medium text-sm leading-snug">{r.title || '(no title)'}</p>
+        <p className="font-medium text-sm leading-snug">
+          {typeLabel && (
+            <span className="inline-block align-[1px] mr-2 text-[10px] font-semibold uppercase tracking-wide bg-gray-100 text-gray-500 rounded px-1.5 py-0.5">
+              {typeLabel}
+            </span>
+          )}
+          {r.title || '(no title)'}
+        </p>
         {r.semantic_similarity != null && (
           <span className="text-xs text-gray-400 shrink-0">{r.semantic_similarity.toFixed(2)}</span>
         )}
@@ -494,7 +583,14 @@ function CitationResultRow({ result: r }: { result: SearchResult }) {
   return (
     <li className="border rounded p-2.5 space-y-0.5 bg-amber-50/40">
       <div className="flex items-start justify-between gap-2">
-        <p className="text-xs font-medium leading-snug">{r.title || '(no title)'}</p>
+        <p className="text-xs font-medium leading-snug">
+          {workTypeLabel(r.work_type) && (
+            <span className="inline-block mr-1.5 text-[9px] font-semibold uppercase tracking-wide bg-gray-100 text-gray-500 rounded px-1 py-px">
+              {workTypeLabel(r.work_type)}
+            </span>
+          )}
+          {r.title || '(no title)'}
+        </p>
         {r.semantic_similarity != null && r.semantic_similarity > 0 && (
           <span className="text-[10px] text-gray-400 shrink-0">{r.semantic_similarity.toFixed(1)}</span>
         )}

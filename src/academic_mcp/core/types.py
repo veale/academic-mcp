@@ -73,6 +73,9 @@ class SearchHit(BaseModel):
     url: str | None = None
     work_type: str | None = None
     container_title: str | None = None
+    # Zotero library context — needed for group-aware zotero:// deep links.
+    zotero_library_type: str | None = None  # "user" | "group"
+    zotero_group_id: int | None = None
     # Internal signals (underscore-prefixed in legacy dict form)
     semantic_similarity: float | None = None
     semantic_zotero_score: float | None = None

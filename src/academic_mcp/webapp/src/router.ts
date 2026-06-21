@@ -24,6 +24,13 @@ export interface SearchPageParams {
   zotero_only?: boolean
   include_scite?: boolean
   domain_hint?: string
+  start_year?: number
+  end_year?: number
+}
+
+function toYear(v: unknown): number | undefined {
+  const n = typeof v === 'number' ? v : typeof v === 'string' ? parseInt(v, 10) : NaN
+  return Number.isFinite(n) ? n : undefined
 }
 
 const indexRoute = createRoute({
@@ -36,6 +43,8 @@ const indexRoute = createRoute({
     zotero_only: search.zotero_only === true || search.zotero_only === 'true' || undefined,
     include_scite: search.include_scite === true || search.include_scite === 'true' || undefined,
     domain_hint: typeof search.domain_hint === 'string' ? search.domain_hint : undefined,
+    start_year: toYear(search.start_year),
+    end_year: toYear(search.end_year),
   }),
   component: SearchPage,
 })

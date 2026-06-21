@@ -25,6 +25,8 @@ export interface SearchResult {
   url: string | null
   work_type: string | null
   container_title: string | null
+  zotero_library_type: string | null
+  zotero_group_id: number | null
   semantic_similarity: number | null
   semantic_zotero_score: number | null
   scite_adjust: number | null
@@ -45,6 +47,8 @@ export interface SearchParams {
   semantic?: boolean
   include_scite?: boolean
   domain_hint?: string
+  start_year?: number
+  end_year?: number
 }
 
 export async function searchPapers(params: SearchParams): Promise<SearchResponse> {
@@ -55,6 +59,8 @@ export async function searchPapers(params: SearchParams): Promise<SearchResponse
   if (params.semantic != null) qs.set('semantic', String(params.semantic))
   if (params.include_scite) qs.set('include_scite', 'true')
   if (params.domain_hint) qs.set('domain_hint', params.domain_hint)
+  if (params.start_year != null) qs.set('start_year', String(params.start_year))
+  if (params.end_year != null) qs.set('end_year', String(params.end_year))
   return apiFetch<SearchResponse>(`/search?${qs}`)
 }
 

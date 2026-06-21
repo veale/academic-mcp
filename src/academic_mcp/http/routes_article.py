@@ -95,6 +95,22 @@ async def get_article(
     html_available = bool(art and art.html_path and Path(art.html_path).exists())
     text_available = bool(fa.text or fa.word_count)
 
+    # Enrich metadata with Zotero library context (type + group ID) so the
+    # frontend can build group-aware zotero:// deep links. `library/...` only
+    # resolves items in My Library; group items need `groups/<id>/...`.
+    metadata = dict(fa.metadata or {})
+    item_key = zotero_key or (metadata.get("key") if metadata else None)
+    if item_key and ("libraryType" not in metadata or "groupID" not in metadata):
+        try:
+            from .. import zotero_sqlite
+            zitem = await zotero_sqlite.search_by_key(str(item_key))
+            if zitem:
+                metadata.setdefault("key", zitem.key)
+                metadata["libraryType"] = zitem.libraryType
+                metadata["groupID"] = zitem.groupID
+        except Exception as exc:
+            logger.debug("Zotero library lookup failed for %s: %s", item_key, exc)
+
     return ArticleMetaResponse(
         doi=fa.doi,
         cache_key=cache_key,
@@ -102,7 +118,7 @@ async def get_article(
         word_count=fa.word_count,
         section_count=len(fa.available_sections),
         section_detection=fa.section_detection,
-        metadata=fa.metadata,
+        metadata=metadata,
         viewers=ArticleViewers(
             pdf=pdf_available,
             html=html_available,

@@ -29,6 +29,8 @@ async def search(
     semantic: bool | None = None,
     include_scite: bool = False,
     domain_hint: str = "general",
+    start_year: int | None = Query(None, ge=1000),
+    end_year: int | None = Query(None, ge=1000),
 ) -> SearchResponse:
     source = "zotero" if zotero_only else "all"
     results = await core_search.search_papers(
@@ -38,6 +40,8 @@ async def search(
         domain_hint=domain_hint,
         include_scite=include_scite,
         semantic=semantic,
+        start_year=start_year,
+        end_year=end_year,
     )
     return SearchResponse(results=results, query=q)
 

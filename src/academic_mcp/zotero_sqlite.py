@@ -592,7 +592,7 @@ async def _build_item(conn: aiosqlite.Connection, item_id: int) -> Optional[Zote
     tags = await _get_item_tags(conn, item_id)
 
     cursor = await conn.execute("""
-        SELECT l.type, COALESCE(g.name, 'My Library') AS name
+        SELECT l.type, COALESCE(g.name, 'My Library') AS name, g.groupID
         FROM libraries l
         LEFT JOIN groups g ON l.libraryID = g.libraryID
         WHERE l.libraryID = ?
@@ -604,6 +604,7 @@ async def _build_item(conn: aiosqlite.Connection, item_id: int) -> Optional[Zote
         libraryID=item_row["libraryID"],
         libraryName=lib_row["name"] if lib_row else "Unknown",
         libraryType=lib_row["type"] if lib_row else "unknown",
+        groupID=lib_row["groupID"] if lib_row else None,
         itemType=item_row["typeName"],
         title=fields.get("title", ""),
         DOI=fields.get("DOI", ""),

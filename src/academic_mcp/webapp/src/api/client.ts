@@ -28,7 +28,13 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
   })
 
   if (resp.status === 401) {
-    const next = encodeURIComponent(window.location.pathname + window.location.search)
+    // `next` must be relative to the router basepath (/webapp), otherwise the
+    // post-login navigate() double-prefixes it (→ /webapp/webapp/... → 404).
+    const rel = (window.location.pathname + window.location.search).replace(
+      /^\/webapp/,
+      '',
+    )
+    const next = encodeURIComponent(rel || '/')
     window.location.href = `/webapp/login?next=${next}`
     return new Promise(() => {})
   }

@@ -16,7 +16,13 @@ export function LoginPage() {
       await login(password)
       localStorage.setItem('wa_logged_in', '1')
       const params = new URLSearchParams(window.location.search)
-      await navigate({ to: params.get('next') ?? '/' })
+      // `next` is a path relative to the router basepath (/webapp). Guard
+      // against absolute URLs and a stray /webapp prefix so we never produce
+      // /webapp/webapp/... (which 404s).
+      let next = params.get('next') ?? '/'
+      if (!next.startsWith('/') || next.startsWith('//')) next = '/'
+      next = next.replace(/^\/webapp(?=\/|$)/, '') || '/'
+      await navigate({ to: next })
     } catch {
       setError('Invalid password')
     } finally {

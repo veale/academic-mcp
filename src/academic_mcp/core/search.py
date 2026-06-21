@@ -202,6 +202,8 @@ async def search_papers(
                 has_oa_pdf=True,
                 s2_id=None,
                 url=(item.get("url") or "").strip() or None,
+                zotero_library_type=item.get("libraryType") or None,
+                zotero_group_id=item.get("groupID"),
             ))
         return out
 
@@ -309,6 +311,8 @@ async def search_papers(
                 s2_id=None,
                 semantic_zotero_score=score,
                 url=(item.url or "").strip() or None,
+                zotero_library_type=item.libraryType or None,
+                zotero_group_id=item.groupID,
             ))
         return out
 

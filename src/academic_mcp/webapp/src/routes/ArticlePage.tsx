@@ -39,6 +39,11 @@ function ViewerSwitcher({
           key={key}
           disabled={!avail}
           onClick={() => onChange(key)}
+          title={
+            avail
+              ? `View as ${label}`
+              : `${label} not available for this source — no ${label} was retrieved/cached for this paper.`
+          }
           className={[
             'px-3 py-1.5 border-r last:border-r-0 transition-colors',
             !avail
@@ -117,14 +122,18 @@ export function ArticlePage() {
 
   // Figure out Zotero deep-link
   const zoteroKey = (meta?.metadata?.key as string | undefined) ?? zotero_key
+  const zoteroCtx = {
+    libraryType: (meta?.metadata?.libraryType as string | undefined) ?? null,
+    groupId: (meta?.metadata?.groupID as number | undefined) ?? null,
+  }
   function zoteroOpenPdfUrl() {
     if (!zoteroKey) return null
     const page = currentPage + 1 // Zotero is 1-indexed
-    return zoteroOpenPdf(zoteroKey, page)
+    return zoteroOpenPdf(zoteroKey, page, zoteroCtx)
   }
   function zoteroSelectUrl() {
     if (!zoteroKey) return null
-    return zoteroSelect(zoteroKey)
+    return zoteroSelect(zoteroKey, zoteroCtx)
   }
 
   function handleRailJump(chunk: HighlightChunk) {
@@ -230,17 +239,19 @@ export function ArticlePage() {
           {openPdfUrl && (
             <a
               href={openPdfUrl}
+              title="Open the attached PDF in Zotero's reader (requires Zotero to be running)."
               className="text-xs border rounded px-2.5 py-1 hover:bg-gray-50 text-gray-700 shrink-0"
             >
-              Open in Zotero
+              Open PDF in Zotero
             </a>
           )}
-          {!openPdfUrl && selectUrl && (
+          {selectUrl && (
             <a
               href={selectUrl}
+              title="Reveal this item in the Zotero app (works even when there's no PDF attachment)."
               className="text-xs border rounded px-2.5 py-1 hover:bg-gray-50 text-gray-700 shrink-0"
             >
-              Select in Zotero
+              Show in Zotero
             </a>
           )}
         </div>
