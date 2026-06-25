@@ -42,7 +42,14 @@ TOOLS = [
         name="search_papers",
         description=(
             "Search for academic papers across Zotero, Semantic Scholar, and OpenAlex. "
-            "Returns a ranked list with metadata, abstracts, and retrieval options.\n\n"
+            "Returns metadata, abstracts, and retrieval options.\n\n"
+            "RESULT LAYOUT: By default results come back as TWO parallel lists — "
+            "'LOCAL RESULTS' already in your Zotero library, and 'EXTERNAL RESULTS' "
+            "with any in-library DOIs removed (deduplicated). This keeps locally-held "
+            "papers from crowding out material that only exists externally. Set "
+            "exclude_local=true to skip the local library entirely and get an "
+            "external-only list when you specifically need to find what you don't "
+            "already have.\n\n"
             "QUERY TIPS: This tool runs TWO retrieval pipelines that reward different "
             "phrasings, so give each its own form via two parameters:\n"
             "• query — KEYWORDS for the lexical sources (Semantic Scholar, OpenAlex, "
@@ -185,6 +192,21 @@ TOOLS = [
                         "false to skip. Disable globally with SEMANTIC_DEFAULT_ON=false."
                     ),
                     "default": True,
+                },
+                "exclude_local": {
+                    "type": "boolean",
+                    "description": (
+                        "Drop everything already in your Zotero library. The Zotero "
+                        "lexical + semantic fetchers are skipped and any external hit "
+                        "whose DOI is already in the library is removed, leaving an "
+                        "external-only list. Use this when you specifically need to "
+                        "discover material that is NOT in your collection. "
+                        "Default false — which returns TWO parallel lists instead: "
+                        "one of local (in-Zotero) results and one of external results "
+                        "with the in-library DOIs removed, so locally-held papers can't "
+                        "crowd out external-only material."
+                    ),
+                    "default": False,
                 },
             },
             "required": ["query"],
@@ -622,6 +644,15 @@ TOOLS = [
                         "Include semantic Zotero hits in the candidate list. "
                         "Defaults to SEMANTIC_DEFAULT_ON (true)."
                     ),
+                },
+                "exclude_local": {
+                    "type": "boolean",
+                    "description": (
+                        "Exclude papers already in your Zotero library from the "
+                        "candidate list, so the fetched paper is one you don't already "
+                        "have. Default false."
+                    ),
+                    "default": False,
                 },
             },
             "required": ["query"],
@@ -1257,7 +1288,150 @@ async def _collect_search_results(args: dict) -> list[dict]:
         include_scite=bool(args.get("include_scite", False)),
         semantic=args.get("semantic"),
         semantic_query=args.get("semantic_query"),
+        exclude_local=bool(args.get("exclude_local", False)),
     )
+
+
+def _authors_str(authors: list) -> str:
+    if not authors:
+        return "Unknown"
+    names = authors[:3]
+    s = ", ".join(names)
+    if len(authors) > 3:
+        s += f" +{len(authors)-3} more"
+    return s
+
+
+def _render_search_hit(i: int, r, current_year: int) -> str:
+    """Render a single SearchHit as the indented text block used in listings."""
+    # Header line with index, title, and availability badges
+    badges = []
+    if r.in_zotero:
+        badges.append("★ IN ZOTERO")
+    if r.has_oa_pdf:
+        badges.append("OA")
+    if r.scite and r.scite.retracted:
+        badges.append("RETRACTED?")
+    _wt = (r.work_type or "").lower()
+    if _wt == "book-chapter":
+        badges.append("CHAPTER")
+    elif _wt in ("book", "edited-book", "monograph", "reference-book"):
+        badges.append("BOOK")
+    badge_str = f"  [{', '.join(badges)}]" if badges else ""
+    text = f"[{i}] {r.title}{badge_str}\n"
+
+    # Metadata
+    text += f"    Authors: {_authors_str(r.authors)}\n"
+    if r.year:
+        text += f"    Year: {r.year}"
+        if r.citations:
+            text += f"  |  Citations: {r.citations}"
+        text += "\n"
+    if r.venue:
+        law_note = "  [law review — via Primo/HeinOnline]" if "primo_law" in r.found_in else ""
+        text += f"    Venue: {r.venue}{law_note}\n"
+    if _wt == "book-chapter" and r.container_title and r.container_title != r.venue:
+        text += f"    In book: {r.container_title}\n"
+    if r.doi:
+        text += f"    DOI: {r.doi}\n"
+    text += f"    Sources: {', '.join(r.found_in)}\n"
+    if r.semantic_similarity is not None:
+        text += f"    Relevance: {r.semantic_similarity:.3f}\n"
+    if r.semantic_zotero_score is not None:
+        text += f"    Semantic Zotero score: {r.semantic_zotero_score:.3f}\n"
+    if r.scite:
+        s = r.scite
+        text += (
+            "    Scite: "
+            f"citing={s.citing} | "
+            f"supporting={s.supporting} | "
+            f"contrasting={s.contrasting} | "
+            f"mentioning={s.mentioning}"
+        )
+        if s.retracted:
+            text += "  [retraction/correction signal]"
+        text += "\n"
+
+    # Legal citation line (cases/legislation/bills) — free text before abstract.
+    if r.reference_note:
+        text += f"    {r.reference_note}\n"
+
+    # Abstract / Preview
+    abstract = r.abstract or ""
+    if abstract:
+        if len(abstract) > 400:
+            abstract = abstract[:400] + "..."
+        text += f"\n    {abstract}\n"
+
+    # Best-matching passages from semantic search (no extra compute).
+    if r.semantic_snippets:
+        text += f"\n    ❝ {r.semantic_snippets[0]} ❞\n"
+        for extra in r.semantic_snippets[1:]:
+            text += f"    ❝ {extra} ❞\n"
+
+    # URL line — shown only for DOI-less items so the LLM can pass it to
+    # fetch_fulltext.  When a DOI is present it's already the canonical handle.
+    if r.url and not r.doi:
+        text += f"    URL: {r.url}\n"
+
+    # Follow-up action guidance
+    text += "\n    → "
+    if r.doi:
+        if r.in_zotero:
+            text += f"Full text available. Call fetch_fulltext(doi=\"{r.doi}\", mode=\"sections\") to explore."
+        elif r.primo_oa_url:
+            text += f"Open access via library. Call fetch_fulltext(doi=\"{r.doi}\", mode=\"sections\") to explore."
+        elif r.has_oa_pdf:
+            text += f"Open access PDF available. Call fetch_fulltext(doi=\"{r.doi}\", mode=\"sections\") to explore."
+        elif r.primo_proxy_url:
+            text += f"Available via institutional access: {r.primo_proxy_url}"
+        else:
+            text += f"May need proxy. Call fetch_fulltext(doi=\"{r.doi}\", use_proxy=true, mode=\"sections\") to explore."
+    elif r.url:
+        text += (
+            f"No DOI, but URL available. "
+            f"Call fetch_fulltext(url=\"{r.url}\", mode=\"sections\") to explore."
+        )
+    elif r.in_zotero and r.zotero_key:
+        text += (
+            f"No DOI, but in Zotero. Call fetch_fulltext(zotero_key=\"{r.zotero_key}\", "
+            "mode=\"sections\") to explore."
+        )
+    else:
+        text += "No DOI — full text retrieval not available for this result."
+
+    # Expansion hint: for promising older papers, nudge toward citation-graph
+    # exploration — often more productive than another keyword search.
+    try:
+        _yr = int(r.year) if r.year else None
+    except (TypeError, ValueError):
+        _yr = None
+    _sim = r.semantic_similarity
+    _cites = r.citations or 0
+    _looks_strong = (i == 0) or (isinstance(_sim, (int, float)) and _sim >= 0.3) or _cites >= 20
+    if r.doi and _yr and _yr <= current_year - 1 and _looks_strong:
+        text += (
+            f"\n    ⇢ Promising + {current_year - _yr}yr old: consider "
+            f"get_citations(doi=\"{r.doi}\") to see what built on it. "
+            "Pass exclude_dois=[the DOIs below] to skip results you've already seen, "
+            "and use BROADER keywords than this query to pull in adjacent work."
+        )
+    # Book/chapter navigation hints
+    if r.doi and _wt == "book-chapter":
+        text += (
+            f"\n    ⇢ Book chapter: get_book_chapters(doi=\"{r.doi}\") lists "
+            "the sibling chapters in the same volume — often a richer topical "
+            "neighbourhood than keyword search."
+        )
+    elif r.doi and _wt in ("book", "edited-book", "monograph", "reference-book"):
+        text += (
+            f"\n    ⇢ Book: get_book_chapters(doi=\"{r.doi}\") drills down into "
+            "the individual chapters (each has its own DOI and can be fetched separately). "
+            "Prefer this to fetching the whole book — chapter PDFs are usually the only "
+            "thing publishers host, and sectioning works much better per-chapter."
+        )
+    text += "\n\n"
+    return text
 
 
 async def _handle_search(args: dict) -> list[TextContent]:
@@ -1265,19 +1439,12 @@ async def _handle_search(args: dict) -> list[TextContent]:
 
     query = args["query"]
     include_scite = bool(args.get("include_scite", False))
+    exclude_local = bool(args.get("exclude_local", False))
+    limit = min(int(args.get("limit", 5)), 20)
     if "semantic" in args and args["semantic"] is not None:
         use_semantic = bool(args["semantic"])
     else:
         use_semantic = config.semantic_default_on
-
-    def _authors_str(authors: list) -> str:
-        if not authors:
-            return "Unknown"
-        names = authors[:3]
-        s = ", ".join(names)
-        if len(authors) > 3:
-            s += f" +{len(authors)-3} more"
-        return s
 
     results = await _collect_search_results(args)
 
@@ -1347,138 +1514,40 @@ async def _handle_search(args: dict) -> list[TextContent]:
     from datetime import datetime as _dt
     _current_year = _dt.now().year
 
-    for i, r in enumerate(results):
-        # Header line with index, title, and availability badges
-        badges = []
-        if r.in_zotero:
-            badges.append("★ IN ZOTERO")
-        if r.has_oa_pdf:
-            badges.append("OA")
-        if r.scite and r.scite.retracted:
-            badges.append("RETRACTED?")
-        _wt = (r.work_type or "").lower()
-        if _wt == "book-chapter":
-            badges.append("CHAPTER")
-        elif _wt in ("book", "edited-book", "monograph", "reference-book"):
-            badges.append("BOOK")
-        badge_str = f"  [{', '.join(badges)}]" if badges else ""
-        text += f"[{i}] {r.title}{badge_str}\n"
+    # Partition into two parallel lists so locally-held papers can't crowd out
+    # material that only exists externally. The core pipeline already deduped by
+    # DOI (an external hit matching a library DOI is folded into the local entry
+    # and flagged in_zotero), so the external list is automatically the
+    # zotero-removed set. Each list is capped at `limit` independently.
+    if exclude_local:
+        # Core already dropped in_zotero hits; render a single external list.
+        sections = [("EXTERNAL RESULTS (local library excluded)", results[:limit])]
+    else:
+        local = [r for r in results if r.in_zotero][:limit]
+        external = [r for r in results if not r.in_zotero][:limit]
+        sections = [
+            ("★ LOCAL RESULTS (in your Zotero library)", local),
+            ("EXTERNAL RESULTS (not in your library — deduplicated by DOI)", external),
+        ]
 
-        # Metadata
-        text += f"    Authors: {_authors_str(r.authors)}\n"
-        if r.year:
-            text += f"    Year: {r.year}"
-            if r.citations:
-                text += f"  |  Citations: {r.citations}"
-            text += "\n"
-        if r.venue:
-            law_note = "  [law review — via Primo/HeinOnline]" if "primo_law" in r.found_in else ""
-            text += f"    Venue: {r.venue}{law_note}\n"
-        if _wt == "book-chapter" and r.container_title and r.container_title != r.venue:
-            text += f"    In book: {r.container_title}\n"
-        if r.doi:
-            text += f"    DOI: {r.doi}\n"
-        text += f"    Sources: {', '.join(r.found_in)}\n"
-        if r.semantic_similarity is not None:
-            text += f"    Relevance: {r.semantic_similarity:.3f}\n"
-        if r.semantic_zotero_score is not None:
-            text += f"    Semantic Zotero score: {r.semantic_zotero_score:.3f}\n"
-        if r.scite:
-            s = r.scite
-            text += (
-                "    Scite: "
-                f"citing={s.citing} | "
-                f"supporting={s.supporting} | "
-                f"contrasting={s.contrasting} | "
-                f"mentioning={s.mentioning}"
+    displayed: list = []
+    for heading, hits in sections:
+        text += f"{heading} — {len(hits)} shown\n"
+        text += "─" * 60 + "\n\n"
+        if not hits:
+            empty = (
+                "    (nothing in your Zotero library matched)\n\n"
+                if heading.startswith("★")
+                else "    (no external results beyond what's already in your library)\n\n"
             )
-            if s.retracted:
-                text += "  [retraction/correction signal]"
-            text += "\n"
-
-        # Legal citation line (cases/legislation/bills) — free text before abstract.
-        if r.reference_note:
-            text += f"    {r.reference_note}\n"
-
-        # Abstract / Preview
-        abstract = r.abstract or ""
-        if abstract:
-            # Truncate long abstracts for the listing
-            if len(abstract) > 400:
-                abstract = abstract[:400] + "..."
-            text += f"\n    {abstract}\n"
-
-        # Best-matching passages from semantic search (no extra compute).
-        if r.semantic_snippets:
-            text += f"\n    ❝ {r.semantic_snippets[0]} ❞\n"
-            for extra in r.semantic_snippets[1:]:
-                text += f"    ❝ {extra} ❞\n"
-
-        # URL line — shown only for DOI-less items so the LLM can pass it to
-        # fetch_fulltext.  When a DOI is present it's already the canonical handle.
-        if r.url and not r.doi:
-            text += f"    URL: {r.url}\n"
-
-        # Follow-up action guidance
-        text += "\n    → "
-        if r.doi:
-            if r.in_zotero:
-                text += f"Full text available. Call fetch_fulltext(doi=\"{r.doi}\", mode=\"sections\") to explore."
-            elif r.primo_oa_url:
-                text += f"Open access via library. Call fetch_fulltext(doi=\"{r.doi}\", mode=\"sections\") to explore."
-            elif r.has_oa_pdf:
-                text += f"Open access PDF available. Call fetch_fulltext(doi=\"{r.doi}\", mode=\"sections\") to explore."
-            elif r.primo_proxy_url:
-                text += f"Available via institutional access: {r.primo_proxy_url}"
-            else:
-                text += f"May need proxy. Call fetch_fulltext(doi=\"{r.doi}\", use_proxy=true, mode=\"sections\") to explore."
-        elif r.url:
-            text += (
-                f"No DOI, but URL available. "
-                f"Call fetch_fulltext(url=\"{r.url}\", mode=\"sections\") to explore."
-            )
-        elif r.in_zotero and r.zotero_key:
-            text += (
-                f"No DOI, but in Zotero. Call fetch_fulltext(zotero_key=\"{r.zotero_key}\", "
-                "mode=\"sections\") to explore."
-            )
-        else:
-            text += "No DOI — full text retrieval not available for this result."
-
-        # Expansion hint: for promising older papers, nudge toward citation-graph
-        # exploration — often more productive than another keyword search.
-        try:
-            _yr = int(r.year) if r.year else None
-        except (TypeError, ValueError):
-            _yr = None
-        _sim = r.semantic_similarity
-        _cites = r.citations or 0
-        _looks_strong = (i == 0) or (isinstance(_sim, (int, float)) and _sim >= 0.3) or _cites >= 20
-        if r.doi and _yr and _yr <= _current_year - 1 and _looks_strong:
-            text += (
-                f"\n    ⇢ Promising + {_current_year - _yr}yr old: consider "
-                f"get_citations(doi=\"{r.doi}\") to see what built on it. "
-                "Pass exclude_dois=[the DOIs below] to skip results you've already seen, "
-                "and use BROADER keywords than this query to pull in adjacent work."
-            )
-        # Book/chapter navigation hints
-        if r.doi and _wt == "book-chapter":
-            text += (
-                f"\n    ⇢ Book chapter: get_book_chapters(doi=\"{r.doi}\") lists "
-                "the sibling chapters in the same volume — often a richer topical "
-                "neighbourhood than keyword search."
-            )
-        elif r.doi and _wt in ("book", "edited-book", "monograph", "reference-book"):
-            text += (
-                f"\n    ⇢ Book: get_book_chapters(doi=\"{r.doi}\") drills down into "
-                "the individual chapters (each has its own DOI and can be fetched separately). "
-                "Prefer this to fetching the whole book — chapter PDFs are usually the only "
-                "thing publishers host, and sectioning works much better per-chapter."
-            )
-        text += "\n\n"
+            text += empty
+            continue
+        for i, r in enumerate(hits):
+            text += _render_search_hit(i, r, _current_year)
+            displayed.append(r)
 
     # Footer: ready-to-paste exclude_dois list for citation-based widening.
-    _result_dois = [r.doi for r in results if r.doi]
+    _result_dois = [r.doi for r in displayed if r.doi]
     if _result_dois:
         text += "─" * 60 + "\n"
         text += "To widen via citations without repeats, copy this list as exclude_dois:\n"
@@ -2194,6 +2263,7 @@ async def _handle_search_and_read(args: dict) -> list[TextContent]:
             source="all",
             semantic=args.get("semantic"),
             semantic_query=args.get("semantic_query"),
+            exclude_local=bool(args.get("exclude_local", False)),
         )
     except Exception as e:
         return [TextContent(type="text", text=f"Search failed: {e}")]

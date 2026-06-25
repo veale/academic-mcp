@@ -26,6 +26,7 @@ async def search(
     q: str = Query(..., min_length=1),
     limit: int = Query(10, ge=1, le=20),
     zotero_only: bool = False,
+    exclude_local: bool = False,
     semantic: bool | None = None,
     include_scite: bool = False,
     domain_hint: str = "general",
@@ -42,6 +43,7 @@ async def search(
         semantic=semantic,
         start_year=start_year,
         end_year=end_year,
+        exclude_local=exclude_local,
     )
     return SearchResponse(results=results, query=q)
 

@@ -121,11 +121,20 @@ async def search_papers(
     include_scite: bool = False,
     semantic: bool | None = None,
     semantic_query: str | list[str] | None = None,
+    exclude_local: bool = False,
 ) -> list[SearchHit]:
     """Run the unified parallel-search pipeline and return merged, reranked results.
 
     This is the extracted body of the former ``_collect_search_results`` helper.
     Used by search_papers (formatting) and search_and_read (pick one result).
+
+    ``exclude_local`` drops everything in the local Zotero library: the Zotero
+    lexical and semantic fetchers are skipped, and any external hit whose DOI is
+    already in the library is removed (deduped by DOI). This yields an
+    external-only list so locally-held papers can't crowd out material that only
+    exists elsewhere. The caller (search_papers handler) splits the default
+    (``exclude_local=False``) result into parallel local/external lists using the
+    ``in_zotero`` flag carried on each hit.
 
     ``query`` is the *lexical* recall query (keywords) sent to the external
     APIs and the Zotero lexical index. ``semantic_query`` is the
@@ -470,9 +479,12 @@ async def search_papers(
 
     # ── Schedule fetchers in parallel ───────────────────────────────
     tasks: dict[str, "asyncio.Future"] = {}
-    if source in ("all", "zotero"):
+    # When excluding local results, skip the (expensive) Zotero fetchers
+    # entirely — external hits are still flagged in_zotero via the DOI index,
+    # which is all we need to dedupe them out below.
+    if source in ("all", "zotero") and not exclude_local:
         tasks["zotero"] = asyncio.ensure_future(fetch_zotero_lex())
-    if use_semantic and source in ("all", "semantic_zotero"):
+    if use_semantic and source in ("all", "semantic_zotero") and not exclude_local:
         tasks["semantic_zotero"] = asyncio.ensure_future(fetch_semantic_zotero())
     if source in ("all", "semantic_scholar"):
         tasks["semantic_scholar"] = asyncio.ensure_future(fetch_s2())
@@ -652,6 +664,11 @@ async def search_papers(
                 ),
                 reverse=True,
             )
+
+    # External-only mode: drop anything already in the local library. External
+    # hits that match a library DOI were flagged in_zotero via the DOI index.
+    if exclude_local:
+        results = [r for r in results if not r.in_zotero]
 
     return results
 
