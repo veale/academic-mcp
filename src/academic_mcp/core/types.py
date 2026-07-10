@@ -86,6 +86,9 @@ class SearchHit(BaseModel):
     # Internal signals (underscore-prefixed in legacy dict form)
     semantic_similarity: float | None = None
     semantic_zotero_score: float | None = None
+    # BM25 score from the FTS5 lexical index (bigger is better); None when the
+    # hit came from a source other than the local lexical index.
+    lexical_score: float | None = None
     scite_adjust: float | None = None
     primo_proxy_url: str | None = None
     primo_oa_url: str | None = None

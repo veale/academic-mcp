@@ -729,6 +729,47 @@ async def search_by_key(key: str) -> Optional[ZoteroItem]:
         await conn.close()
 
 
+async def search_by_keys(keys: list[str]) -> dict[str, ZoteroItem]:
+    """Look up many items at once, over a single connection.
+
+    Hydrating N search hits with ``search_by_key`` opens N read-only
+    connections and schedules N shadow-refresh probes. This does it once.
+
+    Returns a ``{key: ZoteroItem}`` map; keys with no matching item are absent.
+    """
+    if not sqlite_config.available:
+        return {}
+    wanted = [k.strip() for k in keys if k and k.strip()]
+    if not wanted:
+        return {}
+
+    conn = await _get_connection()
+    try:
+        id_to_key: dict[int, str] = {}
+        chunk_size = 900  # SQLite caps bound parameters at 999
+        for start in range(0, len(wanted), chunk_size):
+            chunk = wanted[start:start + chunk_size]
+            placeholders = ",".join("?" * len(chunk))
+            cursor = await conn.execute(
+                f"SELECT itemID, key FROM items WHERE key IN ({placeholders})",
+                chunk,
+            )
+            for row in await cursor.fetchall():
+                id_to_key[row["itemID"]] = row["key"]
+
+        out: dict[str, ZoteroItem] = {}
+        for item_id, item_key in id_to_key.items():
+            item = await _build_item(conn, item_id)
+            if item:
+                out[item_key] = item
+        return out
+    except Exception as e:
+        logger.warning("SQLite batch key lookup failed: %s", e)
+        return {}
+    finally:
+        await conn.close()
+
+
 # ---------------------------------------------------------------------------
 # Search: keyword
 # ---------------------------------------------------------------------------
@@ -1256,6 +1297,132 @@ async def list_items_for_semantic_index() -> list[dict[str, str]]:
         return out
     except Exception as e:
         logger.warning("SQLite semantic source listing failed: %s", e)
+        return []
+    finally:
+        await conn.close()
+
+
+async def list_items_for_lexical_index() -> list[dict]:
+    """Return every indexable item with the fields the FTS5 mirror needs.
+
+    Unlike the semantic listing this carries full creator names, tags, and the
+    legal title fields (``caseName`` / ``nameOfAct``), because those are the
+    fields the old LIKE-based ``search_items`` matched on.
+    """
+    if not sqlite_config.available:
+        return []
+
+    conn = await _get_connection()
+    try:
+        fids = {
+            name: await _get_field_id(conn, name)
+            for name in (
+                "title", "caseName", "nameOfAct", "abstractNote", "DOI",
+                "publicationTitle", "bookTitle", "publisher",
+            )
+        }
+        if fids["title"] is None and fids["abstractNote"] is None:
+            return []
+
+        def _f(name: str) -> int:
+            fid = fids.get(name)
+            return fid if fid is not None else -1
+
+        cur = await conn.execute(
+            """
+            SELECT
+                i.itemID,
+                i.key AS item_key,
+                i.dateModified,
+                it.typeName AS item_type,
+                MAX(CASE WHEN id.fieldID = ? THEN idv.value END) AS title,
+                MAX(CASE WHEN id.fieldID = ? THEN idv.value END) AS caseName,
+                MAX(CASE WHEN id.fieldID = ? THEN idv.value END) AS nameOfAct,
+                MAX(CASE WHEN id.fieldID = ? THEN idv.value END) AS abstractNote,
+                MAX(CASE WHEN id.fieldID = ? THEN idv.value END) AS doi,
+                MAX(CASE WHEN id.fieldID = ? THEN idv.value END) AS publicationTitle,
+                MAX(CASE WHEN id.fieldID = ? THEN idv.value END) AS bookTitle,
+                MAX(CASE WHEN id.fieldID = ? THEN idv.value END) AS publisher,
+                (
+                    SELECT ai.key FROM itemAttachments ia
+                    JOIN items ai ON ia.itemID = ai.itemID
+                    WHERE ia.parentItemID = i.itemID
+                      AND ia.contentType = 'application/pdf'
+                    ORDER BY ia.itemID LIMIT 1
+                ) AS attachment_key
+            FROM items i
+            JOIN itemTypes it ON i.itemTypeID = it.itemTypeID
+            LEFT JOIN itemData id ON id.itemID = i.itemID
+            LEFT JOIN itemDataValues idv ON idv.valueID = id.valueID
+            WHERE it.typeName NOT IN ('attachment', 'note', 'annotation')
+            GROUP BY i.itemID, i.key, i.dateModified, it.typeName
+            """,
+            (
+                _f("title"), _f("caseName"), _f("nameOfAct"), _f("abstractNote"),
+                _f("DOI"), _f("publicationTitle"), _f("bookTitle"), _f("publisher"),
+            ),
+        )
+        rows = await cur.fetchall()
+        item_ids = [r["itemID"] for r in rows]
+
+        authors_by_item: dict[int, list[str]] = {}
+        tags_by_item: dict[int, list[str]] = {}
+        chunk_size = 900
+        for start in range(0, len(item_ids), chunk_size):
+            chunk = item_ids[start:start + chunk_size]
+            ph = ",".join("?" * len(chunk))
+
+            cur = await conn.execute(
+                f"""
+                SELECT ic.itemID, c.firstName, c.lastName
+                FROM itemCreators ic
+                JOIN creators c ON ic.creatorID = c.creatorID
+                WHERE ic.itemID IN ({ph})
+                ORDER BY ic.itemID, ic.orderIndex
+                """,
+                chunk,
+            )
+            for cr in await cur.fetchall():
+                name = f"{(cr['firstName'] or '').strip()} {(cr['lastName'] or '').strip()}".strip()
+                if name:
+                    authors_by_item.setdefault(cr["itemID"], []).append(name)
+
+            cur = await conn.execute(
+                f"""
+                SELECT it2.itemID, t.name
+                FROM itemTags it2
+                JOIN tags t ON it2.tagID = t.tagID
+                WHERE it2.itemID IN ({ph})
+                """,
+                chunk,
+            )
+            for tg in await cur.fetchall():
+                name = (tg["name"] or "").strip()
+                if name:
+                    tags_by_item.setdefault(tg["itemID"], []).append(name)
+
+        out: list[dict] = []
+        for r in rows:
+            title = (r["title"] or r["caseName"] or r["nameOfAct"] or "").strip()
+            abstract = (r["abstractNote"] or "").strip()
+            if not title and not abstract:
+                continue
+            venue = (r["publicationTitle"] or r["bookTitle"] or r["publisher"] or "").strip()
+            out.append({
+                "item_key": r["item_key"],
+                "title": title,
+                "abstract": abstract,
+                "venue": venue,
+                "doi": (r["doi"] or "").strip(),
+                "item_type": r["item_type"] or "",
+                "dateModified": r["dateModified"] or "",
+                "attachment_key": (r["attachment_key"] or ""),
+                "authors": authors_by_item.get(r["itemID"], []),
+                "tags": tags_by_item.get(r["itemID"], []),
+            })
+        return out
+    except Exception as e:
+        logger.warning("SQLite lexical source listing failed: %s", e)
         return []
     finally:
         await conn.close()

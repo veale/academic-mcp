@@ -14,20 +14,17 @@ logger = logging.getLogger(__name__)
 _bm25_cache: dict[str, tuple] = {}
 
 
-def _build_bm25_index(text: str, window_words: int = 300, stride_words: int = 150):
-    """Build a BM25 index over overlapping word-windows of *text*.
+def build_windows(
+    text: str, window_words: int = 300, stride_words: int = 150
+) -> list[dict]:
+    """Cut *text* into overlapping word-windows.
 
-    Returns ``(index, windows)`` where ``windows`` is a list of
-    ``{"start": int, "end": int, "tokens": list[str]}`` dicts.
+    Returns a list of ``{"start": int, "end": int, "tokens": list[str]}`` dicts,
+    where the offsets index into *text*.
     """
-    try:
-        from rank_bm25 import BM25Okapi
-    except ImportError:
-        return None, []
-
     word_spans = [(m.start(), m.end()) for m in _re.finditer(r"\S+", text)]
     if not word_spans:
-        return None, []
+        return []
 
     windows = []
     i = 0
@@ -42,11 +39,25 @@ def _build_bm25_index(text: str, window_words: int = 300, stride_words: int = 15
             break
         i += stride_words
 
+    return windows
+
+
+def _build_bm25_index(text: str, window_words: int = 300, stride_words: int = 150):
+    """Build a BM25 index over overlapping word-windows of *text*.
+
+    Returns ``(index, windows)``; ``(None, [])`` when rank_bm25 is missing or
+    the text is empty.
+    """
+    try:
+        from rank_bm25 import BM25Okapi
+    except ImportError:
+        return None, []
+
+    windows = build_windows(text, window_words, stride_words)
     if not windows:
         return None, []
 
-    corpus = [w["tokens"] for w in windows]
-    index = BM25Okapi(corpus)
+    index = BM25Okapi([w["tokens"] for w in windows])
     return index, windows
 
 
@@ -86,9 +97,7 @@ async def search_in_article(
     # SSRN remapping: preprint DOIs sometimes resolve to published DOIs.
     if not cached and doi.startswith("10.2139/ssrn."):
         try:
-            import httpx
-            async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
-                remap = await apis.resolve_ssrn_doi(doi, client)
+            remap = await apis.resolve_ssrn_doi(doi)
             if remap.get("published_doi"):
                 cached = text_cache.get_cached(remap["published_doi"])
         except Exception:

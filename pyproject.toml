@@ -9,7 +9,7 @@ description = "MCP server for academic paper search, PDF fetching, and text extr
 requires-python = ">=3.12"
 dependencies = [
     "mcp[cli]>=1.0.0",
-    "httpx[socks]>=0.27.0",
+    "httpx[http2,socks]>=0.27.0",  # http2 lets pooled clients multiplex
     "pymupdf>=1.24.0",       # PDF text extraction (fitz)
     "python-dotenv>=1.0.0",
     "pyzotero>=1.6.0",       # Zotero API client

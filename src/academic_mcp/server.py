@@ -208,6 +208,15 @@ TOOLS = [
                     ),
                     "default": False,
                 },
+                "diagnostics": {
+                    "type": "boolean",
+                    "description": (
+                        "Append a footer showing per-source latency and hit counts. "
+                        "Use when a search feels slow and you want to know which "
+                        "source is responsible."
+                    ),
+                    "default": False,
+                },
             },
             "required": ["query"],
         },
@@ -676,9 +685,12 @@ TOOLS = [
     Tool(
         name="search_zotero",
         description=(
-            "Search your Zotero library (user library + ALL group libraries). "
-            "When SQLite access is configured, this searches title, authors, "
-            "abstract, tags, DOI, and fulltext across every library. "
+            "Hybrid search of your Zotero library (user library + ALL group "
+            "libraries). Fuses BM25 keyword ranking over title, authors, "
+            "abstract, tags, venue, and fulltext with the semantic embedding "
+            "index, so a query only has to satisfy one of the two to surface: "
+            "lexical finds the paper you can name, semantic finds the paper you "
+            "can only describe.\n\n"
             "Use search_papers with source='all' for broader cross-database search."
         ),
         inputSchema={
@@ -720,11 +732,24 @@ TOOLS = [
     Tool(
         name="refresh_zotero_index",
         description=(
-            "Rebuild the DOI index from your Zotero library and test all connections. "
-            "Run after adding new papers to Zotero. Shows status of all backends: "
-            "SQLite (preferred), local API, web API, and WebDAV."
+            "Rebuild the DOI index and the lexical (FTS5) search index from your "
+            "Zotero library, and test all connections. Run after adding new papers "
+            "to Zotero. Shows status of all backends: SQLite (preferred), local "
+            "API, web API, and WebDAV."
         ),
-        inputSchema={"type": "object", "properties": {}},
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "force_rebuild": {
+                    "type": "boolean",
+                    "description": (
+                        "Rebuild the lexical index from scratch instead of updating "
+                        "only items whose Zotero dateModified changed."
+                    ),
+                    "default": False,
+                },
+            },
+        },
     ),
     Tool(
         name="zotero_import_status",
@@ -964,6 +989,151 @@ TOOLS = [
             "required": ["dois", "terms"],
         },
     ),
+    Tool(
+        name="search_in_corpus",
+        description=(
+            "Find the passages that discuss a concept across MANY cached papers "
+            "at once, ranked best-first.\n\n"
+            "This is the literature-review tool. Where search_in_article shows "
+            "you where a term appears in ONE paper, and batch_search gives you "
+            "match COUNTS across several, this returns the actual ranked "
+            "PASSAGES across the whole set — so a paper with one strong, "
+            "on-topic passage outranks one that mentions the term twenty times "
+            "in passing.\n\n"
+            "Scoring is BM25 over overlapping windows, so a natural-language "
+            "query works better than a single keyword: 'how fairness metrics "
+            "trade off against accuracy' beats 'fairness'.\n\n"
+            "Papers must already be in the text cache — run batch_sections or "
+            "fetch_fulltext on them first. Uncached DOIs are reported back, "
+            "never silently fetched."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Natural-language description of the concept to find",
+                },
+                "dois": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "DOIs of cached papers to search across",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Max papers to return (default 10)",
+                    "default": 10,
+                },
+                "max_passages": {
+                    "type": "integer",
+                    "description": "Passages per paper (default 3)",
+                    "default": 3,
+                },
+            },
+            "required": ["query", "dois"],
+        },
+    ),
+    Tool(
+        name="discover_related",
+        description=(
+            "Find work related to a set of seed papers using the citation graph "
+            "rather than keywords.\n\n"
+            "Give it 2-10 seed DOIs that define the territory you care about. It "
+            "ranks candidates by three signals over the seed set:\n"
+            "• shared references — papers your seeds jointly cite (the shared "
+            "foundations)\n"
+            "• shared citers — papers that cite several of your seeds (surveys, "
+            "direct successors)\n"
+            "• co-citation — papers repeatedly cited alongside your seeds (the "
+            "same conversation, possibly different vocabulary)\n\n"
+            "This is the systematic-review gap-finding step. It surfaces work "
+            "that keyword search structurally cannot reach, because relevance "
+            "here is defined by what authors cite, not what words they chose. "
+            "Results already in your Zotero library are flagged, not removed."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "seed_dois": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "2-10 seed DOIs defining the topic neighbourhood",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Max related works to return (default 25)",
+                    "default": 25,
+                },
+                "exclude_dois": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "DOIs to omit (e.g. results you've already seen)",
+                },
+            },
+            "required": ["seed_dois"],
+        },
+    ),
+    Tool(
+        name="zotero_save_items",
+        description=(
+            "Save papers to your Zotero library (metadata only, no PDF).\n\n"
+            "Closes the loop from discovery to library: run search_papers or "
+            "discover_related, then save the external hits worth keeping. A DOI "
+            "alone is enough — bibliographic metadata is pulled from Crossref "
+            "and the correct Zotero item type is inferred.\n\n"
+            "Papers already in the library are SKIPPED, not duplicated. "
+            "Requires Zotero desktop to be running with local API write access "
+            "enabled."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "description": "Papers to save (max 25)",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "doi": {"type": "string"},
+                            "title": {"type": "string"},
+                            "authors": {"type": "array", "items": {"type": "string"}},
+                            "year": {"type": "string"},
+                            "venue": {"type": "string"},
+                            "work_type": {"type": "string"},
+                        },
+                    },
+                },
+            },
+            "required": ["items"],
+        },
+    ),
+    Tool(
+        name="export_citations",
+        description=(
+            "Render DOIs as a BibTeX or CSL-JSON bibliography, ready to paste "
+            "into a manuscript or a reference manager.\n\n"
+            "Metadata comes from your Zotero library when the paper is in it, "
+            "otherwise from Crossref. Cite keys are surnameYEARfirstword, "
+            "disambiguated on collision."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "dois": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "DOIs to render",
+                },
+                "format": {
+                    "type": "string",
+                    "enum": ["bibtex", "csl-json"],
+                    "description": "Output format (default bibtex)",
+                    "default": "bibtex",
+                },
+            },
+            "required": ["dois"],
+        },
+    ),
 ]
 
 
@@ -1023,6 +1193,14 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
             return await _handle_batch_sections(arguments)
         elif name == "batch_search":
             return await _handle_batch_search(arguments)
+        elif name == "search_in_corpus":
+            return await _handle_search_in_corpus(arguments)
+        elif name == "discover_related":
+            return await _handle_discover_related(arguments)
+        elif name == "zotero_save_items":
+            return await _handle_zotero_save_items(arguments)
+        elif name == "export_citations":
+            return await _handle_export_citations(arguments)
         else:
             return [TextContent(type="text", text=f"Unknown tool: {name}")]
     except Exception as e:
@@ -1270,7 +1448,9 @@ async def _handle_semantic_index_rebuild(args: dict) -> list[TextContent]:
     return [TextContent(type="text", text=msg)]
 
 
-async def _collect_search_results(args: dict) -> list[dict]:
+async def _collect_search_results(
+    args: dict, diagnostics: dict | None = None
+) -> list[dict]:
     """Thin wrapper: delegates to core.search.search_papers."""
     try:
         from .core import search as core_search
@@ -1289,7 +1469,34 @@ async def _collect_search_results(args: dict) -> list[dict]:
         semantic=args.get("semantic"),
         semantic_query=args.get("semantic_query"),
         exclude_local=bool(args.get("exclude_local", False)),
+        diagnostics=diagnostics,
     )
+
+
+def _format_diagnostics(diag: dict) -> str:
+    """Render per-source timings and hit counts as a compact footer."""
+    timings = dict(diag.get("timings") or {})
+    counts = diag.get("counts") or {}
+    if not timings:
+        return ""
+
+    text = "\n" + "─" * 60 + "\nDIAGNOSTICS (sources run in parallel; total is wall clock)\n"
+    total = timings.pop("total", None)
+
+    for name in sorted(timings, key=lambda k: timings[k], reverse=True):
+        ms = timings[name] * 1000
+        hits = counts.get(name)
+        if hits is None:
+            detail = ""
+        elif hits < 0:
+            detail = "  FAILED"
+        else:
+            detail = f"  {hits} hit(s)"
+        text += f"  {name:<18} {ms:>7.0f} ms{detail}\n"
+
+    if total is not None:
+        text += f"  {'TOTAL':<18} {total * 1000:>7.0f} ms  → {diag.get('merged', 0)} merged\n"
+    return text
 
 
 def _authors_str(authors: list) -> str:
@@ -1440,17 +1647,22 @@ async def _handle_search(args: dict) -> list[TextContent]:
     query = args["query"]
     include_scite = bool(args.get("include_scite", False))
     exclude_local = bool(args.get("exclude_local", False))
+    want_diagnostics = bool(args.get("diagnostics", False))
     limit = min(int(args.get("limit", 5)), 20)
     if "semantic" in args and args["semantic"] is not None:
         use_semantic = bool(args["semantic"])
     else:
         use_semantic = config.semantic_default_on
 
-    results = await _collect_search_results(args)
+    diag: dict = {}
+    results = await _collect_search_results(args, diagnostics=diag)
 
     # ── Format output as RAG-friendly text ────────────────────────
     if not results:
-        return [TextContent(type="text", text=f"No papers found for '{query}'.")]
+        text = f"No papers found for '{query}'."
+        if want_diagnostics:
+            text += "\n" + _format_diagnostics(diag)
+        return [TextContent(type="text", text=text)]
 
     text = f"Found {len(results)} papers for '{query}':\n"
 
@@ -1552,6 +1764,13 @@ async def _handle_search(args: dict) -> list[TextContent]:
         text += "─" * 60 + "\n"
         text += "To widen via citations without repeats, copy this list as exclude_dois:\n"
         text += json.dumps(_result_dois) + "\n"
+        text += (
+            "Or pass them as seed_dois to discover_related to find work these "
+            "papers jointly cite and are jointly cited with.\n"
+        )
+
+    if want_diagnostics:
+        text += _format_diagnostics(diag)
 
     return [TextContent(type="text", text=text)]
 
@@ -2916,8 +3135,28 @@ async def _handle_refresh_zotero_index(args: dict) -> list[TextContent]:
     status = result.connections
 
     text = f"Zotero DOI index rebuilt: {result.doi_count} DOIs indexed.\n"
-    text += f"Index cached to: {result.index_path}\n\n"
-    text += "Connection status:\n"
+    text += f"Index cached to: {result.index_path}\n"
+
+    # The FTS5 mirror backs lexical search, so a "refresh the index" request
+    # should refresh it too. Incremental, so this is cheap when nothing changed.
+    try:
+        from . import lexical_index
+    except ImportError:
+        from academic_mcp import lexical_index
+    try:
+        lex = await lexical_index.sync(force_rebuild=bool(args.get("force_rebuild", False)))
+        text += (
+            f"Lexical (FTS5) index: {lex['count']} items "
+            f"({lex['indexed']} updated, {lex['deleted']} removed, "
+            f"{lex['elapsed_sec']}s)\n"
+        )
+    except lexical_index.LexicalIndexUnavailable as e:
+        text += f"Lexical (FTS5) index: skipped — {e}\n"
+    except Exception as e:
+        logger.warning("Lexical index refresh failed: %s", e)
+        text += f"Lexical (FTS5) index: FAILED — {e}\n"
+
+    text += "\nConnection status:\n"
     for backend, info in status.items():
         configured = info.get("configured", False)
         reachable = info.get("reachable", False)
@@ -2948,3 +3187,225 @@ async def _handle_refresh_zotero_index(args: dict) -> list[TextContent]:
 
     return [TextContent(type="text", text=text)]
 
+
+
+# ---------------------------------------------------------------------------
+# search_in_corpus
+# ---------------------------------------------------------------------------
+
+async def _handle_search_in_corpus(args: dict) -> list[TextContent]:
+    try:
+        from .core import in_corpus
+    except ImportError:
+        from academic_mcp.core import in_corpus
+
+    query = (args.get("query") or "").strip()
+    dois = args.get("dois") or []
+    if not query or not dois:
+        return [TextContent(type="text", text="search_in_corpus needs both 'query' and 'dois'.")]
+
+    result = await in_corpus.search_in_corpus(
+        query=query,
+        dois=dois,
+        limit=max(1, min(int(args.get("limit", 10)), 50)),
+        max_passages=max(1, min(int(args.get("max_passages", 3)), 10)),
+    )
+
+    if not result.papers:
+        text = f"No passages matched '{query}' across {result.searched} cached paper(s).\n"
+        if result.not_cached:
+            text += (
+                f"\n{len(result.not_cached)} DOI(s) are not in the text cache. "
+                "Fetch them first with batch_sections:\n"
+                + json.dumps(result.not_cached) + "\n"
+            )
+        return [TextContent(type="text", text=text)]
+
+    text = (
+        f"Passages for '{query}' across {result.searched} cached paper(s), "
+        f"best first:\n" + "=" * 60 + "\n\n"
+    )
+
+    for i, paper in enumerate(result.papers, 1):
+        heading = paper.title or paper.doi
+        text += f"[{i}] {heading}\n"
+        text += f"    DOI: {paper.doi}  |  best score: {paper.score:.2f}"
+        text += f"  |  literal term hits: {paper.total_hits}\n\n"
+        for passage in paper.passages:
+            section = f" — §{passage.section}" if passage.section else ""
+            text += f"    ❝ {passage.snippet.strip()} ❞\n"
+            text += (
+                f"      (chars {passage.char_start}–{passage.char_end}{section}, "
+                f"score {passage.score:.2f})\n\n"
+            )
+        text += (
+            f"    → fetch_fulltext(doi=\"{paper.doi}\", mode=\"range\", "
+            f"range_start={paper.passages[0].char_start}, "
+            f"range_end={paper.passages[0].char_end}) for the surrounding text.\n\n"
+        )
+
+    if result.not_cached:
+        text += "─" * 60 + "\n"
+        text += (
+            f"{len(result.not_cached)} DOI(s) skipped — not in the text cache. "
+            "Fetch with batch_sections, then re-run:\n"
+        )
+        text += json.dumps(result.not_cached) + "\n"
+
+    return [TextContent(type="text", text=text)]
+
+
+# ---------------------------------------------------------------------------
+# discover_related
+# ---------------------------------------------------------------------------
+
+async def _handle_discover_related(args: dict) -> list[TextContent]:
+    try:
+        from .core import discover
+    except ImportError:
+        from academic_mcp.core import discover
+
+    seed_dois = args.get("seed_dois") or []
+    if not seed_dois:
+        return [TextContent(type="text", text="discover_related needs at least one seed DOI.")]
+
+    result = await discover.discover_related(
+        seed_dois=seed_dois,
+        limit=max(1, min(int(args.get("limit", 25)), 50)),
+        exclude_dois=args.get("exclude_dois"),
+    )
+
+    if result.error:
+        return [TextContent(type="text", text=f"discover_related: {result.error}")]
+
+    if not result.items:
+        return [TextContent(
+            type="text",
+            text=(
+                f"No related works found for {len(result.seeds)} seed(s). "
+                "The seeds may be too recent to have accumulated citations, or "
+                "absent from OpenAlex's citation graph."
+            ),
+        )]
+
+    text = (
+        f"{len(result.items)} works related to {len(result.seeds)} seed paper(s), "
+        f"ranked by citation-graph proximity:\n"
+    )
+    if result.unresolved_seeds:
+        text += f"[unresolved seeds: {', '.join(result.unresolved_seeds)}]\n"
+    text += "=" * 60 + "\n\n"
+
+    for i, item in enumerate(result.items):
+        badges = []
+        if item.in_zotero:
+            badges.append("★ IN ZOTERO")
+        badge_str = f"  [{', '.join(badges)}]" if badges else ""
+        text += f"[{i}] {item.title}{badge_str}\n"
+        text += f"    Authors: {_authors_str(item.authors)}\n"
+        if item.year:
+            text += f"    Year: {item.year}  |  Citations: {item.cited_by_count}\n"
+        if item.venue:
+            text += f"    Venue: {item.venue}\n"
+        if item.doi:
+            text += f"    DOI: {item.doi}\n"
+        text += f"    Why: {'; '.join(item.reasons()) or 'graph proximity'}"
+        text += f"  (score {item.score:.3f})\n"
+
+        if item.abstract:
+            abstract = item.abstract
+            if len(abstract) > 400:
+                abstract = abstract[:400] + "..."
+            text += f"\n    {abstract}\n"
+
+        text += "\n    → "
+        if item.doi and item.in_zotero:
+            text += f"In your library. fetch_fulltext(doi=\"{item.doi}\", mode=\"sections\")"
+        elif item.doi:
+            text += (
+                f"fetch_fulltext(doi=\"{item.doi}\", mode=\"sections\") to read, or "
+                f"zotero_save_items to add it to your library."
+            )
+        else:
+            text += "No DOI — search by title to retrieve."
+        text += "\n\n"
+
+    _dois = [i.doi for i in result.items if i.doi]
+    if _dois:
+        text += "─" * 60 + "\n"
+        text += "To exclude these from a follow-up call, pass as exclude_dois:\n"
+        text += json.dumps(_dois) + "\n"
+
+    return [TextContent(type="text", text=text)]
+
+
+# ---------------------------------------------------------------------------
+# zotero_save_items
+# ---------------------------------------------------------------------------
+
+async def _handle_zotero_save_items(args: dict) -> list[TextContent]:
+    try:
+        from .core import zotero_save
+    except ImportError:
+        from academic_mcp.core import zotero_save
+
+    items = args.get("items") or []
+    result = await zotero_save.save_items(items)
+
+    if result.error:
+        return [TextContent(type="text", text=f"zotero_save_items: {result.error}")]
+
+    text = (
+        f"Saved {result.saved}, skipped {result.skipped}, failed {result.failed} "
+        f"of {len(result.items)} item(s).\n" + "=" * 60 + "\n\n"
+    )
+    for item in result.items:
+        marker = {"saved": "✓", "skipped": "•", "failed": "✗"}.get(item.status, "?")
+        text += f"{marker} {item.title or item.doi or '(untitled)'}\n"
+        if item.zotero_key:
+            text += f"    Zotero key: {item.zotero_key}\n"
+        if item.reason:
+            text += f"    {item.reason}\n"
+
+    if result.saved:
+        text += (
+            "\nThe semantic and lexical indexes will pick these up on their next "
+            "background sync; run refresh_zotero_index to force it now.\n"
+        )
+
+    return [TextContent(type="text", text=text)]
+
+
+# ---------------------------------------------------------------------------
+# export_citations
+# ---------------------------------------------------------------------------
+
+async def _handle_export_citations(args: dict) -> list[TextContent]:
+    try:
+        from .core import export
+    except ImportError:
+        from academic_mcp.core import export
+
+    dois = args.get("dois") or []
+    fmt = args.get("format") or "bibtex"
+    if not dois:
+        return [TextContent(type="text", text="export_citations needs at least one DOI.")]
+
+    try:
+        rendered, unresolved = await export.citations_for_dois(dois, fmt)
+    except ValueError as e:
+        return [TextContent(type="text", text=str(e))]
+
+    if not rendered:
+        return [TextContent(
+            type="text",
+            text=f"None of the {len(dois)} DOI(s) could be resolved to metadata.",
+        )]
+
+    text = rendered
+    if unresolved:
+        text += (
+            f"\n\n% {len(unresolved)} DOI(s) could not be resolved and were omitted: "
+            + ", ".join(unresolved)
+        )
+    return [TextContent(type="text", text=text)]

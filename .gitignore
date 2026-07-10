@@ -34,6 +34,11 @@ __pypackages__/
 htmlcov/
 .tox/
 
+# Local extraction dumps and one-off diagnostic scripts (not part of the suite)
+test_output/
+diagnose_semantic.py
+test_search_logic.py
+
 # IDE
 .vscode/
 .idea/

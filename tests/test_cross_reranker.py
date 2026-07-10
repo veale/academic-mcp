@@ -12,6 +12,17 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 import academic_mcp.cross_reranker as cr_mod
 
 
+@pytest.fixture(autouse=True)
+def _local_provider(monkeypatch):
+    """Pin the provider chain to the in-process cross-encoder.
+
+    The shipped default is openrouter->none, which skips the local encoder
+    these tests inject and silently returns bi-encoder order.
+    """
+    monkeypatch.setattr(cr_mod.config, "reranker_primary", "local")
+    monkeypatch.setattr(cr_mod.config, "reranker_fallback", "none")
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -44,7 +55,7 @@ async def test_rerank_sorts_by_rerank_score(monkeypatch):
             return [float(len(passage.split())) for _, passage in pairs]
 
     monkeypatch.setattr(cr_mod, "_cross_encoder", _FakeCE())
-    monkeypatch.setattr(cr_mod, "_load_attempted", True)
+    monkeypatch.setattr(cr_mod, "_local_load_attempted", True)
 
     chunks = [
         _chunk("A", snippet="one word"),
@@ -67,7 +78,7 @@ async def test_rerank_respects_top_k(monkeypatch):
             return [float(i) for i in range(len(pairs))]
 
     monkeypatch.setattr(cr_mod, "_cross_encoder", _FakeCE())
-    monkeypatch.setattr(cr_mod, "_load_attempted", True)
+    monkeypatch.setattr(cr_mod, "_local_load_attempted", True)
 
     chunks = [_chunk(str(i)) for i in range(10)]
     result = await cr_mod.rerank("query", chunks, top_k=3)
@@ -79,7 +90,7 @@ async def test_rerank_respects_top_k(monkeypatch):
 async def test_rerank_degrades_gracefully_when_model_unavailable(monkeypatch):
     """When the cross-encoder is None, rerank should fall back to bi-encoder scores."""
     monkeypatch.setattr(cr_mod, "_cross_encoder", None)
-    monkeypatch.setattr(cr_mod, "_load_attempted", True)
+    monkeypatch.setattr(cr_mod, "_local_load_attempted", True)
 
     chunks = [
         _chunk("A", score=0.9),
@@ -99,7 +110,7 @@ async def test_rerank_degrades_gracefully_when_model_unavailable(monkeypatch):
 @pytest.mark.asyncio
 async def test_rerank_empty_input_returns_empty(monkeypatch):
     """rerank() with an empty list should return an empty list immediately."""
-    monkeypatch.setattr(cr_mod, "_load_attempted", True)
+    monkeypatch.setattr(cr_mod, "_local_load_attempted", True)
     result = await cr_mod.rerank("query", [], top_k=5)
     assert result == []
 

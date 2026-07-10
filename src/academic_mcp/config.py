@@ -76,6 +76,43 @@ class Config:
         default_factory=lambda: int(os.getenv("MAX_CONTEXT_LENGTH", "100000"))
     )
 
+    # ── External-API response cache ──────────────────────────────────
+    # Agent loops re-issue near-identical searches; a short TTL turns the
+    # repeats into instant hits and keeps Semantic Scholar from 429ing.
+    # Set SEARCH_CACHE_TTL=0 to disable caching entirely.
+    search_cache_ttl: float = field(
+        default_factory=lambda: float(os.getenv("SEARCH_CACHE_TTL", "900"))
+    )
+    search_cache_maxsize: int = field(
+        default_factory=lambda: int(os.getenv("SEARCH_CACHE_MAXSIZE", "256"))
+    )
+
+    # ── Lexical (FTS5) index over the Zotero library ─────────────────
+    # A BM25-ranked SQLite FTS5 mirror of the library, kept in the cache dir
+    # and synced incrementally like the semantic index. Replaces the
+    # `LIKE '%term%'` table scans in zotero_sqlite.search_items.
+    lexical_index_enabled: bool = field(
+        default_factory=lambda: os.getenv("LEXICAL_INDEX_ENABLED", "true").lower()
+        in ("true", "1", "yes")
+    )
+    # Characters of .zotero-ft-cache full text indexed per item. The index is
+    # roughly the size of the text it holds, so this is the main disk-size
+    # knob. 0 indexes metadata only (title/authors/abstract/venue/tags).
+    fts_fulltext_max_chars: int = field(
+        default_factory=lambda: int(os.getenv("FTS_FULLTEXT_MAX_CHARS", "30000"))
+    )
+
+    # ── Background article prewarm ───────────────────────────────────
+    # After a search, opportunistically pull full text for the top few local
+    # hits into the article cache so the likely next fetch_fulltext is instant.
+    prewarm_enabled: bool = field(
+        default_factory=lambda: os.getenv("PREWARM_ENABLED", "true").lower()
+        in ("true", "1", "yes")
+    )
+    prewarm_max_articles: int = field(
+        default_factory=lambda: int(os.getenv("PREWARM_MAX_ARTICLES", "3"))
+    )
+
     # ── Auto-import to Zotero ─────────────────────────────────────────
     # When enabled, PDFs fetched from the web (not from Zotero) are
     # automatically added to the local Zotero library with full metadata.

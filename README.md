@@ -22,13 +22,21 @@ An MCP server that searches academic papers, fetches full text, and returns cont
 │  │     mode: full | sections | preview | section | range         │
 │  │     source: auto | html                                       │
 │  ├── search_in_article   (BM25 search + dispersion heatmap)      │
+│  ├── search_in_corpus    (ranked passages across many cached PDFs)│
 │  ├── search_and_read     (combined search → full text)           │
+│  ├── discover_related    (citation-graph related-work discovery) │
 │  ├── find_pdf_urls       (list available URLs)                   │
 │  ├── list_zotero_libraries (all libraries + item counts)         │
-│  └── refresh_zotero_index  (rebuild DOI cache + diagnostics)     │
+│  ├── zotero_save_items   (add search results to your library)    │
+│  ├── export_citations    (DOIs → BibTeX / CSL-JSON)              │
+│  └── refresh_zotero_index  (rebuild DOI + FTS5 cache + diagnostics)│
 │  ├── semantic_search_zotero (vector search over Zotero index)     │
 │  ├── semantic_index_status / semantic_index_rebuild               │
 │  └── zotero_import_status (auto-import queue + error diagnostics) │
+│                                                                  │
+│  search_papers / search_zotero: hybrid BM25 (FTS5) + semantic    │
+│  fusion; pooled HTTP clients + short-TTL cache; diagnostics=true  │
+│  for per-source timings.                                         │
 │                                                                  │
 │  Content Retrieval Priority:                                     │
 │  ┌──────────────────────────────────────────────────────────┐    │

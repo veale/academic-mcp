@@ -34,6 +34,7 @@ import asyncio
 import logging
 import math
 import os
+from datetime import datetime
 from typing import Any
 
 from .config import config
@@ -46,15 +47,13 @@ logger = logging.getLogger(__name__)
 # Composite (no-rerank) fallback
 # ---------------------------------------------------------------------------
 
-_CURRENT_YEAR = 2026
-
-
 def _composite_score(r: SearchHit) -> tuple:
+    current_year = datetime.now().year
     zotero_bonus = 1 if r.in_zotero else 0
     oa_bonus = 1 if r.has_oa_pdf else 0
     cites = math.log1p(r.citations or 0)
     year = int(r.year or 0)
-    recency = max(0, 3 - (_CURRENT_YEAR - year)) if year else 0
+    recency = max(0, 3 - (current_year - year)) if year else 0
     breadth = len(r.found_in)
     return (zotero_bonus, oa_bonus, breadth, cites, recency)
 

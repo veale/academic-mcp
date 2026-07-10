@@ -1,7 +1,7 @@
 """Core business logic for paper search across all sources.
 
 Exports:
-  search_zotero    – lexical search of the Zotero library
+  search_zotero    – hybrid (BM25 + semantic) search of the Zotero library
   search_by_doi    – DOI lookup via SQLite or DOI index
   search_papers    – unified parallel pipeline (= former _collect_search_results)
   reconstruct_abstract – OpenAlex inverted-index helper (also used by citations)
@@ -11,10 +11,22 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
+import time
 
 from .types import DoiSearchResult, ScitePayload, SearchHit
 
 logger = logging.getLogger(__name__)
+
+# Reciprocal-rank-fusion constant. 60 is the value from Cormack et al. (2009)
+# and the one every subsequent hybrid-retrieval paper reuses; it damps the
+# contribution of deep ranks without erasing them.
+_RRF_K = 60
+
+# Zotero previews are expensive (a Zotero lookup, sometimes a PDF page parse).
+# Only the results a caller is plausibly going to read get one.
+_MAX_PREVIEWS = 8
+_PREVIEW_CONCURRENCY = 4
 
 
 def reconstruct_abstract(inverted_index: dict | None) -> str:
@@ -29,44 +41,298 @@ def reconstruct_abstract(inverted_index: dict | None) -> str:
     return " ".join(w for _, w in word_positions)
 
 
-async def search_zotero(query: str, limit: int = 10) -> list[dict]:
-    """Lexical search over the Zotero library (user + groups)."""
-    from .. import zotero
-    results = await zotero.search_zotero(query, limit=limit)
-    await warm_semantic_for_results(results)
+def rrf_fuse(ranked_lists: list[list[str]], k: int = _RRF_K) -> dict[str, float]:
+    """Reciprocal-rank fusion over lists of identifiers, best-first.
+
+    Returns ``{identifier: fused_score}``. An item ranked highly by more than
+    one retriever beats an item that only one retriever loved.
+    """
+    fused: dict[str, float] = {}
+    for ranked in ranked_lists:
+        for rank, ident in enumerate(ranked, start=1):
+            fused[ident] = fused.get(ident, 0.0) + 1.0 / (k + rank)
+    return fused
+
+
+# DOI prefixes that identify a preprint/working-paper version of a work.
+# When the same paper is filed twice, the published DOI is the more useful
+# handle: it is what get_citations, Unpaywall, and the publisher's site key on.
+_PREPRINT_DOI_PREFIXES = (
+    "10.31235/",   # SocArXiv
+    "10.31234/",   # PsyArXiv
+    "10.48550/",   # arXiv
+    "10.2139/",    # SSRN
+    "10.1101/",    # bioRxiv / medRxiv
+)
+
+_TITLE_NOISE = re.compile(r"[^a-z0-9 ]+")
+
+
+def normalize_title(title: str | None) -> str:
+    """Collapse a title to a comparable key for dedup.
+
+    Lowercase, strip punctuation and collapse whitespace. Titles shorter than
+    ~5 words after normalisation are too generic to dedup on ("Introduction",
+    "Discussion"), so they return '' and are never treated as duplicates.
+    """
+    if not title:
+        return ""
+    norm = _TITLE_NOISE.sub(" ", title.lower())
+    norm = " ".join(norm.split())
+    return norm if len(norm.split()) >= 5 else ""
+
+
+def _bare_doi(doi: str | None) -> str:
+    if not doi:
+        return ""
+    return (
+        doi.lower()
+        .replace("https://doi.org/", "")
+        .replace("http://doi.org/", "")
+        .strip()
+    )
+
+
+def _is_preprint_doi(doi: str | None) -> bool:
+    return _bare_doi(doi).startswith(_PREPRINT_DOI_PREFIXES)
+
+
+def doi_rank(doi: str | None) -> int:
+    """How good a handle this DOI is. Higher wins.
+
+    3 — a canonical published DOI (``10.1145/…``): what Crossref, Unpaywall
+        and OpenAlex key on, and the most useful thing to show a user.
+    2 — a canonical preprint DOI (``10.48550/arXiv…``): resolves, but points
+        at the version of record's shadow.
+    1 — anything else non-empty, e.g. a shortDOI (``gsb98p``). Resolves, but
+        is opaque and not accepted by most metadata APIs.
+    0 — no DOI.
+    """
+    bare = _bare_doi(doi)
+    if not bare:
+        return 0
+    if not bare.startswith("10."):
+        return 1
+    return 2 if bare.startswith(_PREPRINT_DOI_PREFIXES) else 3
+
+
+def dedupe_library_hits(hits: list[SearchHit]) -> list[SearchHit]:
+    """Collapse duplicate copies of the same paper within the Zotero library.
+
+    Deliberately keyed on the normalised *title*, not the DOI. A personal
+    library routinely holds one paper filed three times — under its preprint
+    DOI, a shortDOI, and the published DOI — so DOI-keyed dedup cannot see
+    them as one, and BM25 scores them identically, letting a single
+    multiply-filed paper occupy every result slot.
+
+    This is the opposite of the policy in the cross-source merge below, where
+    two records with distinct DOIs really are distinct works (an erratum, a
+    reprint, a translation). Here they are one work the user filed twice.
+
+    Among duplicates the copy with the best DOI wins (see ``doi_rank``), since
+    that is the handle ``get_citations`` and ``fetch_fulltext`` work best with.
+    Retrieval rank breaks any remaining tie.
+    """
+    # marker -> (rank of the first copy seen, currently-best copy). The first
+    # copy's rank is what the group keeps, so deduping never reorders results.
+    best: dict[str, tuple[int, SearchHit]] = {}
+    kept: list[tuple[int, SearchHit]] = []
+
+    for rank, hit in enumerate(hits):
+        marker = normalize_title(hit.title)
+        if not marker:
+            # Too generic a title to merge on; keep as-is.
+            kept.append((rank, hit))
+            continue
+
+        incumbent = best.get(marker)
+        if incumbent is None:
+            best[marker] = (rank, hit)
+            continue
+
+        first_rank, current = incumbent
+        if doi_rank(hit.doi) > doi_rank(current.doi):
+            best[marker] = (first_rank, hit)
+
+    kept.extend(best.values())
+    kept.sort(key=lambda pair: pair[0])
+    return [hit for _, hit in kept]
+
+
+async def search_zotero(
+    query: str,
+    limit: int = 10,
+    semantic: bool | None = None,
+) -> list[dict]:
+    """Hybrid search over the Zotero library (user + groups).
+
+    Fuses two retrievers with RRF:
+      * **lexical**  — BM25 over the FTS5 mirror (:mod:`lexical_index`), which
+        falls back to the legacy LIKE scan when the mirror isn't built yet.
+      * **semantic** — the chunk-level embedding index, cross-encoder reranked.
+
+    Lexical finds the paper you can name; semantic finds the paper you can only
+    describe. Fusing them means a query needs to satisfy only one to surface.
+    """
+    from .. import zotero, zotero_sqlite
+    from ..config import config
+
+    use_semantic = config.semantic_default_on if semantic is None else bool(semantic)
+
+    lexical_keys, semantic_keys = await asyncio.gather(
+        _lexical_zotero_keys(query, limit * 3),
+        _semantic_zotero_keys(query, limit * 3) if use_semantic else _empty_keys(),
+    )
+
+    # No FTS mirror and no semantic index: fall back to the legacy path so the
+    # tool keeps working on a fresh install.
+    if not lexical_keys and not semantic_keys:
+        results = await zotero.search_zotero(query, limit=limit)
+        warm_semantic_for_results(results)
+        return results
+
+    ranked_lists = [lst for lst in (lexical_keys, semantic_keys) if lst]
+    fused = rrf_fuse(ranked_lists)
+    ordered = sorted(fused, key=lambda k: fused[k], reverse=True)
+
+    # Hydrate more than we need: real libraries hold duplicate copies of the
+    # same paper, and BM25 scores them identically, so without deduping a
+    # single multiply-filed paper can fill every slot.
+    candidates = ordered[: limit * 6]
+    items = await zotero_sqlite.search_by_keys(candidates)
+
+    # Title-first, unlike the cross-source merge in search_papers. Out there a
+    # distinct DOI means a distinct record and must be respected. In here, the
+    # duplicates are one paper filed several times — typically the preprint
+    # DOI, a shortDOI, and the published DOI — so DOI-keyed dedup cannot
+    # collapse them, while the (identical, distinctive) title can.
+    # normalize_title() returns '' for titles under five words, which are too
+    # generic to merge on; those fall back to the DOI.
+    results: list[dict] = []
+    seen: set[str] = set()
+    for key in candidates:
+        item = items.get(key)
+        if item is None:
+            continue
+        marker = normalize_title(item.title)
+        if not marker and item.DOI:
+            marker = zotero._normalize_doi(item.DOI)
+        if marker:
+            if marker in seen:
+                continue
+            seen.add(marker)
+        results.append(item.to_search_result())
+        if len(results) >= limit:
+            break
+
+    warm_semantic_for_results(results)
     return results
 
 
-async def warm_semantic_for_results(results: list[dict], cap: int = 5) -> None:
+async def _empty_keys() -> list[str]:
+    return []
+
+
+async def _lexical_zotero_keys(query: str, limit: int) -> list[str]:
+    """Item keys from the FTS5 mirror, best first. Empty when unavailable."""
+    from .. import lexical_index
+    from .background import ensure_lexical_background_sync
+
+    try:
+        ensure_lexical_background_sync()
+    except Exception:
+        pass
+
+    try:
+        if not lexical_index.available():
+            return []
+        return [key for key, _score in await lexical_index.search(query, limit=limit)]
+    except Exception as e:
+        logger.warning("Lexical Zotero search failed: %s", e)
+        return []
+
+
+async def _semantic_zotero_keys(query: str, limit: int) -> list[str]:
+    """Item keys from the semantic index, best first, deduped by item."""
+    from ..semantic_index import SemanticIndexUnavailable, get_semantic_index
+    from .background import _ensure_semantic_background_sync
+
+    try:
+        _ensure_semantic_background_sync()
+    except Exception:
+        pass
+
+    try:
+        idx = get_semantic_index()
+        chunks = await idx.search(query, k=limit)
+    except SemanticIndexUnavailable:
+        return []
+    except Exception as e:
+        logger.warning("Semantic Zotero search failed: %s", e)
+        return []
+
+    seen: set[str] = set()
+    keys: list[str] = []
+    for chunk in chunks:
+        key = chunk.get("item_key") or ""
+        if key and key not in seen:
+            seen.add(key)
+            keys.append(key)
+    return keys
+
+
+def warm_semantic_for_results(results: list[dict], cap: int = 5) -> None:
     """Best-effort hot-path embedding while a background sync is in progress.
 
     During an active semantic index build, any item the user just looked at is
     pre-embedded so it surfaces immediately in ``semantic_search_zotero``
     without waiting for the background sync to reach it.
 
+    Fire-and-forget: the Chroma lookups and the embedding call are both
+    blocking, and none of this is worth making a user's search wait for.
+
     Zotero raw items use ``key``; post-fetch_zotero_lex records use
     ``zotero_key`` — this helper handles both.
     """
-    try:
-        from ..semantic_index import get_semantic_index
-        idx = get_semantic_index()
-        st = idx._load_status()
-        if not st.get("in_progress"):
-            return
-        col = idx._get_chroma_collection()
-        for r in results[:cap]:
-            key = r.get("key") or r.get("zotero_key") or ""
-            if not key:
-                continue
-            ex = col.get(where={"item_key": key}, include=[])
-            if not ex.get("ids"):
+    keys = [
+        (r.get("key") or r.get("zotero_key") or "")
+        for r in results[:cap]
+    ]
+    keys = [k for k in keys if k]
+    if not keys:
+        return
+
+    async def _runner() -> None:
+        try:
+            from ..semantic_index import get_semantic_index
+            idx = get_semantic_index()
+            st = await asyncio.to_thread(idx._load_status)
+            if not st.get("in_progress"):
+                return
+            col = await asyncio.to_thread(idx._get_chroma_collection)
+            for key in keys:
+                existing = await asyncio.to_thread(
+                    lambda k=key: col.get(where={"item_key": k}, include=[])
+                )
+                if existing.get("ids"):
+                    continue
                 try:
                     await idx.embed_item_now(key)
                     logger.debug("hot-path embed completed for %s", key)
                 except Exception as e:
                     logger.debug("hot-path embed failed for %s: %s", key, e)
-    except Exception:
-        pass  # never let opportunistic embedding break the caller
+        except Exception:
+            pass  # never let opportunistic embedding break the caller
+
+    try:
+        task = asyncio.create_task(_runner())
+    except RuntimeError:
+        return  # no running loop (sync caller) — skip warming
+    _warm_tasks.add(task)
+    task.add_done_callback(_warm_tasks.discard)
+
+
+_warm_tasks: set[asyncio.Task] = set()
 
 
 async def search_by_doi(doi: str) -> DoiSearchResult | None:
@@ -122,6 +388,7 @@ async def search_papers(
     semantic: bool | None = None,
     semantic_query: str | list[str] | None = None,
     exclude_local: bool = False,
+    diagnostics: dict | None = None,
 ) -> list[SearchHit]:
     """Run the unified parallel-search pipeline and return merged, reranked results.
 
@@ -143,12 +410,19 @@ async def search_papers(
     list of paraphrases / sub-questions (multi-query fan-out over the local
     index, fused via reciprocal-rank fusion). When omitted it falls back to
     ``query`` so the single-string call still works.
+
+    ``diagnostics``, when a dict is passed, is filled in place with per-stage
+    timings and hit counts. Nothing else reads it, so it costs nothing when
+    omitted.
     """
     from .. import apis, zotero, zotero_sqlite, pdf_extractor
     from ..config import config
     from ..reranker import rerank_results
 
     limit = min(limit, 20)
+    _t_start = time.perf_counter()
+    _timings: dict[str, float] = {}
+    _counts: dict[str, int] = {}
 
     # Normalise the semantic query into a list of non-empty strings. The
     # lexical query stays a single keyword string; only the local semantic
@@ -182,8 +456,66 @@ async def search_papers(
 
     # ── Per-source fetchers ─────────────────────────────────────────
 
+    def _year_in_range(year: str | None) -> bool:
+        """Undated items are never filtered out — see zotero_sqlite.search_items."""
+        if not (start_year or end_year):
+            return True
+        if not year or not year.isdigit():
+            return True
+        y = int(year)
+        if start_year and y < start_year:
+            return False
+        if end_year and y > end_year:
+            return False
+        return True
+
     async def fetch_zotero_lex() -> list[SearchHit]:
-        out: list[SearchHit] = []
+        """BM25 hits from the FTS5 mirror, falling back to the legacy LIKE scan."""
+        from .. import lexical_index
+
+        scored: list[tuple[str, float]] = []
+        if lexical_index.available():
+            # Over-fetch: the year filter is applied after ranking, since the
+            # FTS mirror doesn't carry dates.
+            fetch_n = per_source_limit * (3 if (start_year or end_year) else 1)
+            scored = await lexical_index.search(query, limit=fetch_n)
+
+        if scored:
+            items = await zotero_sqlite.search_by_keys([k for k, _ in scored])
+            out: list[SearchHit] = []
+            for key, score in scored:
+                item = items.get(key)
+                if item is None:
+                    continue
+                year = (item.date or "")[:4] or None
+                if not _year_in_range(year):
+                    continue
+                if len(out) >= per_source_limit * 3:
+                    break  # room for dedup to discard copies
+                out.append(SearchHit(
+                    title=item.title or "Untitled",
+                    authors=[c.display_name for c in (item.creators or []) if c.display_name],
+                    year=year,
+                    doi=(item.DOI or "").strip() or None,
+                    zotero_key=item.key,
+                    abstract=(item.abstractNote or "").strip() or None,
+                    citations=None,
+                    venue=item.publicationTitle or None,
+                    found_in=["zotero"],
+                    in_zotero=True,
+                    has_oa_pdf=True,
+                    s2_id=None,
+                    lexical_score=score,
+                    url=(item.url or "").strip() or None,
+                    work_type=item.itemType or None,
+                    reference_note=item.reference_note or None,
+                    zotero_library_type=item.libraryType or None,
+                    zotero_group_id=item.groupID,
+                ))
+            return dedupe_library_hits(out)[:per_source_limit]
+
+        # Legacy path: no FTS mirror yet (first run, or LEXICAL_INDEX_ENABLED=false).
+        out = []
         zot_results = await zotero.search_zotero(
             query, limit=per_source_limit,
             start_year=start_year, end_year=end_year,
@@ -216,7 +548,7 @@ async def search_papers(
                 zotero_library_type=item.get("libraryType") or None,
                 zotero_group_id=item.get("groupID"),
             ))
-        return out
+        return dedupe_library_hits(out)
 
     async def fetch_semantic_zotero() -> list[SearchHit]:
         from ..semantic_index import SemanticIndexUnavailable, get_semantic_index
@@ -272,7 +604,6 @@ async def search_papers(
         # several it rewards items that surface near the top for more than one
         # formulation. The displayed score is the best cross-encoder score the
         # item earned across queries (interpretable, unlike the RRF magnitude).
-        _RRF_K = 60
         _MAX_PASSAGES = 4  # 1 preview + 3 behind "see more"
         fused_score: dict[str, float] = {}
         best_rerank: dict[str, float] = {}
@@ -320,11 +651,15 @@ async def search_papers(
             fused_score, key=lambda k: fused_score[k], reverse=True
         )[:per_source_limit]
 
+        # One connection, one query — hydrating these one key at a time meant
+        # a fresh read-only SQLite connection (and shadow-refresh probe) each.
+        items_by_key = await zotero_sqlite.search_by_keys(ordered_keys)
+
         out: list[SearchHit] = []
         for key in ordered_keys:
             hit = first_hit.get(key, {})
             semantic_snippets = _passages_for(key)
-            item = await zotero_sqlite.search_by_key(key)
+            item = items_by_key.get(key)
             if not item:
                 continue
             author_names = []
@@ -354,7 +689,7 @@ async def search_papers(
                 zotero_library_type=item.libraryType or None,
                 zotero_group_id=item.groupID,
             ))
-        return out
+        return dedupe_library_hits(out)
 
     async def fetch_s2() -> list[SearchHit]:
         out: list[SearchHit] = []
@@ -478,26 +813,38 @@ async def search_papers(
         return out
 
     # ── Schedule fetchers in parallel ───────────────────────────────
+    async def _timed(name: str, coro) -> list[SearchHit]:
+        """Run a fetcher, recording how long it took and what it returned."""
+        started = time.perf_counter()
+        try:
+            return await coro
+        finally:
+            _timings[name] = time.perf_counter() - started
+
     tasks: dict[str, "asyncio.Future"] = {}
     # When excluding local results, skip the (expensive) Zotero fetchers
     # entirely — external hits are still flagged in_zotero via the DOI index,
     # which is all we need to dedupe them out below.
     if source in ("all", "zotero") and not exclude_local:
-        tasks["zotero"] = asyncio.ensure_future(fetch_zotero_lex())
+        tasks["zotero"] = asyncio.ensure_future(_timed("zotero", fetch_zotero_lex()))
     if use_semantic and source in ("all", "semantic_zotero") and not exclude_local:
-        tasks["semantic_zotero"] = asyncio.ensure_future(fetch_semantic_zotero())
+        tasks["semantic_zotero"] = asyncio.ensure_future(
+            _timed("semantic_zotero", fetch_semantic_zotero())
+        )
     if source in ("all", "semantic_scholar"):
-        tasks["semantic_scholar"] = asyncio.ensure_future(fetch_s2())
+        tasks["semantic_scholar"] = asyncio.ensure_future(
+            _timed("semantic_scholar", fetch_s2())
+        )
     if source in ("all", "openalex"):
-        tasks["openalex"] = asyncio.ensure_future(fetch_openalex())
+        tasks["openalex"] = asyncio.ensure_future(_timed("openalex", fetch_openalex()))
     if source in ("all", "primo") and (config.primo_domain and config.primo_vid):
-        tasks["primo"] = asyncio.ensure_future(fetch_primo())
+        tasks["primo"] = asyncio.ensure_future(_timed("primo", fetch_primo()))
     if (
         domain_hint == "law"
         and source in ("all", "primo")
         and (config.primo_domain and config.primo_vid)
     ):
-        tasks["primo_law"] = asyncio.ensure_future(fetch_primo_law())
+        tasks["primo_law"] = asyncio.ensure_future(_timed("primo_law", fetch_primo_law()))
 
     if tasks:
         gathered = await asyncio.gather(*tasks.values(), return_exceptions=True)
@@ -506,8 +853,10 @@ async def search_papers(
             if isinstance(res, Exception):
                 logger.warning("%s search failed: %s", src_name, res)
                 by_source[src_name] = []
+                _counts[src_name] = -1  # -1 distinguishes "failed" from "no hits"
             else:
                 by_source[src_name] = res
+                _counts[src_name] = len(res)
     else:
         by_source = {}
 
@@ -522,27 +871,62 @@ async def search_papers(
     ]
 
     results: list[SearchHit] = []
-    seen_dois: set[str] = set()
-    seen_zot_keys: set[str] = set()
+    # Direct lookups rather than a linear scan of `results` per candidate —
+    # with over-fetching on, the merge sees several hundred records.
+    by_doi: dict[str, SearchHit] = {}
+    by_zot_key: dict[str, SearchHit] = {}
+    by_title: dict[str, SearchHit] = {}
 
     def _find_existing(rec: SearchHit) -> SearchHit | None:
-        d = rec.doi
-        dn = zotero._normalize_doi(d) if d else None
-        zk = rec.zotero_key
-        if dn and dn in seen_dois:
-            for r in results:
-                if r.doi and zotero._normalize_doi(r.doi) == dn:
-                    return r
-        if zk and zk in seen_zot_keys:
-            for r in results:
-                if r.zotero_key == zk:
-                    return r
+        dn = zotero._normalize_doi(rec.doi) if rec.doi else None
+        if dn and dn in by_doi:
+            return by_doi[dn]
+        if rec.zotero_key and rec.zotero_key in by_zot_key:
+            return by_zot_key[rec.zotero_key]
+
+        # Title fallback. Two records with distinct *published* DOIs and the
+        # same title are distinct works (an erratum, a reprint, a translation),
+        # so a bare title match is not enough to merge on. It is enough in two
+        # cases:
+        #   * one side carries no DOI at all — the same preprint surfacing from
+        #     S2 and OpenAlex, which would otherwise be listed twice;
+        #   * one side's DOI is a preprint DOI — the preprint and the version
+        #     of record are the same work under two DOIs, which is the single
+        #     most common duplicate in practice.
+        tn = normalize_title(rec.title)
+        if tn and tn in by_title:
+            other = by_title[tn]
+            if not dn or not other.doi:
+                return other
+            if _is_preprint_doi(rec.doi) or _is_preprint_doi(other.doi):
+                return other
         return None
+
+    def _index(rec: SearchHit) -> None:
+        dn = zotero._normalize_doi(rec.doi) if rec.doi else None
+        if dn:
+            by_doi.setdefault(dn, rec)
+        if rec.zotero_key:
+            by_zot_key.setdefault(rec.zotero_key, rec)
+        tn = normalize_title(rec.title)
+        if tn:
+            by_title.setdefault(tn, rec)
 
     def _merge_into(existing: SearchHit, rec: SearchHit) -> None:
         for s in rec.found_in:
             if s not in existing.found_in:
                 existing.found_in.append(s)
+        # Two records for one work can disagree about which DOI to show — a
+        # shortDOI, the preprint's, the publisher's. Keep the best handle, and
+        # index *both* DOIs against the surviving record so a later hit
+        # carrying either one still merges here rather than starting a new row.
+        if doi_rank(rec.doi) > doi_rank(existing.doi):
+            existing.doi, superseded = rec.doi, existing.doi
+        else:
+            superseded = rec.doi
+        for known in (existing.doi, superseded):
+            if known:
+                by_doi.setdefault(zotero._normalize_doi(known), existing)
         if not existing.citations and rec.citations:
             existing.citations = rec.citations
         if not existing.abstract and rec.abstract:
@@ -564,6 +948,8 @@ async def search_papers(
             existing.has_oa_pdf = existing.has_oa_pdf or rec.has_oa_pdf
         if rec.semantic_zotero_score is not None and existing.semantic_zotero_score is None:
             existing.semantic_zotero_score = rec.semantic_zotero_score
+        if rec.lexical_score is not None and existing.lexical_score is None:
+            existing.lexical_score = rec.lexical_score
         if rec.semantic_snippets and not existing.semantic_snippets:
             existing.semantic_snippets = rec.semantic_snippets
         if rec.reference_note and not existing.reference_note:
@@ -581,44 +967,57 @@ async def search_papers(
             if existing is not None:
                 _merge_into(existing, rec)
                 continue
-            d = rec.doi
-            dn = zotero._normalize_doi(d) if d else None
-            if dn:
-                seen_dois.add(dn)
-            zk = rec.zotero_key
-            if zk:
-                seen_zot_keys.add(zk)
+            _index(rec)
             results.append(rec)
 
     # ── For Zotero items without abstracts, try getting a preview ──
-    for r in results:
-        if r.in_zotero and not r.abstract and r.doi:
-            try:
-                zot_result = await zotero.get_paper_from_zotero(r.doi)
-                if zot_result and zot_result.get("text"):
-                    preview = zot_result["text"][:600].strip()
-                    last_period = preview.rfind(".")
-                    if last_period > 300:
-                        preview = preview[:last_period + 1]
-                    r.abstract = f"[Preview from Zotero fulltext]: {preview}"
-                elif zot_result and zot_result.get("pdf_path"):
-                    page1 = pdf_extractor.extract_text_by_pages(zot_result["pdf_path"], 1, 1)
-                    if page1.strip():
-                        preview = page1.strip()[:600]
+    # Bounded and concurrent: this was a serial await per result, and the PDF
+    # page extraction ran synchronously on the event loop.
+    _needs_preview = [
+        r for r in results if r.in_zotero and not r.abstract and r.doi
+    ][:_MAX_PREVIEWS]
+
+    if _needs_preview:
+        _t_preview = time.perf_counter()
+        _sem = asyncio.Semaphore(_PREVIEW_CONCURRENCY)
+
+        async def _add_preview(r: SearchHit) -> None:
+            async with _sem:
+                try:
+                    zot_result = await zotero.get_paper_from_zotero(r.doi)
+                    if zot_result and zot_result.get("text"):
+                        preview = zot_result["text"][:600].strip()
                         last_period = preview.rfind(".")
-                        if last_period > 200:
+                        if last_period > 300:
                             preview = preview[:last_period + 1]
-                        r.abstract = f"[Preview from PDF page 1]: {preview}"
-            except Exception as e:
-                logger.debug("Preview extraction failed for %s: %s", r.doi, e)
+                        r.abstract = f"[Preview from Zotero fulltext]: {preview}"
+                    elif zot_result and zot_result.get("pdf_path"):
+                        page1 = await asyncio.to_thread(
+                            pdf_extractor.extract_text_by_pages,
+                            zot_result["pdf_path"], 1, 1,
+                        )
+                        if page1.strip():
+                            preview = page1.strip()[:600]
+                            last_period = preview.rfind(".")
+                            if last_period > 200:
+                                preview = preview[:last_period + 1]
+                            r.abstract = f"[Preview from PDF page 1]: {preview}"
+                except Exception as e:
+                    logger.debug("Preview extraction failed for %s: %s", r.doi, e)
+
+        await asyncio.gather(*(_add_preview(r) for r in _needs_preview))
+        _timings["previews"] = time.perf_counter() - _t_preview
 
     # ── Semantic re-ranking ─────────────────────────────────────────
     # The cross-encoder is the final quality gate over the merged pool, so it
     # sees the natural-language intent (semantic_queries) — never the keyword
     # recall string, which would score relevance poorly.
+    _t_rerank = time.perf_counter()
     results = await rerank_results(semantic_queries, results)
+    _timings["rerank"] = time.perf_counter() - _t_rerank
 
     # ── Optional Scite enrichment + retraction-aware re-sort ────────
+    _t_scite = time.perf_counter()
     if include_scite:
         from .. import scite as scite_module
 
@@ -664,11 +1063,31 @@ async def search_papers(
                 ),
                 reverse=True,
             )
+        _timings["scite"] = time.perf_counter() - _t_scite
 
     # External-only mode: drop anything already in the local library. External
     # hits that match a library DOI were flagged in_zotero via the DOI index.
     if exclude_local:
         results = [r for r in results if not r.in_zotero]
+
+    _timings["total"] = time.perf_counter() - _t_start
+    if diagnostics is not None:
+        diagnostics["timings"] = dict(_timings)
+        diagnostics["counts"] = dict(_counts)
+        diagnostics["merged"] = len(results)
+    logger.debug(
+        "search_papers(%r): %d results in %.0f ms — %s",
+        query, len(results), _timings["total"] * 1000,
+        ", ".join(f"{k}={v * 1000:.0f}ms" for k, v in sorted(_timings.items())),
+    )
+
+    # Bet on the next call: pull full text for the top local hits into the
+    # article cache while the user reads the result list.
+    try:
+        from .background import prewarm_articles
+        prewarm_articles(results[:limit])
+    except Exception as e:
+        logger.debug("Prewarm scheduling failed: %s", e)
 
     return results
 

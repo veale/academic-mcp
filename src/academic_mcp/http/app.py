@@ -61,8 +61,13 @@ class LoginRequest(BaseModel):
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI):  # noqa: ARG001
+    from ..http_client import aclose_all
+
     await init_db()
-    yield
+    try:
+        yield
+    finally:
+        await aclose_all()
 
 
 def create_webapp() -> FastAPI:

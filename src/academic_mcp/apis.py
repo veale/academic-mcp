@@ -1,6 +1,8 @@
 """API clients for academic data sources.
 
-Includes exponential backoff for rate-limited APIs (HTTP 429, 5xx).
+Includes exponential backoff for rate-limited APIs (HTTP 429, 5xx), a shared
+connection pool (:mod:`http_client`), and a short-TTL response cache with
+in-flight coalescing (:mod:`cache`) on the read-only search endpoints.
 """
 
 import asyncio
@@ -8,7 +10,9 @@ import httpx
 import logging
 from typing import Any
 
+from .cache import ttl_cached
 from .config import config
+from .http_client import get_client
 
 logger = logging.getLogger(__name__)
 
@@ -63,21 +67,21 @@ async def _request_with_retry(
 # ---------------------------------------------------------------------------
 # Shared HTTP client
 # ---------------------------------------------------------------------------
-
-def _client(**kwargs) -> httpx.AsyncClient:
-    """Create an httpx client, optionally with proxy."""
-    return httpx.AsyncClient(
-        timeout=30.0,
-        follow_redirects=True,
-        **kwargs,
-    )
+#
+# These return the process-wide pooled clients from `http_client`. They are
+# NOT to be closed by callers and must not be used as context managers —
+# connections are kept warm across calls. Per-request headers go to the
+# request, not the client.
 
 
-def _proxied_client(**kwargs) -> httpx.AsyncClient:
-    """Create an httpx client routed through GOST proxy if configured."""
-    if config.proxy_dict:
-        kwargs["proxy"] = config.gost_proxy_url
-    return _client(**kwargs)
+def _client() -> httpx.AsyncClient:
+    """The shared direct client."""
+    return get_client()
+
+
+def _proxied_client() -> httpx.AsyncClient:
+    """The shared client routed through the GOST proxy when one is configured."""
+    return get_client(proxied=True)
 
 
 # ---------------------------------------------------------------------------
@@ -95,6 +99,7 @@ S2_SEARCH_FIELDS = (
 )
 
 
+@ttl_cached("s2_search")
 async def s2_search(
     query: str, limit: int = 10, offset: int = 0,
     start_year: int | None = None, end_year: int | None = None,
@@ -114,15 +119,15 @@ async def s2_search(
         year_str = f"{start_year or ''}-{end_year or ''}"
         params["year"] = year_str
 
-    async with _client(headers=headers) as client:
-        resp = await _request_with_retry(
-            client, "GET", f"{S2_BASE}/paper/search",
-            params=params,
-        )
-        resp.raise_for_status()
-        return resp.json()
+    resp = await _request_with_retry(
+        _client(), "GET", f"{S2_BASE}/paper/search",
+        params=params, headers=headers,
+    )
+    resp.raise_for_status()
+    return resp.json()
 
 
+@ttl_cached("s2_paper")
 async def s2_paper(paper_id: str) -> dict:
     """Get a single paper by Semantic Scholar ID, DOI, ArXiv ID, etc.
 
@@ -136,13 +141,12 @@ async def s2_paper(paper_id: str) -> dict:
     if config.semantic_scholar_api_key:
         headers["x-api-key"] = config.semantic_scholar_api_key
 
-    async with _client(headers=headers) as client:
-        resp = await _request_with_retry(
-            client, "GET", f"{S2_BASE}/paper/{paper_id}",
-            params={"fields": S2_PAPER_FIELDS},
-        )
-        resp.raise_for_status()
-        return resp.json()
+    resp = await _request_with_retry(
+        _client(), "GET", f"{S2_BASE}/paper/{paper_id}",
+        params={"fields": S2_PAPER_FIELDS}, headers=headers,
+    )
+    resp.raise_for_status()
+    return resp.json()
 
 
 # ---------------------------------------------------------------------------
@@ -166,6 +170,7 @@ def _openalex_mailto_param() -> dict[str, str]:
     return {"mailto": config.unpaywall_email or "academic-mcp@example.com"}
 
 
+@ttl_cached("openalex_search")
 async def openalex_search(
     query: str, limit: int = 10, page: int = 1,
     start_year: int | None = None, end_year: int | None = None,
@@ -190,27 +195,26 @@ async def openalex_search(
     if filters:
         params["filter"] = ",".join(filters)
 
-    async with _client() as client:
-        resp = await _request_with_retry(
-            client, "GET", f"{OA_BASE}/works",
-            params=params, headers=_openalex_headers(),
-        )
-        resp.raise_for_status()
-        return resp.json()
+    resp = await _request_with_retry(
+        _client(), "GET", f"{OA_BASE}/works",
+        params=params, headers=_openalex_headers(),
+    )
+    resp.raise_for_status()
+    return resp.json()
 
 
+@ttl_cached("openalex_work")
 async def openalex_work(doi: str) -> dict | None:
     """Look up a single work in OpenAlex by DOI."""
     doi_url = doi if doi.startswith("http") else f"https://doi.org/{doi}"
-    async with _client() as client:
-        resp = await _request_with_retry(
-            client, "GET", f"{OA_BASE}/works/{doi_url}",
-            params=_openalex_mailto_param(), headers=_openalex_headers(),
-        )
-        if resp.status_code == 404:
-            return None
-        resp.raise_for_status()
-        return resp.json()
+    resp = await _request_with_retry(
+        _client(), "GET", f"{OA_BASE}/works/{doi_url}",
+        params=_openalex_mailto_param(), headers=_openalex_headers(),
+    )
+    if resp.status_code == 404:
+        return None
+    resp.raise_for_status()
+    return resp.json()
 
 
 _OA_CITATION_SELECT = (
@@ -265,6 +269,7 @@ def _openalex_year_filters(
     return []
 
 
+@ttl_cached("openalex_citations")
 async def openalex_citations(
     doi: str,
     search: str | None = None,
@@ -287,15 +292,15 @@ async def openalex_citations(
     if search:
         params["search"] = search
 
-    async with _client() as client:
-        resp = await _request_with_retry(
-            client, "GET", f"{OA_BASE}/works",
-            params=params, headers=_openalex_headers(),
-        )
-        resp.raise_for_status()
-        return resp.json()
+    resp = await _request_with_retry(
+        _client(), "GET", f"{OA_BASE}/works",
+        params=params, headers=_openalex_headers(),
+    )
+    resp.raise_for_status()
+    return resp.json()
 
 
+@ttl_cached("openalex_references")
 async def openalex_references(
     doi: str,
     search: str | None = None,
@@ -318,13 +323,119 @@ async def openalex_references(
     if search:
         params["search"] = search
 
-    async with _client() as client:
+    resp = await _request_with_retry(
+        _client(), "GET", f"{OA_BASE}/works",
+        params=params, headers=_openalex_headers(),
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
+# ---------------------------------------------------------------------------
+# OpenAlex — bulk helpers used by discover_related
+# ---------------------------------------------------------------------------
+
+# Anything more than ~50 OR'd ids per `filter` and OpenAlex starts rejecting
+# the URL as too long.
+_OA_ID_BATCH = 50
+
+_OA_DISCOVER_SELECT = (
+    "id,doi,title,publication_year,authorships,cited_by_count,"
+    "primary_location,abstract_inverted_index"
+)
+
+
+@ttl_cached("openalex_works_by_ids")
+async def openalex_works_by_ids(
+    openalex_ids: tuple[str, ...],
+    select: str = _OA_DISCOVER_SELECT,
+) -> list[dict]:
+    """Hydrate a batch of OpenAlex Work IDs (``W…``) into full work records.
+
+    Takes a tuple rather than a list so the result is cacheable.
+    """
+    ids = [i.split("/")[-1] for i in openalex_ids if i]
+    if not ids:
+        return []
+
+    async def _page(batch: list[str]) -> list[dict]:
+        params: dict[str, Any] = {
+            "filter": f"openalex_id:{'|'.join(batch)}",
+            "select": select,
+            "per_page": len(batch),
+            **_openalex_mailto_param(),
+        }
         resp = await _request_with_retry(
-            client, "GET", f"{OA_BASE}/works",
+            _client(), "GET", f"{OA_BASE}/works",
             params=params, headers=_openalex_headers(),
         )
         resp.raise_for_status()
-        return resp.json()
+        return resp.json().get("results") or []
+
+    batches = [ids[i:i + _OA_ID_BATCH] for i in range(0, len(ids), _OA_ID_BATCH)]
+    pages = await asyncio.gather(
+        *(_page(b) for b in batches), return_exceptions=True
+    )
+    out: list[dict] = []
+    for p in pages:
+        if isinstance(p, Exception):
+            logger.debug("OpenAlex batch hydrate failed: %s", p)
+            continue
+        out.extend(p)
+    return out
+
+
+@ttl_cached("openalex_referenced_works")
+async def openalex_referenced_works(openalex_id: str) -> list[str]:
+    """Return the Work IDs a work cites (its reference list)."""
+    wid = openalex_id.split("/")[-1]
+    resp = await _request_with_retry(
+        _client(), "GET", f"{OA_BASE}/works/{wid}",
+        params={"select": "id,referenced_works", **_openalex_mailto_param()},
+        headers=_openalex_headers(),
+    )
+    if resp.status_code == 404:
+        return []
+    resp.raise_for_status()
+    return [w.split("/")[-1] for w in (resp.json().get("referenced_works") or [])]
+
+
+@ttl_cached("openalex_citing_works_refs")
+async def openalex_citing_works_refs(
+    openalex_id: str, sample: int = 50,
+) -> list[tuple[str, list[str]]]:
+    """The works citing *openalex_id*, each with its own reference list.
+
+    Returns ``[(citer_work_id, [referenced_work_id, ...])]``.
+
+    Two signals come out of this. The citer IDs themselves are candidate
+    successors (a work citing several of your seeds is synthesising them), and
+    their bibliographies give co-citation: a work that keeps appearing
+    alongside your seed is read as part of the same conversation.
+
+    Sampled at ``sample`` citers, most-cited first, to keep this to one request.
+    """
+    wid = openalex_id.split("/")[-1]
+    params: dict[str, Any] = {
+        "filter": f"cites:{wid}",
+        "select": "id,referenced_works",
+        "per_page": min(max(sample, 1), 100),
+        "sort": "cited_by_count:desc",
+        **_openalex_mailto_param(),
+    }
+    resp = await _request_with_retry(
+        _client(), "GET", f"{OA_BASE}/works",
+        params=params, headers=_openalex_headers(),
+    )
+    resp.raise_for_status()
+    return [
+        (
+            (r.get("id") or "").split("/")[-1],
+            [w.split("/")[-1] for w in (r.get("referenced_works") or [])],
+        )
+        for r in (resp.json().get("results") or [])
+        if r.get("id")
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -332,6 +443,7 @@ async def openalex_references(
 # ---------------------------------------------------------------------------
 
 
+@ttl_cached("unpaywall_lookup")
 async def unpaywall_lookup(doi: str) -> dict | None:
     """Look up open access PDF via Unpaywall."""
     if not config.unpaywall_email:
@@ -339,15 +451,14 @@ async def unpaywall_lookup(doi: str) -> dict | None:
         return None
 
     clean_doi = doi.replace("https://doi.org/", "").replace("http://doi.org/", "")
-    async with _client() as client:
-        resp = await _request_with_retry(
-            client, "GET", f"https://api.unpaywall.org/v2/{clean_doi}",
-            params={"email": config.unpaywall_email},
-        )
-        if resp.status_code == 404:
-            return None
-        resp.raise_for_status()
-        return resp.json()
+    resp = await _request_with_retry(
+        _client(), "GET", f"https://api.unpaywall.org/v2/{clean_doi}",
+        params={"email": config.unpaywall_email},
+    )
+    if resp.status_code == 404:
+        return None
+    resp.raise_for_status()
+    return resp.json()
 
 
 # ---------------------------------------------------------------------------
@@ -355,20 +466,20 @@ async def unpaywall_lookup(doi: str) -> dict | None:
 # ---------------------------------------------------------------------------
 
 
+@ttl_cached("crossref_work")
 async def crossref_work(doi: str) -> dict | None:
     """Get metadata from Crossref."""
     clean_doi = doi.replace("https://doi.org/", "").replace("http://doi.org/", "")
-    async with _client() as client:
-        resp = await _request_with_retry(
-            client, "GET", f"https://api.crossref.org/works/{clean_doi}",
-            headers={
-                "User-Agent": f"AcademicMCP/0.1 (mailto:{config.unpaywall_email or 'user@example.com'})",
-            },
-        )
-        if resp.status_code == 404:
-            return None
-        resp.raise_for_status()
-        return resp.json().get("message")
+    resp = await _request_with_retry(
+        _client(), "GET", f"https://api.crossref.org/works/{clean_doi}",
+        headers={
+            "User-Agent": f"AcademicMCP/0.1 (mailto:{config.unpaywall_email or 'user@example.com'})",
+        },
+    )
+    if resp.status_code == 404:
+        return None
+    resp.raise_for_status()
+    return resp.json().get("message")
 
 
 def _normalize_isbn(isbn: str) -> str:
@@ -408,18 +519,17 @@ async def crossref_book_chapters(
     if keywords:
         params["query.bibliographic"] = keywords
 
-    async with _client() as client:
-        resp = await _request_with_retry(
-            client, "GET", "https://api.crossref.org/works",
-            params=params,
-            headers={
-                "User-Agent": f"AcademicMCP/0.1 (mailto:{config.unpaywall_email or 'user@example.com'})",
-            },
-        )
-        if resp.status_code == 404:
-            return []
-        resp.raise_for_status()
-        items = resp.json().get("message", {}).get("items", []) or []
+    resp = await _request_with_retry(
+        _client(), "GET", "https://api.crossref.org/works",
+        params=params,
+        headers={
+            "User-Agent": f"AcademicMCP/0.1 (mailto:{config.unpaywall_email or 'user@example.com'})",
+        },
+    )
+    if resp.status_code == 404:
+        return []
+    resp.raise_for_status()
+    items = resp.json().get("message", {}).get("items", []) or []
 
     # When only container-title was used (no ISBN), Crossref returns fuzzy
     # matches — keep only items whose container-title actually matches.
@@ -471,6 +581,7 @@ def _primo_build_q(query: str) -> str:
     return f"any,contains,{clean or query}"
 
 
+@ttl_cached("primo_search")
 async def primo_search(
     query: str, limit: int = 10, offset: int = 0,
     start_year: int | None = None, end_year: int | None = None,
@@ -507,9 +618,8 @@ async def primo_search(
     data = None
     for use_proxy in (True, False):
         try:
-            client_factory = _proxied_client if use_proxy else _client
-            async with client_factory() as client:
-                resp = await _request_with_retry(client, "GET", url, params=params)
+            client = _proxied_client() if use_proxy else _client()
+            resp = await _request_with_retry(client, "GET", url, params=params)
             if resp.status_code == 400:
                 logger.warning(
                     "Primo returned 400 for query %r — params: %s", query, params
@@ -593,6 +703,7 @@ async def primo_search(
     return results
 
 
+@ttl_cached("primo_search_law_reviews")
 async def primo_search_law_reviews(
     query: str,
     limit: int = 10,
@@ -657,9 +768,8 @@ async def primo_search_law_reviews(
         data = None
         for use_proxy in (True, False):
             try:
-                client_factory = _proxied_client if use_proxy else _client
-                async with client_factory() as client:
-                    resp = await _request_with_retry(client, "GET", url, params=params)
+                client = _proxied_client() if use_proxy else _client()
+                resp = await _request_with_retry(client, "GET", url, params=params)
                 if resp.status_code == 400:
                     logger.warning(
                         "Primo law review search returned 400 for jtitle=%s", jtitle_term
@@ -744,10 +854,14 @@ async def primo_search_law_reviews(
 # ---------------------------------------------------------------------------
 
 
-async def resolve_ssrn_doi(ssrn_doi: str, client: httpx.AsyncClient) -> dict:
+async def resolve_ssrn_doi(
+    ssrn_doi: str, client: httpx.AsyncClient | None = None
+) -> dict:
     """Resolve an SSRN DOI to a published DOI and/or OA PDF URLs.
 
     Queries (in order): OpenAlex, Semantic Scholar, Crossref.
+
+    ``client`` is optional — the shared pool is used when it is omitted.
 
     Returns dict:
         published_doi: str | None — journal/conference DOI if found
@@ -762,6 +876,8 @@ async def resolve_ssrn_doi(ssrn_doi: str, client: httpx.AsyncClient) -> dict:
         "all_dois": [ssrn_doi],
     }
     ssrn_norm = ssrn_doi.lower()
+    if client is None:
+        client = _client()
 
     # Step 1 — OpenAlex (best source for version mapping)
     try:
@@ -874,7 +990,7 @@ async def resolve_ssrn_doi(ssrn_doi: str, client: httpx.AsyncClient) -> dict:
 
 
 async def search_by_title_for_published_version(
-    title: str, ssrn_doi: str, client: httpx.AsyncClient
+    title: str, ssrn_doi: str, client: httpx.AsyncClient | None = None
 ) -> dict | None:
     """Search OpenAlex and S2 by title to find a published version.
 
@@ -882,6 +998,8 @@ async def search_by_title_for_published_version(
     version in metadata, but the same paper exists under a different DOI.
     """
     ssrn_norm = ssrn_doi.lower()
+    if client is None:
+        client = _client()
 
     # OpenAlex title search
     try:

@@ -8,10 +8,10 @@ from mcp.server.stdio import stdio_server
 
 try:
     from .server import server
-    from . import zotero_import
+    from . import http_client, zotero_import
 except ImportError:
     from academic_mcp.server import server
-    from academic_mcp import zotero_import
+    from academic_mcp import http_client, zotero_import
 
 
 def main():
@@ -45,8 +45,11 @@ def main():
 
 async def _run_stdio():
     await zotero_import.ensure_auto_import_initialized()
-    async with stdio_server() as (read_stream, write_stream):
-        await server.run(read_stream, write_stream, server.create_initialization_options())
+    try:
+        async with stdio_server() as (read_stream, write_stream):
+            await server.run(read_stream, write_stream, server.create_initialization_options())
+    finally:
+        await http_client.aclose_all()
 
 
 async def _nightly_sync_loop() -> None:
