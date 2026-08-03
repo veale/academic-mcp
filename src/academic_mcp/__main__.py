@@ -58,7 +58,7 @@ async def _nightly_sync_loop() -> None:
     Disabled by setting SEMANTIC_NIGHTLY_SYNC=false (default: true).
     """
     import os
-    from datetime import datetime, timezone
+    from datetime import datetime, timedelta
 
     if os.getenv("SEMANTIC_NIGHTLY_SYNC", "true").lower() not in ("true", "1", "yes"):
         return
@@ -77,7 +77,7 @@ async def _nightly_sync_loop() -> None:
         # Next 02:00 local time
         target = now.replace(hour=2, minute=0, second=0, microsecond=0)
         if target <= now:
-            target = target.replace(day=target.day + 1)
+            target += timedelta(days=1)
         wait_seconds = (target - now).total_seconds()
         logger.debug("Nightly sync scheduler: sleeping %.0fs until %s", wait_seconds, target)
         await asyncio.sleep(wait_seconds)

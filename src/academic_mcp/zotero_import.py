@@ -18,24 +18,25 @@ import random
 import re
 import shutil
 import string
+import uuid
 from collections import deque
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import aiosqlite
 import httpx
 
+from . import zotero, zotero_sqlite
 from .config import config
 from .text_cache import CachedArticle
-from .zotero import zot_config, _local_api_get
-from . import zotero_sqlite
+from .zotero import _local_api_get, zot_config
 
 logger = logging.getLogger(__name__)
 
 
 def _utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _iso_utc(dt: datetime | None = None) -> str:
@@ -50,6 +51,7 @@ _MAX_IMPORT_ATTEMPTS = 50
 _import_attempts: deque[dict] = deque(maxlen=_MAX_IMPORT_ATTEMPTS)
 _latest_attempt_by_doi: dict[str, dict] = {}
 _latest_error_by_doi: dict[str, str] = {}
+_last_attachment_error = ""
 
 
 def _record_attempt(
@@ -75,6 +77,8 @@ def _record_attempt(
 
 def _friendly_import_error(raw: str) -> str:
     lower = (raw or "").lower()
+    if "web api" in lower and ("401" in lower or "403" in lower or "write" in lower):
+        return "Zotero Web API key lacks write access to the target library"
     if "403" in lower or "405" in lower:
         return (
             "403/405 write access denied - enable Zotero local API write access "
@@ -95,6 +99,7 @@ async def get_import_status(limit: int = 20) -> dict:
     return {
         "auto_import_enabled": config.auto_import_to_zotero,
         "local_api_enabled": zot_config.local_enabled,
+        "web_api_configured": zot_config.web_api_available,
         "write_probe": dict(_write_probe_result),
         "queue_count": queue_count,
         "recent_attempts": recent,
@@ -145,6 +150,7 @@ _write_probe_result: dict = {
     "message": "not checked",
 }
 _write_probe_ran = False
+_local_api_reachable: bool | None = None
 
 
 async def ensure_auto_import_initialized() -> None:
@@ -170,6 +176,7 @@ async def _probe_local_write_access() -> None:
         We do not surface this as a failure; real POSTs will either succeed or
         fall through to the standard per-request error handling.
     """
+    global _local_api_reachable
     _write_probe_result.update({
         "checked_at": _iso_utc(),
         "state": "unchecked",
@@ -178,11 +185,8 @@ async def _probe_local_write_access() -> None:
     })
 
     if not zot_config.local_enabled:
-        _write_probe_result.update({
-            "state": "denied",
-            "message": "local API disabled",
-        })
-        logger.warning("AUTO_IMPORT_TO_ZOTERO=true but local API is disabled")
+        _local_api_reachable = False
+        await _probe_web_write_access()
         return
 
     try:
@@ -196,6 +200,7 @@ async def _probe_local_write_access() -> None:
                 },
             )
         _write_probe_result["status_code"] = resp.status_code
+        _local_api_reachable = True
         if resp.status_code in (403, 405):
             _write_probe_result.update({
                 "state": "denied",
@@ -218,14 +223,66 @@ async def _probe_local_write_access() -> None:
             ),
         })
     except (httpx.ConnectError, httpx.ConnectTimeout):
-        _write_probe_result.update({
-            "state": "unreachable",
-            "message": "Zotero local API not reachable",
-        })
+        _local_api_reachable = False
+        if zot_config.web_api_available:
+            await _probe_web_write_access()
+        else:
+            _write_probe_result.update({
+                "state": "unreachable",
+                "message": "Zotero local API not reachable",
+            })
     except Exception as e:
         _write_probe_result.update({
             "state": "unknown",
             "message": f"write probe error: {e}",
+        })
+
+
+async def _probe_web_write_access() -> None:
+    """Verify Web API writes with an empty, side-effect-free batch."""
+    if not zot_config.web_api_available:
+        _write_probe_result.update({
+            "state": "denied",
+            "message": "no writable Zotero API configured",
+        })
+        return
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                f"https://api.zotero.org{zot_config.library_prefix}/items",
+                json=[],
+                headers={
+                    "Content-Type": "application/json",
+                    "Zotero-API-Key": zot_config.api_key,
+                    "Zotero-Write-Token": uuid.uuid4().hex,
+                },
+            )
+        _write_probe_result["status_code"] = resp.status_code
+        if resp.status_code != 200:
+            message = (
+                "Zotero Web API key lacks write access to the target library"
+                if resp.status_code == 403
+                else f"Zotero Web API key check failed ({resp.status_code})"
+            )
+            _write_probe_result.update({
+                "state": "denied" if resp.status_code in (401, 403) else "unreachable",
+                "message": message,
+            })
+            return
+
+        _write_probe_result.update({
+            "state": "ready",
+            "message": "Zotero Web API write access verified",
+        })
+    except (httpx.ConnectError, httpx.ConnectTimeout):
+        _write_probe_result.update({
+            "state": "unreachable",
+            "message": "Zotero Web API not reachable",
+        })
+    except Exception as e:
+        _write_probe_result.update({
+            "state": "unknown",
+            "message": f"Zotero Web API key check failed: {e}",
         })
 
 
@@ -261,11 +318,13 @@ async def _doi_exists_in_zotero(doi: str) -> "dict | None":
             logger.debug("SQLite DOI check failed for %s: %s", doi, e)
 
     # Local API fallback (requires Zotero desktop running)
-    resp = await _local_api_get("/items", {
-        "q": doi,
-        "format": "json",
-        "limit": "5",
-    })
+    resp = None
+    if _local_api_reachable is not False:
+        resp = await _local_api_get("/items", {
+            "q": doi,
+            "format": "json",
+            "limit": "5",
+        })
     if resp:
         try:
             items = resp.json()
@@ -278,12 +337,33 @@ async def _doi_exists_in_zotero(doi: str) -> "dict | None":
         except Exception as e:
             logger.debug("Local API DOI check failed for %s: %s", doi, e)
 
+    # Remote/headless deployments cannot reach Zotero Desktop. The Web API
+    # search is slower but supports the same exact-DOI verification.
+    resp = await zotero._web_api_get("/items/top", {
+        "q": doi,
+        "format": "json",
+        "limit": "10",
+    })
+    if resp:
+        try:
+            doi_clean = zotero._normalize_doi(doi)
+            for item in resp.json():
+                data = item.get("data") or {}
+                if zotero._normalize_doi(data.get("DOI", "")) == doi_clean:
+                    return {"key": data.get("key"), "type": data.get("itemType"), "title": data.get("title")}
+        except Exception as e:
+            logger.debug("Web API DOI check failed for %s: %s", doi, e)
+
     return None
 
 
 async def _item_has_pdf_attachment(item_key: str) -> bool:
     """Check if a Zotero item already has a PDF attachment."""
-    resp = await _local_api_get(f"/items/{item_key}/children", {"format": "json"})
+    resp = None
+    if _local_api_reachable is not False:
+        resp = await _local_api_get(f"/items/{item_key}/children", {"format": "json"})
+    if not resp:
+        resp = await zotero._web_api_get(f"/items/{item_key}/children", {"format": "json"})
     if not resp:
         return False
     try:
@@ -440,7 +520,7 @@ def _build_zotero_item(
         "title": cr.get("title") or cm.get("title", ""),
         "DOI": doi,
         "url": cr.get("url") or f"https://doi.org/{doi}",
-        "accessDate": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "accessDate": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "abstractNote": abstract,
         "tags": tags,
         "creators": [],
@@ -528,7 +608,7 @@ def _build_zotero_item(
 # Local API: create item and attach PDF
 # ---------------------------------------------------------------------------
 
-async def _create_zotero_item(item_data: dict) -> "tuple[str | None, str, int | None]":
+async def _create_zotero_item_local(item_data: dict) -> "tuple[str | None, str, int | None]":
     """Create a new item in Zotero via the local API.
 
     Returns ``(item_key, error_message, status_code)``.
@@ -565,13 +645,59 @@ async def _create_zotero_item(item_data: dict) -> "tuple[str | None, str, int | 
     return None, "unknown item creation failure", None
 
 
+async def _create_zotero_item_web(item_data: dict) -> "tuple[str | None, str, int | None]":
+    """Create an item through the authenticated Zotero Web API."""
+    if not zot_config.web_api_available:
+        return None, "Zotero Web API credentials are not configured", None
+    headers = {
+        "Content-Type": "application/json",
+        "Zotero-API-Key": zot_config.api_key,
+        "Zotero-Write-Token": uuid.uuid4().hex,
+    }
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                f"https://api.zotero.org{zot_config.library_prefix}/items",
+                json=[item_data], headers=headers,
+            )
+        if resp.status_code in (200, 201):
+            result = resp.json()
+            successful = result.get("successful") or result.get("success") or {}
+            value = successful.get("0")
+            if isinstance(value, str):
+                return value, "", resp.status_code
+            if isinstance(value, dict) and value.get("key"):
+                return value["key"], "", resp.status_code
+        detail = f"{resp.status_code} {resp.text[:1000]}"
+        logger.warning("Zotero Web API item creation failed: %s", detail)
+        return None, detail, resp.status_code
+    except httpx.RequestError as e:
+        return None, f"Zotero Web API request failed: {e}", None
+
+
+async def _create_zotero_item(item_data: dict) -> "tuple[str | None, str, int | None]":
+    """Create through local Zotero when reachable, then fall back to Web API."""
+    errors: list[str] = []
+    if zot_config.local_enabled and _local_api_reachable is not False:
+        key, error, status = await _create_zotero_item_local(item_data)
+        if key:
+            return key, "", status
+        errors.append(f"local: {error}")
+    if zot_config.web_api_available:
+        key, error, status = await _create_zotero_item_web(item_data)
+        if key:
+            return key, "", status
+        errors.append(f"web: {error}")
+    return None, "; ".join(errors) or "no writable Zotero API configured", None
+
+
 def _generate_zotero_key() -> str:
     """Generate an 8-character Zotero-style alphanumeric item key."""
     chars = string.ascii_uppercase + string.digits
     return "".join(random.choices(chars, k=8))
 
 
-async def _attach_pdf_to_item(
+async def _attach_pdf_local(
     parent_key: str,
     pdf_path: Path,
     filename: "str | None" = None,
@@ -660,6 +786,106 @@ async def _attach_pdf_to_item(
     return False
 
 
+async def _stream_zotero_upload(prefix: bytes, pdf_path: Path, suffix: bytes):
+    yield prefix
+    with pdf_path.open("rb") as stream:
+        while chunk := stream.read(64 * 1024):
+            yield chunk
+    yield suffix
+
+
+async def _attach_pdf_web(parent_key: str, pdf_path: Path, filename: str) -> tuple[bool, str]:
+    """Create a child attachment and stream its bytes via Zotero File Storage."""
+    if not zot_config.web_api_available:
+        return False, "Zotero Web API credentials are not configured"
+    safe_name = "".join(c for c in filename if c.isalnum() or c in " .-_,").strip() or "paper.pdf"
+    if not safe_name.lower().endswith(".pdf"):
+        safe_name += ".pdf"
+    attachment = {
+        "itemType": "attachment",
+        "parentItem": parent_key,
+        "linkMode": "imported_file",
+        "title": safe_name,
+        "contentType": "application/pdf",
+        "charset": "",
+        "filename": safe_name,
+        "tags": [],
+        "relations": {},
+    }
+    attachment_key, error, _ = await _create_zotero_item_web(attachment)
+    if not attachment_key:
+        return False, f"attachment item creation failed: {error}"
+
+    digest = hashlib.md5(usedforsecurity=False)
+    with pdf_path.open("rb") as stream:
+        while chunk := stream.read(1024 * 1024):
+            digest.update(chunk)
+    file_headers = {
+        "Zotero-API-Key": zot_config.api_key,
+        "If-None-Match": "*",
+        "Content-Type": "application/x-www-form-urlencoded",
+    }
+    file_url = f"https://api.zotero.org{zot_config.library_prefix}/items/{attachment_key}/file"
+    form = {
+        "md5": digest.hexdigest(),
+        "filename": safe_name,
+        "filesize": str(pdf_path.stat().st_size),
+        "mtime": str(int(pdf_path.stat().st_mtime * 1000)),
+    }
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            auth = await client.post(file_url, data=form, headers=file_headers)
+            if auth.status_code != 200:
+                return False, f"upload authorization failed: {auth.status_code} {auth.text[:1000]}"
+            upload = auth.json()
+            if upload.get("exists"):
+                return True, ""
+            prefix = str(upload.get("prefix") or "").encode()
+            suffix = str(upload.get("suffix") or "").encode()
+            upload_resp = await client.post(
+                upload["url"],
+                content=_stream_zotero_upload(prefix, pdf_path, suffix),
+                headers={
+                    "Content-Type": upload["contentType"],
+                    "Content-Length": str(len(prefix) + pdf_path.stat().st_size + len(suffix)),
+                },
+            )
+            if upload_resp.status_code != 201:
+                return False, f"file upload failed: {upload_resp.status_code} {upload_resp.text[:1000]}"
+            registered = await client.post(
+                file_url, data={"upload": upload["uploadKey"]}, headers=file_headers,
+            )
+            if registered.status_code != 204:
+                return False, f"upload registration failed: {registered.status_code} {registered.text[:1000]}"
+        return True, ""
+    except (OSError, KeyError, httpx.RequestError) as e:
+        return False, f"Web API PDF upload failed: {e}"
+
+
+async def _attach_pdf_to_item(
+    parent_key: str,
+    pdf_path: Path,
+    filename: "str | None" = None,
+) -> bool:
+    """Attach locally when possible, otherwise use the Zotero Web API."""
+    global _last_attachment_error
+    _last_attachment_error = ""
+    if (
+        zot_config.local_enabled
+        and _local_api_reachable is not False
+        and await _attach_pdf_local(parent_key, pdf_path, filename)
+    ):
+        return True
+    if zot_config.web_api_available:
+        success, error = await _attach_pdf_web(parent_key, pdf_path, filename or pdf_path.name)
+        if not success:
+            logger.warning("Zotero Web API PDF attachment failed: %s", error)
+            _last_attachment_error = error
+        return success
+    _last_attachment_error = "no writable Zotero attachment backend configured"
+    return False
+
+
 # ---------------------------------------------------------------------------
 # Filename generation
 # ---------------------------------------------------------------------------
@@ -726,9 +952,9 @@ async def import_to_zotero(
         _record_attempt(doi, "guard", "skipped", "auto-import disabled")
         return False
 
-    if not doi:
-        logger.debug("Skipping Zotero import: no DOI")
-        _record_attempt(doi, "guard", "skipped", "no DOI")
+    if not doi or not re.match(r"^10\.\d{4,9}/\S+$", zotero._normalize_doi(doi)):
+        logger.debug("Skipping Zotero import: invalid or synthetic DOI %r", doi)
+        _record_attempt(doi, "guard", "skipped", "no valid DOI")
         return False
 
     if not _is_web_fetched(cached_article.source):
@@ -736,9 +962,9 @@ async def import_to_zotero(
         _record_attempt(doi, "guard", "skipped", "source is Zotero")
         return False
 
-    if not zot_config.local_enabled:
-        logger.debug("Skipping Zotero import: local API disabled")
-        _record_attempt(doi, "guard", "error", "local API disabled")
+    if not zot_config.local_enabled and not zot_config.web_api_available:
+        logger.debug("Skipping Zotero import: no writable API configured")
+        _record_attempt(doi, "guard", "error", "no writable Zotero API configured")
         return False
 
     if not pdf_path.exists():
@@ -806,7 +1032,7 @@ async def import_to_zotero(
             doi,
             "attach_pdf",
             "error",
-            f"Created item {item_key} but attachment failed",
+            f"Created item {item_key} but attachment failed: {_last_attachment_error}",
         )
 
     return success
@@ -826,6 +1052,7 @@ class _ImportJob:
 _IMPORT_DELAY_SECONDS = 5
 _IMPORT_BACKOFF_BASE_SECONDS = 5
 _IMPORT_BACKOFF_MAX_SECONDS = 300
+_IMPORT_MAX_ATTEMPTS = 8
 _QUEUE_DB_PATH = config.pdf_cache_dir / "import_queue.sqlite"
 _worker_task: "asyncio.Task | None" = None
 _worker_wakeup: "asyncio.Event | None" = None
@@ -942,7 +1169,7 @@ def enqueue_zotero_import(
     """
     if not config.auto_import_to_zotero:
         return
-    if not doi:
+    if not doi or not re.match(r"^10\.\d{4,9}/\S+$", zotero._normalize_doi(doi)):
         return
     if not _is_web_fetched(cached_article.source):
         return
@@ -966,6 +1193,12 @@ def enqueue_zotero_import(
 def _ensure_worker_running() -> None:
     """Start the persistent queue worker once per process."""
     global _worker_task, _worker_wakeup
+
+    # Preserve queued PDFs when credentials are known to be read-only. They
+    # can be processed after a writable key is configured and the service is
+    # restarted, instead of burning retries and eventually discarding jobs.
+    if _write_probe_result.get("state") == "denied":
+        return
 
     try:
         asyncio.get_running_loop()
@@ -1015,8 +1248,13 @@ async def _worker_loop() -> None:
 
             attempts = int(job.get("attempts") or 0) + 1
             last_error = _latest_error_by_doi.get(doi, "auto-import failed")
+            if attempts >= _IMPORT_MAX_ATTEMPTS:
+                _record_attempt(doi, "abandoned", "error", last_error, {"attempts": attempts})
+                logger.error("Abandoning Zotero auto-import for %s after %d attempts: %s", doi, attempts, last_error)
+                await _delete_job(doi)
+                continue
             await _reschedule_job(doi, attempts, last_error)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             continue
         except Exception as e:
             logger.warning("Zotero auto-import worker error: %s", e)

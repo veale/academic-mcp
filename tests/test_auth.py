@@ -22,6 +22,9 @@ def _make_app() -> Starlette:
     return Starlette(routes=[
         Route("/healthz", endpoint=healthz),
         Route("/mcp", endpoint=mcp_handler),
+        Route("/sse", endpoint=mcp_handler),
+        Route("/messages", endpoint=mcp_handler),
+        Route("/trigger-sync", endpoint=mcp_handler),
     ])
 
 
@@ -67,6 +70,7 @@ def test_missing_header_returns_401_when_configured(protected_client):
     response = protected_client.get("/mcp")
     assert response.status_code == 401
     assert response.json()["error"] == "missing_or_malformed_authorization_header"
+    assert response.headers["www-authenticate"] == 'Bearer realm="academic-mcp"'
 
 
 def test_wrong_key_returns_401(protected_client):
@@ -86,3 +90,11 @@ def test_healthz_bypasses_auth(protected_client):
     response = protected_client.get("/healthz")
     assert response.status_code == 200
     assert response.text == "ok"
+
+
+@pytest.mark.parametrize("path", ["/sse", "/messages", "/trigger-sync"])
+def test_all_transport_and_mutating_paths_require_auth(protected_client, path):
+    assert protected_client.get(path).status_code == 401
+    assert protected_client.get(
+        path, headers={"Authorization": "Bearer s3cret"}
+    ).status_code == 200

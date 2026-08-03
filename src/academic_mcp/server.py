@@ -1,6 +1,7 @@
 """MCP Server — tool definitions and request handlers."""
 
 import asyncio
+import base64
 import json
 import logging
 from pathlib import Path
@@ -9,14 +10,14 @@ from typing import Any
 import httpx
 
 from mcp.server import Server
-from mcp.types import Tool, TextContent
+from mcp.types import CallToolResult, Tool, TextContent
 
 try:
-    from . import apis, content_extractor, core_api, pdf_fetcher, pdf_extractor, scite, text_cache, web_search, zotero, zotero_import, zotero_sqlite
+    from . import apis, content_extractor, core_api, feedback, pdf_fetcher, pdf_extractor, scite, text_cache, web_search, zotero, zotero_import, zotero_sqlite
     from .config import config
     from .reranker import rerank_results
 except ImportError:
-    from academic_mcp import apis, content_extractor, core_api, pdf_fetcher, pdf_extractor, scite, text_cache, web_search, zotero, zotero_import, zotero_sqlite
+    from academic_mcp import apis, content_extractor, core_api, feedback, pdf_fetcher, pdf_extractor, scite, text_cache, web_search, zotero, zotero_import, zotero_sqlite
     from academic_mcp.config import config
     from academic_mcp.reranker import rerank_results
 
@@ -38,6 +39,64 @@ except ImportError:
 # ---------------------------------------------------------------------------
 
 TOOLS = [
+    Tool(
+        name="search",
+        description=(
+            "Search academic literature and return citation-ready results. "
+            "OpenAI-compatible read-only search tool; call fetch with a result id "
+            "to retrieve its full text."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {"query": {"type": "string"}},
+            "required": ["query"],
+            "additionalProperties": False,
+        },
+        outputSchema={
+            "type": "object",
+            "properties": {
+                "results": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "id": {"type": "string"},
+                            "title": {"type": "string"},
+                            "url": {"type": "string"},
+                        },
+                        "required": ["id", "title", "url"],
+                        "additionalProperties": False,
+                    },
+                }
+            },
+            "required": ["results"],
+            "additionalProperties": False,
+        },
+        annotations={"readOnlyHint": True},
+    ),
+    Tool(
+        name="fetch",
+        description="Fetch the complete text and metadata for an id returned by search.",
+        inputSchema={
+            "type": "object",
+            "properties": {"id": {"type": "string"}},
+            "required": ["id"],
+            "additionalProperties": False,
+        },
+        outputSchema={
+            "type": "object",
+            "properties": {
+                "id": {"type": "string"},
+                "title": {"type": "string"},
+                "text": {"type": "string"},
+                "url": {"type": "string"},
+                "metadata": {"type": "object"},
+            },
+            "required": ["id", "title", "text", "url"],
+            "additionalProperties": False,
+        },
+        annotations={"readOnlyHint": True},
+    ),
     Tool(
         name="search_papers",
         description=(
@@ -1134,6 +1193,71 @@ TOOLS = [
             "required": ["dois"],
         },
     ),
+    Tool(
+        name="submit_feedback",
+        description=(
+            "File durable feedback about this MCP server for a maintainer or coding "
+            "agent to investigate. Include concrete reproduction steps and observed "
+            "versus expected behavior whenever possible. Never include credentials."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "summary": {"type": "string", "maxLength": 300},
+                "details": {"type": "string", "maxLength": 20000},
+                "category": {"type": "string", "enum": ["bug", "reliability", "feature", "usability", "documentation", "other"]},
+                "severity": {"type": "string", "enum": ["low", "medium", "high", "critical"]},
+                "tool_name": {"type": "string"},
+                "reproduction_steps": {"type": "array", "items": {"type": "string"}, "maxItems": 25},
+                "expected_behavior": {"type": "string"},
+                "actual_behavior": {"type": "string"},
+                "client": {"type": "string", "description": "Client and version, if known"},
+                "context": {"type": "string", "description": "Non-secret diagnostic context"},
+            },
+            "required": ["summary", "details"],
+            "additionalProperties": False,
+        },
+        annotations={"readOnlyHint": False, "destructiveHint": False},
+    ),
+    Tool(
+        name="list_feedback",
+        description="List feedback awaiting investigation. Intended for maintainer/coding agents.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "status": {"type": "string", "enum": ["open", "triaged", "in_progress", "resolved", "wont_fix"]},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 20},
+            },
+            "additionalProperties": False,
+        },
+        annotations={"readOnlyHint": True},
+    ),
+    Tool(
+        name="get_feedback",
+        description="Read one feedback item, including reproduction details.",
+        inputSchema={
+            "type": "object",
+            "properties": {"id": {"type": "string"}},
+            "required": ["id"],
+            "additionalProperties": False,
+        },
+        annotations={"readOnlyHint": True},
+    ),
+    Tool(
+        name="update_feedback",
+        description="Update feedback triage status and record the resolution or fix reference.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "id": {"type": "string"},
+                "status": {"type": "string", "enum": ["open", "triaged", "in_progress", "resolved", "wont_fix"]},
+                "resolution": {"type": "string"},
+            },
+            "required": ["id", "status"],
+            "additionalProperties": False,
+        },
+        annotations={"readOnlyHint": False, "destructiveHint": False},
+    ),
 ]
 
 
@@ -1147,9 +1271,13 @@ async def list_tools() -> list[Tool]:
 # ---------------------------------------------------------------------------
 
 @server.call_tool()
-async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
+async def call_tool(name: str, arguments: dict[str, Any]) -> Any:
     try:
-        if name == "search_papers":
+        if name == "search":
+            return await _handle_compat_search(arguments)
+        elif name == "fetch":
+            return await _handle_compat_fetch(arguments)
+        elif name == "search_papers":
             return await _handle_search(arguments)
         elif name == "get_paper":
             return await _handle_get_paper(arguments)
@@ -1201,16 +1329,130 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
             return await _handle_zotero_save_items(arguments)
         elif name == "export_citations":
             return await _handle_export_citations(arguments)
+        elif name == "submit_feedback":
+            return _json_result(await asyncio.to_thread(feedback.submit, arguments))
+        elif name == "list_feedback":
+            items = await asyncio.to_thread(
+                feedback.list_items,
+                arguments.get("status", "open"),
+                arguments.get("limit", 20),
+            )
+            return _json_result({"feedback": items})
+        elif name == "get_feedback":
+            item = await asyncio.to_thread(feedback.get, arguments["id"])
+            return _json_result(item or {"error": "not_found", "id": arguments["id"]})
+        elif name == "update_feedback":
+            item = await asyncio.to_thread(
+                feedback.update,
+                arguments["id"],
+                arguments["status"],
+                arguments.get("resolution", ""),
+            )
+            return _json_result(item)
         else:
-            return [TextContent(type="text", text=f"Unknown tool: {name}")]
+            return _error_result(f"Unknown tool: {name}")
     except Exception as e:
         logger.exception("Tool %s failed", name)
-        return [TextContent(type="text", text=f"Error: {e}")]
+        return _error_result(str(e))
 
 
 # ---------------------------------------------------------------------------
 # Handler implementations
 # ---------------------------------------------------------------------------
+
+def _json_result(value: dict[str, Any]) -> list[TextContent]:
+    return [TextContent(type="text", text=json.dumps(value, ensure_ascii=False))]
+
+
+def _error_result(message: str) -> CallToolResult:
+    """Return a protocol-level tool error so clients do not treat it as success."""
+    return CallToolResult(
+        content=[TextContent(type="text", text=message)],
+        isError=True,
+    )
+
+
+def _compat_id(hit: Any) -> tuple[str, str] | None:
+    if hit.doi:
+        doi = zotero._normalize_doi(hit.doi)
+        return f"doi:{doi}", f"https://doi.org/{doi}"
+    if hit.url:
+        encoded = base64.urlsafe_b64encode(hit.url.encode()).decode().rstrip("=")
+        return f"url:{encoded}", hit.url
+    return None
+
+
+async def _handle_compat_search(args: dict) -> CallToolResult:
+    query = (args.get("query") or "").strip()
+    if not query:
+        payload = {"results": []}
+    else:
+        hits = await _collect_search_results({"query": query, "limit": 10, "source": "all"})
+        results = []
+        seen: set[str] = set()
+        for hit in hits:
+            identity = _compat_id(hit)
+            if not identity or identity[0] in seen:
+                continue
+            seen.add(identity[0])
+            results.append({"id": identity[0], "title": hit.title, "url": identity[1]})
+            if len(results) >= 10:
+                break
+        payload = {"results": results}
+    return CallToolResult(
+        content=[TextContent(type="text", text=json.dumps(payload, ensure_ascii=False))],
+        structuredContent=payload,
+    )
+
+
+async def _handle_compat_fetch(args: dict) -> CallToolResult:
+    try:
+        from .core import fetch as core_fetch
+        from .core.types import ArticleId
+    except ImportError:
+        from academic_mcp.core import fetch as core_fetch
+        from academic_mcp.core.types import ArticleId
+
+    item_id = (args.get("id") or "").strip()
+    if item_id.startswith("doi:"):
+        doi = item_id[4:]
+        article_id = ArticleId(doi=doi)
+        canonical_url = f"https://doi.org/{doi}"
+    elif item_id.startswith("url:"):
+        encoded = item_id[4:]
+        encoded += "=" * (-len(encoded) % 4)
+        try:
+            canonical_url = base64.urlsafe_b64decode(encoded).decode()
+        except Exception as exc:
+            raise ValueError("invalid URL result id") from exc
+        article_id = ArticleId(url=canonical_url)
+    else:
+        # Accept a bare DOI for clients/users that persist only the identifier.
+        doi = zotero._normalize_doi(item_id)
+        article_id = ArticleId(doi=doi)
+        canonical_url = f"https://doi.org/{doi}"
+
+    article = await core_fetch.fetch_article(article_id, mode="full")
+    if article.error and not article.text:
+        raise ValueError(article.error)
+    title = str(article.metadata.get("title") or article.doi or item_id)
+    payload = {
+        "id": item_id,
+        "title": title,
+        "text": article.text,
+        "url": canonical_url,
+        "metadata": {
+            "doi": article.doi,
+            "source": article.source,
+            "word_count": article.word_count,
+            "section_detection": article.section_detection,
+            "truncated": article.truncated,
+        },
+    }
+    return CallToolResult(
+        content=[TextContent(type="text", text=json.dumps(payload, ensure_ascii=False))],
+        structuredContent=payload,
+    )
 
 async def _handle_zotero_import_status(args: dict) -> list[TextContent]:
     limit = max(1, min(int(args.get("limit", 20)), 50))
@@ -1221,6 +1463,7 @@ async def _handle_zotero_import_status(args: dict) -> list[TextContent]:
         "=" * 40,
         f"Enabled: {status.get('auto_import_enabled')}",
         f"Local API enabled: {status.get('local_api_enabled')}",
+        f"Web API configured: {status.get('web_api_configured')}",
         f"Queue depth: {status.get('queue_count')}",
     ]
 

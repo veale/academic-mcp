@@ -4,13 +4,12 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from academic_mcp import zotero_import  # noqa: E402
+from academic_mcp import zotero_import
 
 
 @pytest.fixture
@@ -70,8 +69,9 @@ async def test_reschedule_applies_exponential_backoff(tmp_queue_db, tmp_path):
     await zotero_import._enqueue_job(_make_job("10.1/b", pdf))
 
     # Reschedule three times with growing attempt counts and verify monotonic backoff.
-    import aiosqlite
     from datetime import datetime
+
+    import aiosqlite
 
     prev_run_after: datetime | None = None
     for attempts in (1, 2, 3):
@@ -110,6 +110,12 @@ def test_friendly_import_error_maps_connect_to_reachability_hint():
     assert "not reachable" in msg or "desktop" in msg.lower()
 
 
+def test_friendly_web_api_error_does_not_suggest_local_setting():
+    msg = zotero_import._friendly_import_error("web: Zotero Web API 403 write denied")
+    assert "Web API key" in msg
+    assert "allowWriteAccess" not in msg
+
+
 def test_auto_import_hint_denied_is_surfaced(monkeypatch):
     # Simulate probe result: state == denied.
     monkeypatch.setattr(zotero_import.config, "auto_import_to_zotero", True)
@@ -124,3 +130,118 @@ def test_auto_import_hint_unknown_state_is_silent(monkeypatch):
     zotero_import._write_probe_result.update({"state": "unknown", "message": "ok-ish"})
     zotero_import._latest_attempt_by_doi.clear()
     assert zotero_import.get_auto_import_hint("10.1/x") is None
+
+
+def test_synthetic_url_identifier_is_not_enqueued(tmp_path, monkeypatch):
+    pdf = tmp_path / "paper.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n")
+    job = _make_job("url:0da8b2f2802e1231", pdf)
+    monkeypatch.setattr(zotero_import.config, "auto_import_to_zotero", True)
+    called = False
+
+    def fake_worker():
+        nonlocal called
+        called = True
+
+    monkeypatch.setattr(zotero_import, "_ensure_worker_running", fake_worker)
+    zotero_import.enqueue_zotero_import(job.doi, pdf, job.cached_article)
+    assert called is False
+
+
+def test_worker_does_not_start_when_write_access_is_denied(monkeypatch):
+    zotero_import._write_probe_result["state"] = "denied"
+    monkeypatch.setattr(zotero_import, "_worker_task", None)
+    monkeypatch.setattr(zotero_import, "_worker_wakeup", None)
+
+    zotero_import._ensure_worker_running()
+
+    assert zotero_import._worker_task is None
+
+
+async def test_web_api_item_creation_accepts_success_key(monkeypatch):
+    class Response:
+        status_code = 200
+        text = ""
+
+        @staticmethod
+        def json():
+            return {"success": {"0": "ABCD2345"}}
+
+    class Client:
+        def __init__(self, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+        async def post(self, *args, **kwargs):
+            return Response()
+
+    monkeypatch.setattr(zotero_import.zot_config, "api_key", "key")
+    monkeypatch.setattr(zotero_import.zot_config, "user_id", "123")
+    monkeypatch.setattr(zotero_import.httpx, "AsyncClient", Client)
+    key, error, status = await zotero_import._create_zotero_item_web({"itemType": "document"})
+    assert (key, error, status) == ("ABCD2345", "", 200)
+
+
+async def test_probe_uses_web_api_when_local_api_is_disabled(monkeypatch):
+    class Response:
+        status_code = 200
+
+        @staticmethod
+        def json():
+            return {"access": {"user": {"library": True, "files": True}}}
+
+    class Client:
+        def __init__(self, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+        async def post(self, *args, **kwargs):
+            return Response()
+
+    monkeypatch.setattr(zotero_import.zot_config, "local_enabled", False)
+    monkeypatch.setattr(zotero_import.zot_config, "api_key", "key")
+    monkeypatch.setattr(zotero_import.zot_config, "user_id", "123")
+    monkeypatch.setattr(zotero_import.zot_config, "library_type", "user")
+    monkeypatch.setattr(zotero_import.httpx, "AsyncClient", Client)
+
+    await zotero_import._probe_local_write_access()
+
+    assert zotero_import._write_probe_result["state"] == "ready"
+    assert zotero_import._local_api_reachable is False
+
+
+async def test_web_probe_reports_read_only_key(monkeypatch):
+    class Response:
+        status_code = 403
+
+    class Client:
+        def __init__(self, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+        async def post(self, *args, **kwargs):
+            return Response()
+
+    monkeypatch.setattr(zotero_import.zot_config, "api_key", "read-only-key")
+    monkeypatch.setattr(zotero_import.zot_config, "user_id", "123")
+    monkeypatch.setattr(zotero_import.httpx, "AsyncClient", Client)
+
+    await zotero_import._probe_web_write_access()
+
+    assert zotero_import._write_probe_result["state"] == "denied"
+    assert "lacks write access" in zotero_import._write_probe_result["message"]

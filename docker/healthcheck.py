@@ -4,7 +4,8 @@ import os
 import sys
 import urllib.request
 
-port = os.getenv("MCP_PORT", "8765")
+oauth_enabled = os.getenv("OAUTH_ENABLED", "false").lower() in ("true", "1", "yes")
+port = os.getenv("MCP_INTERNAL_PORT", "8766") if oauth_enabled else os.getenv("MCP_PORT", "8765")
 try:
     with urllib.request.urlopen(f"http://127.0.0.1:{port}/healthz", timeout=3) as r:
         sys.exit(0 if r.status == 200 else 1)

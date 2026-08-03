@@ -2,16 +2,23 @@
 FROM node:20-alpine AS frontend-builder
 WORKDIR /frontend
 COPY src/academic_mcp/webapp/package.json ./
-RUN npm install
+COPY src/academic_mcp/webapp/package-lock.json ./
+RUN npm ci
 COPY src/academic_mcp/webapp/ ./
 RUN npm run build
 # outDir is '../webapp_dist' (vite.config.ts), so output lands at /webapp_dist
+
+# Pin the OAuth gateway instead of downloading an architecture-specific binary
+# in the build.  This stage works for both amd64 and arm64 builds.
+FROM ghcr.io/sigbit/mcp-auth-proxy:2.9.1 AS oauth-gateway
 
 # ── Runtime image ─────────────────────────────────────────────────────────────
 # ARM64-native image for the academic-mcp server.
 # No browser binaries: Scrapling runs as a separate sidecar container
 # and is reached over HTTP via SCRAPLING_MCP_URL.
 FROM python:3.12-slim-bookworm
+
+COPY --from=oauth-gateway /usr/local/bin/mcp-auth-proxy /usr/local/bin/mcp-auth-proxy
 
 # System deps:
 #   - curl, ca-certificates: runtime HTTPS to llama-server, scrapling, etc.
@@ -70,12 +77,14 @@ ENV PYTHONUNBUFFERED=1 \
     HF_HOME=/var/cache/academic-mcp/hf \
     SENTENCE_TRANSFORMERS_HOME=/var/cache/academic-mcp/hf/sentence-transformers \
     RERANKER_PRIMARY=openrouter \
-    RERANKER_FALLBACK=none
+    RERANKER_FALLBACK=none \
+    OAUTH_DATA_PATH=/var/cache/academic-mcp/oauth
 
 # Cache and data directories.  All writable volumes.
 RUN mkdir -p /var/cache/academic-mcp/pdfs \
              /var/cache/academic-mcp/chroma \
              /var/cache/academic-mcp/articles \
+             /var/cache/academic-mcp/oauth \
              /var/cache/academic-mcp/hf \
              /config \
              /zotero
