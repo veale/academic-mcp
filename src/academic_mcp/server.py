@@ -22,7 +22,23 @@ except ImportError:
     from academic_mcp.reranker import rerank_results
 
 logger = logging.getLogger(__name__)
-server = Server("academic-research")
+
+INSTRUCTIONS = (
+    "Academic literature search, full-text retrieval and citation tooling over Crossref, "
+    "OpenAlex, Semantic Scholar, Unpaywall, CORE, scite and a local Zotero library.\n\n"
+    "IF SOMETHING HERE IS WRONG OR IN YOUR WAY, SAY SO with submit_feedback(). It files "
+    "into a durable queue that a maintainer or coding agent reads, actions and closes. "
+    "You drive these tools directly against real research questions, many calls deep, so "
+    "you see the failures nobody reading the finished answer ever will: a search whose "
+    "shape cannot express the question, a DOI that resolves to the wrong record, a "
+    "fetch_fulltext that quietly returns only an abstract, metadata that is confidently "
+    "wrong, a result you could not tell was truncated. Report at the level of the system "
+    "rather than the symptom, and include the call you made and what came back — a "
+    "finding you only mention in your reply dies with the conversation. Batch several "
+    "findings into one report if you have them."
+)
+
+server = Server("academic-research", instructions=INSTRUCTIONS)
 
 _semantic_empty_hint_shown: bool = False
 
@@ -1196,9 +1212,26 @@ TOOLS = [
     Tool(
         name="submit_feedback",
         description=(
-            "File durable feedback about this MCP server for a maintainer or coding "
-            "agent to investigate. Include concrete reproduction steps and observed "
-            "versus expected behavior whenever possible. Never include credentials."
+            "File a bug, a limitation or an engineering suggestion about this server "
+            "into the durable queue a maintainer or coding agent reads and actions. "
+            "Please use it.\n\n"
+            "You see this system from an angle its users do not: you hit the tool "
+            "contracts, the metadata sources and the retrieval paths directly, against "
+            "real questions. If you only mention a problem in your reply, it dies with "
+            "the conversation.\n\n"
+            "REPORT AT THE LEVEL OF THE SYSTEM, NOT THE SYMPTOM. The valuable report is "
+            "'fetch_fulltext returns the abstract with no indication the PDF fetch fell "
+            "back, so a caller cannot tell a 200-word record from a full paper', not "
+            "'the text was short'. Say what you were trying to do and the exact call "
+            "(arguments included), what came back and what you expected, why it matters "
+            "— what it would cost a researcher who trusted the answer — and where the "
+            "fault seems to sit if you can tell.\n\n"
+            "Worth reporting: a search whose filters cannot express the question; a DOI "
+            "or ISBN that resolves to the wrong record; deduplication that merges "
+            "distinct works or splits one; a citation count that disagrees across "
+            "sources with no way to tell which is right; a result you could not tell "
+            "was truncated or incomplete; a tool whose granularity fights the task. "
+            "Batch several findings into one report. Never include credentials."
         ),
         inputSchema={
             "type": "object",
@@ -1221,7 +1254,12 @@ TOOLS = [
     ),
     Tool(
         name="list_feedback",
-        description="List feedback awaiting investigation. Intended for maintainer/coding agents.",
+        description=(
+            "List feedback awaiting investigation, newest first — the maintainer/coding "
+            "agent's work queue. Defaults to status='open'. Read one in full with "
+            "get_feedback(id), then close it with update_feedback(id, status, "
+            "resolution) once the underlying cause is fixed."
+        ),
         inputSchema={
             "type": "object",
             "properties": {
@@ -1245,7 +1283,11 @@ TOOLS = [
     ),
     Tool(
         name="update_feedback",
-        description="Update feedback triage status and record the resolution or fix reference.",
+        description=(
+            "Update feedback triage status and record the resolution. Put the actual "
+            "fix in 'resolution' — the commit, the changed function, or why it is "
+            "wont_fix — so the next agent to read the queue can tell what was done."
+        ),
         inputSchema={
             "type": "object",
             "properties": {

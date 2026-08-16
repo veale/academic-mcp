@@ -50,3 +50,11 @@ def test_feedback_validates_required_fields(feedback_db):
 def test_feedback_rejects_unknown_status(feedback_db):
     with pytest.raises(ValueError, match="status must be one of"):
         feedback.list_items("mystery")
+
+
+def test_server_instructions_invite_feedback():
+    """Clients only volunteer feedback if the server asks; keep the ask on the wire."""
+    from academic_mcp.server import server
+
+    instructions = server.create_initialization_options().instructions
+    assert instructions and "submit_feedback()" in instructions
