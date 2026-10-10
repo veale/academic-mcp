@@ -98,6 +98,11 @@ def _load_local_model():
     return _local_model
 
 
+def _load_model():
+    """Backward-compatible alias used by embeddings.py."""
+    return _load_local_model()
+
+
 def _score_local(query: str, texts: list[str]) -> list[float] | None:
     model = _load_local_model()
     if model is None:
