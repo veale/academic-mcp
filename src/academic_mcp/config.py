@@ -44,6 +44,10 @@ class Config:
     gost_proxy_url: str = field(
         default_factory=lambda: os.getenv("GOST_PROXY_URL", "")
     )
+    institutional_proxy_auto: bool = field(
+        default_factory=lambda: os.getenv("INSTITUTIONAL_PROXY_AUTO", "true").lower()
+        in ("true", "1", "yes")
+    )
 
     # ── Stealth browser ──────────────────────────────────────────────
     use_stealth_browser: bool = field(

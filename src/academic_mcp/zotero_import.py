@@ -1,9 +1,9 @@
-"""Auto-import web-fetched PDFs into the local Zotero library.
+"""Auto-import web-fetched PDFs and HTML citations into Zotero.
 
 Design principles:
 - The .article.json text cache is always kept — pymupdf4llm extraction with
   section boundaries is far better than Zotero's .zotero-ft-cache.
-- Only the PDF file moves to Zotero (copied to ~/Zotero/storage/).
+- PDFs are uploaded through the configured Zotero API; cached originals stay.
 - Only papers fetched from the web are eligible; Zotero-sourced papers are
   already in the library.
 - Import is non-blocking — it never delays a response to the LLM.
@@ -17,6 +17,7 @@ import logging
 import random
 import re
 import shutil
+import sqlite3
 import string
 import uuid
 from collections import deque
@@ -27,7 +28,7 @@ from pathlib import Path
 import aiosqlite
 import httpx
 
-from . import zotero, zotero_sqlite
+from . import zotero, zotero_sqlite, zotero_webdav
 from .config import config
 from .text_cache import CachedArticle
 from .zotero import _local_api_get, zot_config
@@ -96,12 +97,21 @@ async def get_import_status(limit: int = 20) -> dict:
     """Return queue + diagnostics state for MCP status tooling."""
     recent = list(_import_attempts)[-max(1, min(limit, _MAX_IMPORT_ATTEMPTS)) :]
     queue_count = await _queue_count()
+    async with aiosqlite.connect(_QUEUE_DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            "SELECT doi, attempts, last_error, run_after FROM import_queue ORDER BY queued_at LIMIT ?",
+            (max(1, min(limit, _MAX_IMPORT_ATTEMPTS)),),
+        )
+        pending = [dict(row) for row in await cur.fetchall()]
     return {
         "auto_import_enabled": config.auto_import_to_zotero,
         "local_api_enabled": zot_config.local_enabled,
         "web_api_configured": zot_config.web_api_available,
+        "attachment_backend": "webdav" if zotero_webdav.enabled() else "zotero_storage",
         "write_probe": dict(_write_probe_result),
         "queue_count": queue_count,
+        "pending_imports": pending,
         "recent_attempts": recent,
     }
 
@@ -184,6 +194,13 @@ async def _probe_local_write_access() -> None:
         "message": "not checked",
     })
 
+    # Keep metadata, duplicate checks and attachment uploads on the same
+    # backend. Local keys can refer to items not yet synced to the Web API.
+    if zot_config.web_api_available:
+        _local_api_reachable = False
+        await _probe_web_write_access()
+        return
+
     if not zot_config.local_enabled:
         _local_api_reachable = False
         await _probe_web_write_access()
@@ -202,6 +219,9 @@ async def _probe_local_write_access() -> None:
         _write_probe_result["status_code"] = resp.status_code
         _local_api_reachable = True
         if resp.status_code in (403, 405):
+            if zot_config.web_api_available:
+                await _probe_web_write_access()
+                return
             _write_probe_result.update({
                 "state": "denied",
                 "message": (
@@ -240,6 +260,7 @@ async def _probe_local_write_access() -> None:
 
 async def _probe_web_write_access() -> None:
     """Verify Web API writes with an empty, side-effect-free batch."""
+    _write_probe_result["checked_at"] = _iso_utc()
     if not zot_config.web_api_available:
         _write_probe_result.update({
             "state": "denied",
@@ -305,11 +326,11 @@ def _is_web_fetched(source: str) -> bool:
 async def _doi_exists_in_zotero(doi: str) -> "dict | None":
     """Check if a DOI is already in Zotero. Returns the item if found, else None.
 
-    Uses the SQLite backend first (instant, no running Zotero needed),
-    then falls back to the local API search.
+    Uses fresh target-library Web API data when configured, avoiding stale
+    mirror records and keys belonging to a different group library.
     """
-    # SQLite (preferred — searches all libraries without requiring Zotero to run)
-    if zotero_sqlite.sqlite_config.available:
+    # SQLite is a fallback only when no Web API target is configured.
+    if zotero_sqlite.sqlite_config.available and not zot_config.web_api_available:
         try:
             result = await zotero_sqlite.search_by_doi(doi)
             if result:
@@ -319,7 +340,7 @@ async def _doi_exists_in_zotero(doi: str) -> "dict | None":
 
     # Local API fallback (requires Zotero desktop running)
     resp = None
-    if _local_api_reachable is not False:
+    if not zot_config.web_api_available and _local_api_reachable is not False:
         resp = await _local_api_get("/items", {
             "q": doi,
             "format": "json",
@@ -337,42 +358,100 @@ async def _doi_exists_in_zotero(doi: str) -> "dict | None":
         except Exception as e:
             logger.debug("Local API DOI check failed for %s: %s", doi, e)
 
-    # Remote/headless deployments cannot reach Zotero Desktop. The Web API
-    # search is slower but supports the same exact-DOI verification.
-    resp = await zotero._web_api_get("/items/top", {
-        "q": doi,
-        "format": "json",
-        "limit": "10",
-    })
-    if resp:
-        try:
-            doi_clean = zotero._normalize_doi(doi)
-            for item in resp.json():
-                data = item.get("data") or {}
-                if zotero._normalize_doi(data.get("DOI", "")) == doi_clean:
-                    return {"key": data.get("key"), "type": data.get("itemType"), "title": data.get("title")}
-        except Exception as e:
-            logger.debug("Web API DOI check failed for %s: %s", doi, e)
-
+    if zot_config.web_api_available:
+        return await _lookup_web_doi(doi)
     return None
+
+
+def _mirror_doi_state(doi: str) -> tuple[str | None, int]:
+    """Find a target-library key and synced version in the consistent mirror."""
+    if not zotero_sqlite.sqlite_config.available:
+        return None, 0
+    try:
+        uri = Path(zotero_sqlite.sqlite_config.db_path).resolve().as_uri() + "?mode=ro"
+        with sqlite3.connect(uri, uri=True, timeout=3) as db:
+            account = db.execute(
+                "SELECT value FROM settings WHERE setting='account' AND key='userID'"
+            ).fetchone()
+            if not account or str(account[0]) != str(zot_config.user_id):
+                return None, 0
+            if zot_config.library_type == "group":
+                library = db.execute(
+                    "SELECT l.libraryID, l.version FROM libraries l JOIN groups g USING(libraryID) WHERE g.groupID=?",
+                    (zot_config.group_id,),
+                ).fetchone()
+            else:
+                library = db.execute("SELECT libraryID, version FROM libraries WHERE type='user'").fetchone()
+            if not library:
+                return None, 0
+            rows = db.execute(
+                "SELECT i.key, v.value FROM items i JOIN itemData d USING(itemID) "
+                "JOIN fields f USING(fieldID) JOIN itemDataValues v USING(valueID) "
+                "WHERE i.libraryID=? AND f.fieldName='DOI' "
+                "AND i.itemID NOT IN (SELECT itemID FROM deletedItems)", (library[0],),
+            )
+            key = next((key for key, value in rows if zotero._normalize_doi(value) == doi), None)
+            return key, max(0, int(library[1]))
+    except (sqlite3.Error, OSError, ValueError):
+        return None, 0
+
+
+async def _lookup_web_doi(doi: str) -> dict | None:
+    # Web quicksearch does NOT search DOI fields, even with qmode=everything.
+    # Seed from the synced mirror, verify the key against the target library,
+    # then inspect every changed item since that snapshot. Without a usable
+    # mirror this becomes a paginated full scan, preserving correctness.
+    doi = zotero._normalize_doi(doi)
+    key, version = await asyncio.to_thread(_mirror_doi_state, doi)
+    if key:
+        response = await zotero._web_api_get(f"/items/{key}", {"format": "json"})
+        if response is not None:
+            item = response.json()
+            data = item.get("data") or {}
+            if not data.get("deleted") and zotero._normalize_doi(data.get("DOI", "")) == doi:
+                return {"key": item.get("key") or data.get("key"), "type": data.get("itemType"), "title": data.get("title")}
+    start = 0
+    while True:
+        response = await zotero._web_api_get("/items/top", {
+            "since": str(version), "start": str(start), "limit": "100", "format": "json",
+        })
+        if response is None:
+            raise RuntimeError("Cannot verify Zotero duplicates: target library read failed")
+        items = response.json()
+        for item in items:
+            data = item.get("data") or {}
+            if not data.get("deleted") and zotero._normalize_doi(data.get("DOI", "")) == doi:
+                return {"key": item.get("key") or data.get("key"), "type": data.get("itemType"), "title": data.get("title")}
+        if len(items) < 100:
+            return None
+        start += len(items)
 
 
 async def _item_has_pdf_attachment(item_key: str) -> bool:
     """Check if a Zotero item already has a PDF attachment."""
     resp = None
-    if _local_api_reachable is not False:
+    if not zot_config.web_api_available and _local_api_reachable is not False:
         resp = await _local_api_get(f"/items/{item_key}/children", {"format": "json"})
     if not resp:
         resp = await zotero._web_api_get(f"/items/{item_key}/children", {"format": "json"})
+        remote = True
+    else:
+        remote = False
     if not resp:
         return False
     try:
         children = resp.json()
-        return any(
-            (child.get("data") or {}).get("contentType") == "application/pdf"
-            for child in children
-        )
-    except Exception:
+        for child in children:
+            data = child.get("data") or {}
+            if data.get("contentType") != "application/pdf":
+                continue
+            if remote and zotero_webdav.enabled():
+                if await zotero_webdav.has_file(child.get("key") or data["key"], data):
+                    return True
+            elif not remote or data.get("md5"):
+                return True
+        return False
+    except (ValueError, KeyError):
         return False
 
 
@@ -676,7 +755,9 @@ async def _create_zotero_item_web(item_data: dict) -> "tuple[str | None, str, in
 
 
 async def _create_zotero_item(item_data: dict) -> "tuple[str | None, str, int | None]":
-    """Create through local Zotero when reachable, then fall back to Web API."""
+    """Use the Web API consistently when configured; otherwise try local."""
+    if zot_config.web_api_available:
+        return await _create_zotero_item_web(item_data)
     errors: list[str] = []
     if zot_config.local_enabled and _local_api_reachable is not False:
         key, error, status = await _create_zotero_item_local(item_data)
@@ -812,9 +893,30 @@ async def _attach_pdf_web(parent_key: str, pdf_path: Path, filename: str) -> tup
         "tags": [],
         "relations": {},
     }
-    attachment_key, error, _ = await _create_zotero_item_web(attachment)
+    # A previous upload may have created the attachment but failed while
+    # sending bytes (quota/network). Reuse that item instead of duplicating it.
+    attachment_key = None
+    children = await zotero._web_api_get(f"/items/{parent_key}/children", {"format": "json"})
+    if children is not None and children.status_code == 200:
+        for child in children.json():
+            data = child.get("data") or {}
+            if (data.get("contentType") == "application/pdf"
+                    and data.get("linkMode") == "imported_file"):
+                key = child.get("key") or data.get("key")
+                if not data.get("md5") or (zotero_webdav.enabled() and not await zotero_webdav.has_file(key, data)):
+                    attachment_key = key
+                    break
+    error = ""
+    if not attachment_key:
+        attachment_key, error, _ = await _create_zotero_item_web(attachment)
     if not attachment_key:
         return False, f"attachment item creation failed: {error}"
+
+    if zotero_webdav.enabled():
+        item = await zotero._web_api_get(f"/items/{attachment_key}", {"format": "json"})
+        if item is None:
+            return False, "could not read attachment metadata before WebDAV upload"
+        return await zotero_webdav.upload(attachment_key, pdf_path, item.json()["data"])
 
     digest = hashlib.md5(usedforsecurity=False)
     with pdf_path.open("rb") as stream:
@@ -871,7 +973,8 @@ async def _attach_pdf_to_item(
     global _last_attachment_error
     _last_attachment_error = ""
     if (
-        zot_config.local_enabled
+        not zot_config.web_api_available
+        and zot_config.local_enabled
         and _local_api_reachable is not False
         and await _attach_pdf_local(parent_key, pdf_path, filename)
     ):
@@ -915,35 +1018,30 @@ def _generate_pdf_filename(item_data: dict) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Cached PDF cleanup
-# ---------------------------------------------------------------------------
-
-def _try_delete_cached_pdf(doi: str) -> None:
-    """Delete the cached PDF file (not the .article.json) to save space.
-
-    The .article.json is always kept because our extraction pipeline
-    (pymupdf4llm + section detection) is far better than Zotero's ft-cache.
-    """
-    doi_hash = hashlib.sha256(doi.lower().strip().encode()).hexdigest()[:16]
-    pdf_path = config.pdf_cache_dir / f"{doi_hash}.pdf"
-    try:
-        if pdf_path.exists():
-            pdf_path.unlink()
-            logger.debug("Deleted cached PDF for %s (now in Zotero)", doi)
-    except OSError:
-        pass
-
-
-# ---------------------------------------------------------------------------
 # Import orchestrator
 # ---------------------------------------------------------------------------
 
+async def _remember_imported_doi(doi: str, item_key: str, has_pdf: bool) -> None:
+    """Publish imports immediately, without waiting for the next Mac mirror."""
+    try:
+        index = await zotero.get_doi_index()
+        index[zotero._normalize_doi(doi)] = {
+            "item_key": item_key,
+            "attachment_key": None,
+            "has_pdf": has_pdf,
+            "has_fulltext": None,
+        }
+        zotero._save_index(index)
+    except Exception as exc:
+        logger.warning("Imported item %s, but DOI index update failed: %s", item_key, exc)
+
+
 async def import_to_zotero(
     doi: str,
-    pdf_path: Path,
+    pdf_path: Path | None,
     cached_article: CachedArticle,
 ) -> bool:
-    """Import a web-fetched PDF into Zotero with full metadata.
+    """Import a web-fetched paper with metadata and an optional PDF.
 
     Returns True if the import succeeded or was skipped (already imported),
     False on failure.
@@ -967,7 +1065,7 @@ async def import_to_zotero(
         _record_attempt(doi, "guard", "error", "no writable Zotero API configured")
         return False
 
-    if not pdf_path.exists():
+    if pdf_path is not None and not pdf_path.exists():
         logger.debug("Skipping Zotero import for %s: PDF no longer on disk", doi)
         _record_attempt(doi, "guard", "error", "PDF missing from cache")
         return False
@@ -979,15 +1077,22 @@ async def import_to_zotero(
     if existing:
         item_key = existing.get("key")
         if item_key:
+            if pdf_path is None:
+                _record_attempt(doi, "metadata", "skipped", "already in Zotero")
+                return True
             if not await _item_has_pdf_attachment(item_key):
                 logger.info("DOI %s in Zotero without PDF — attaching", doi)
                 success = await _attach_pdf_to_item(item_key, pdf_path)
                 if success:
                     _record_attempt(doi, "attach_existing", "success")
-                    _try_delete_cached_pdf(doi)
+                    await _remember_imported_doi(doi, item_key, True)
+                else:
+                    _record_attempt(doi, "attach_existing", "error", _last_attachment_error)
                 return success
         logger.debug("DOI %s already in Zotero with PDF — skipping", doi)
         _record_attempt(doi, "duplicate", "skipped", "already in Zotero")
+        if item_key:
+            await _remember_imported_doi(doi, item_key, True)
         return True
 
     # Fetch rich metadata from Crossref
@@ -1002,6 +1107,8 @@ async def import_to_zotero(
         crossref_meta,
         source=cached_article.source,
     )
+    if doi.lower().startswith("10.48550/arxiv."):
+        item_type = "preprint"
 
     # Build the Zotero item payload
     item_data = _build_zotero_item(
@@ -1016,6 +1123,11 @@ async def import_to_zotero(
         _record_attempt(doi, "create_item", "error", create_error or "create item failed")
         return False
 
+    if pdf_path is None:
+        _record_attempt(doi, "metadata", "success", details={"item_key": item_key})
+        await _remember_imported_doi(doi, item_key, False)
+        return True
+
     # Attach the PDF
     filename = _generate_pdf_filename(item_data)
     success = await _attach_pdf_to_item(item_key, pdf_path, filename)
@@ -1023,7 +1135,7 @@ async def import_to_zotero(
     if success:
         logger.info("Imported %s into Zotero as %s (%s)", doi, item_key, item_type)
         _record_attempt(doi, "attach_pdf", "success", details={"item_key": item_key})
-        _try_delete_cached_pdf(doi)
+        await _remember_imported_doi(doi, item_key, True)
     else:
         logger.warning(
             "Created Zotero item %s but PDF attachment failed for %s", item_key, doi
@@ -1045,7 +1157,7 @@ async def import_to_zotero(
 @dataclass
 class _ImportJob:
     doi: str
-    pdf_path: Path
+    pdf_path: Path | None
     cached_article: CachedArticle
 
 
@@ -1059,6 +1171,7 @@ _worker_wakeup: "asyncio.Event | None" = None
 
 
 async def _ensure_queue_db() -> None:
+    _QUEUE_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     async with aiosqlite.connect(_QUEUE_DB_PATH) as db:
         await db.execute(
             """
@@ -1088,6 +1201,17 @@ async def _queue_count() -> int:
 
 async def _enqueue_job(job: _ImportJob) -> None:
     await _ensure_queue_db()
+    # Keep queued bytes outside the evictable download cache. The durable
+    # queue must remain usable after restarts and prolonged API outages.
+    pending_dir = _QUEUE_DB_PATH.parent / "pending_imports"
+    pending_dir.mkdir(parents=True, exist_ok=True)
+    durable_pdf = pending_dir / f"{hashlib.sha256(job.doi.encode()).hexdigest()}.pdf"
+    if job.pdf_path is not None and job.pdf_path.resolve() != durable_pdf.resolve() and not durable_pdf.exists():
+        def copy_pdf():
+            temporary = durable_pdf.with_suffix(f".{uuid.uuid4().hex}.tmp")
+            shutil.copy2(job.pdf_path, temporary)
+            temporary.replace(durable_pdf)
+        await asyncio.to_thread(copy_pdf)
     run_after = _utc_now() + timedelta(seconds=_IMPORT_DELAY_SECONDS)
     async with aiosqlite.connect(_QUEUE_DB_PATH) as db:
         await db.execute(
@@ -1096,15 +1220,13 @@ async def _enqueue_job(job: _ImportJob) -> None:
                 (doi, pdf_path, source, metadata_json, queued_at, run_after, attempts, last_error)
             VALUES (?, ?, ?, ?, ?, ?, 0, '')
             ON CONFLICT(doi) DO UPDATE SET
-                pdf_path=excluded.pdf_path,
+                pdf_path=CASE WHEN excluded.pdf_path='' THEN import_queue.pdf_path ELSE excluded.pdf_path END,
                 source=excluded.source,
-                metadata_json=excluded.metadata_json,
-                queued_at=excluded.queued_at,
-                run_after=excluded.run_after
+                metadata_json=excluded.metadata_json
             """,
             (
                 job.doi,
-                str(job.pdf_path),
+                str(durable_pdf) if job.pdf_path is not None else "",
                 job.cached_article.source,
                 json.dumps(job.cached_article.metadata or {}),
                 _iso_utc(),
@@ -1136,12 +1258,14 @@ async def _delete_job(doi: str) -> None:
     async with aiosqlite.connect(_QUEUE_DB_PATH) as db:
         await db.execute("DELETE FROM import_queue WHERE doi = ?", (doi,))
         await db.commit()
+    pending = _QUEUE_DB_PATH.parent / "pending_imports" / f"{hashlib.sha256(doi.encode()).hexdigest()}.pdf"
+    pending.unlink(missing_ok=True)
 
 
 async def _reschedule_job(doi: str, attempts: int, last_error: str) -> None:
     backoff = min(
-        _IMPORT_BACKOFF_MAX_SECONDS,
-        _IMPORT_BACKOFF_BASE_SECONDS * (2 ** min(attempts, 6)),
+        3600 if attempts >= _IMPORT_MAX_ATTEMPTS else _IMPORT_BACKOFF_MAX_SECONDS,
+        _IMPORT_BACKOFF_BASE_SECONDS * (2 ** min(attempts, 10)),
     )
     run_after = _utc_now() + timedelta(seconds=backoff)
     async with aiosqlite.connect(_QUEUE_DB_PATH) as db:
@@ -1160,7 +1284,7 @@ async def _reschedule_job(doi: str, attempts: int, last_error: str) -> None:
 
 def enqueue_zotero_import(
     doi: str,
-    pdf_path: Path,
+    pdf_path: Path | None,
     cached_article: CachedArticle,
 ) -> None:
     """Add a paper to the background import queue. Non-blocking.
@@ -1173,18 +1297,25 @@ def enqueue_zotero_import(
         return
     if not _is_web_fetched(cached_article.source):
         return
-    if not pdf_path.exists():
+    if pdf_path is not None and not pdf_path.exists():
         return
 
+    doi = zotero._normalize_doi(doi)
     job = _ImportJob(doi=doi, pdf_path=pdf_path, cached_article=cached_article)
     _record_attempt(doi, "enqueue", "queued", details={"pdf_path": str(pdf_path)})
 
     try:
         loop = asyncio.get_running_loop()
-        loop.create_task(_enqueue_job(job))
-        _ensure_worker_running()
-        if _worker_wakeup is not None:
-            _worker_wakeup.set()
+        async def persist_and_wake():
+            try:
+                await _enqueue_job(job)
+                _ensure_worker_running()
+                if _worker_wakeup is not None:
+                    _worker_wakeup.set()
+            except Exception as exc:
+                _record_attempt(doi, "enqueue", "error", str(exc))
+                logger.exception("Could not persist Zotero import for %s", doi)
+        loop.create_task(persist_and_wake())
     except RuntimeError:
         # No running event loop (e.g. some unit tests)
         pass
@@ -1194,12 +1325,8 @@ def _ensure_worker_running() -> None:
     """Start the persistent queue worker once per process."""
     global _worker_task, _worker_wakeup
 
-    # Preserve queued PDFs when credentials are known to be read-only. They
-    # can be processed after a writable key is configured and the service is
-    # restarted, instead of burning retries and eventually discarding jobs.
-    if _write_probe_result.get("state") == "denied":
-        return
-
+    # The worker rechecks denied permissions periodically without consuming
+    # queued jobs, so an existing key can be granted writes without a restart.
     try:
         asyncio.get_running_loop()
     except RuntimeError:
@@ -1219,6 +1346,13 @@ async def _worker_loop() -> None:
     await _ensure_queue_db()
     while True:
         try:
+            if _write_probe_result.get("state") == "denied":
+                checked = datetime.fromisoformat(_write_probe_result.get("checked_at") or "1970-01-01T00:00:00+00:00")
+                if _utc_now() - checked >= timedelta(minutes=5):
+                    await _probe_local_write_access()
+                if _write_probe_result.get("state") == "denied":
+                    await asyncio.sleep(10)
+                    continue
             job = await _get_due_job()
             if not job:
                 if _worker_wakeup is None:
@@ -1229,7 +1363,7 @@ async def _worker_loop() -> None:
                 continue
 
             doi = job["doi"]
-            pdf_path = Path(job["pdf_path"])
+            pdf_path = Path(job["pdf_path"]) if job["pdf_path"] else None
             metadata = json.loads(job.get("metadata_json") or "{}")
             cached_article = CachedArticle(
                 doi=doi,
@@ -1241,7 +1375,11 @@ async def _worker_loop() -> None:
                 metadata=metadata,
             )
 
-            ok = await import_to_zotero(doi, pdf_path, cached_article)
+            try:
+                ok = await import_to_zotero(doi, pdf_path, cached_article)
+            except Exception as exc:
+                _record_attempt(doi, "import", "error", str(exc))
+                ok = False
             if ok:
                 await _delete_job(doi)
                 continue
@@ -1249,10 +1387,7 @@ async def _worker_loop() -> None:
             attempts = int(job.get("attempts") or 0) + 1
             last_error = _latest_error_by_doi.get(doi, "auto-import failed")
             if attempts >= _IMPORT_MAX_ATTEMPTS:
-                _record_attempt(doi, "abandoned", "error", last_error, {"attempts": attempts})
-                logger.error("Abandoning Zotero auto-import for %s after %d attempts: %s", doi, attempts, last_error)
-                await _delete_job(doi)
-                continue
+                _record_attempt(doi, "retry_later", "error", last_error, {"attempts": attempts})
             await _reschedule_job(doi, attempts, last_error)
         except TimeoutError:
             continue

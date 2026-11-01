@@ -1506,6 +1506,7 @@ async def _handle_zotero_import_status(args: dict) -> list[TextContent]:
         f"Enabled: {status.get('auto_import_enabled')}",
         f"Local API enabled: {status.get('local_api_enabled')}",
         f"Web API configured: {status.get('web_api_configured')}",
+        f"Attachment backend: {status.get('attachment_backend')}",
         f"Queue depth: {status.get('queue_count')}",
     ]
 
@@ -1518,6 +1519,12 @@ async def _handle_zotero_import_status(args: dict) -> list[TextContent]:
     )
     if probe.get("message"):
         lines.append(f"Probe detail: {probe['message']}")
+
+    for pending in status.get("pending_imports") or []:
+        lines.append(
+            f"Pending: {pending['doi']} | attempts={pending['attempts']}"
+            f" | next={pending['run_after']} | {pending['last_error']}"
+        )
 
     attempts = status.get("recent_attempts") or []
     lines.append("\nRecent attempts:")

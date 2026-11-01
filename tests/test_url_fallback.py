@@ -180,7 +180,8 @@ class TestUrlTierDirectPdf:
              patch("academic_mcp.config.config.use_stealth_browser", True):
             result = await _handle_fetch_pdf({"url": test_url, "mode": "sections"})
 
-        mock_lp.assert_called_once_with(test_url, False)
+        from academic_mcp.config import config
+        mock_lp.assert_called_once_with(test_url, config.institutional_proxy_auto and bool(config.gost_proxy_url))
         assert result is not None
 
 

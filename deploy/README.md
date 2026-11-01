@@ -111,7 +111,7 @@ cp deploy/macbook/com.example.zotero-sync.plist \
 # (edit the copy — do NOT commit the filled-in version)
 launchctl load ~/Library/LaunchAgents/com.YOURNAME.zotero-sync.plist
 
-# Run an immediate first sync (close Zotero first for a clean sqlite copy)
+# Run an immediate first sync (backup will fail safely if Zotero holds an exclusive lock)
 # This can take 15–60 min depending on library size — run in a terminal
 REMOTE_HOST=YOURSERVER.YOUR-TAILNET.ts.net \
 REMOTE_USER=YOURUSER \
@@ -146,9 +146,17 @@ The script performs three jobs on each run:
 
 ### SQLite lock note
 
-Zotero holds an exclusive SQLite write lock while running but the `.backup` API
-uses read locks and succeeds concurrently. On the rare failure (mid-transaction),
-the script exits 3 and leaves the previous good copy in place server-side.
+SQLite `.backup` respects file locking. It can run alongside ordinary writes,
+but cannot bypass an exclusive lock. Locking varies with the Zotero version
+and database journal mode. On failure, the script exits 3 and leaves the
+previous good copy in place. Never copy the live database without its WAL.
+
+The server mirror still serves a purpose even when concurrent reads work: it
+keeps searches available while the Mac is asleep or offline. The local API
+also avoids direct database reads while Zotero runs, but is local to the Mac.
+Zotero 9 local reads work without a key; local writes in Zotero 10+ use a
+separate authorization protocol. For this remote deployment, use a Zotero
+Web API key with library **write** and **file** permissions.
 
 ---
 
@@ -385,3 +393,37 @@ unless the embedding model or provider changed.
 > Dockerfile sets to `/var/cache/academic-mcp/chroma`. Ensure that path is
 > on the persistent volume bind (not the container overlay layer) or the
 > index will be lost on every container recreate.
+
+
+## Download and import reliability
+
+With `GOST_PROXY_URL` configured, `INSTITUTIONAL_PROXY_AUTO=true` enables
+institutional fallback without requiring every client to request it explicitly.
+Direct PDF downloads run first. Browser calls receive the same route decision.
+Set `INSTITUTIONAL_PROXY_AUTO=false` to require explicit `use_proxy=true`.
+Institutional IP access still depends on the university's subscriptions; it
+does not supply publisher login cookies or guarantee every PDF is accessible.
+
+`AUTO_IMPORT_TO_ZOTERO=true` imports downloaded DOI-bearing PDFs through the
+Zotero Web API when credentials are configured. The key must have library
+write permission and file access. Personal libraries with `ZOTERO_WEBDAV_URL`
+configured publish PDFs to that WebDAV directory as `<KEY>.zip` and `<KEY>.prop`,
+then publish matching file metadata to Zotero. The URL must include the final
+`zotero/` directory, as it does for existing WebDAV reads. Without WebDAV,
+uploads use Zotero File Storage and its quota. Group libraries always use
+Zotero File Storage. A failed WebDAV upload never silently falls back to
+Zotero File Storage, which the desktop would not check. Incomplete attachment
+records are reused, and actual WebDAV presence is checked before skipping a PDF.
+
+The persistent queue retains failed jobs and protects their PDF bytes in
+`PDF_CACHE_DIR/pending_imports/`, outside normal cache eviction. Retries slow
+to hourly rather than deleting jobs after eight failures. Denied credentials
+are checked every five minutes, so granting writes on the existing key can
+recover without restarting. Replacing a key in the environment needs a restart.
+`zotero_import_status` lists pending DOIs, attempts, next retry and last error
+across restarts. Cached PDF reads can enqueue a missed import again.
+
+DOI-bearing HTML retrievals save citation metadata even when no PDF is
+available. A later PDF download attaches to the same item. URL-only documents
+without DOIs currently do not auto-import. For a PDF upload failure,
+inspect `zotero_import_status`; receiving article text is not proof of a save.

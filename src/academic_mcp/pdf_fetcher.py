@@ -248,7 +248,7 @@ async def fetch_proxied(url: str) -> Path | None:
 # Strategy 3: Scrapling stealth browser
 # ---------------------------------------------------------------------------
 
-def _build_tool_args(url: str, tool_name: str = "") -> dict:
+def _build_tool_args(url: str, tool_name: str = "", use_proxy: bool = False) -> dict:
     """Build argument dict for a Scrapling MCP tool call.
 
     Always includes ``url``.  When calling ``stealthy_fetch``, also sets
@@ -261,7 +261,7 @@ def _build_tool_args(url: str, tool_name: str = "") -> dict:
     if tool_name == "stealthy_fetch":
         args["solve_cloudflare"] = True
         args["extraction_type"] = "html"
-    if config.gost_proxy_url:
+    if use_proxy and config.gost_proxy_url:
         args["proxy"] = config.gost_proxy_url
     return args
 
@@ -290,9 +290,9 @@ async def fetch_with_scrapling(
 
     mcp_url = (config.scrapling_mcp_url or "").strip()
     if mcp_url:
-        return await _scrapling_via_mcp(url, mcp_url)
+        return await _scrapling_via_mcp(url, mcp_url, use_proxy=use_proxy)
 
-    path = await _scrapling_local(url)
+    path = await _scrapling_local(url, use_proxy=use_proxy)
     return path, None, None
 
 
@@ -319,7 +319,7 @@ _TOOL_CANDIDATES = ("stealthy_fetch", "fetch", "scrape", "fetch_page", "get")
 
 
 async def _scrapling_via_mcp(
-    url: str, mcp_url: str
+    url: str, mcp_url: str, use_proxy: bool = False
 ) -> tuple[Path | None, str | None, str | None]:
     """Connect to a remote Scrapling MCP server and call its scraping tool.
 
@@ -352,7 +352,7 @@ async def _scrapling_via_mcp(
                 if not tool_name:
                     return None, None, None
 
-                args = _build_tool_args(url, tool_name)
+                args = _build_tool_args(url, tool_name, use_proxy=use_proxy)
                 result = await _mcp_call(session, tool_name, args)
                 if result is None:
                     return None, None, None
@@ -541,7 +541,7 @@ def _extract_pdf_link_from_html(html: str, base_url: str) -> str | None:
 
 # ── Local: Scrapling StealthyFetcher in a thread ─────────────────────────
 
-async def _scrapling_local(url: str) -> Path | None:
+async def _scrapling_local(url: str, use_proxy: bool = False) -> Path | None:
     """Spin up a local Chromium via Scrapling, offloaded to a thread.
 
     The GOST proxy URL is passed directly to ``StealthyFetcher.fetch()``
@@ -561,7 +561,7 @@ async def _scrapling_local(url: str) -> Path | None:
             fetcher = StealthyFetcher()
 
             fetch_kwargs: dict = {}
-            if config.gost_proxy_url:
+            if use_proxy and config.gost_proxy_url:
                 fetch_kwargs["proxy"] = config.gost_proxy_url
 
             response = fetcher.fetch(url, **fetch_kwargs)

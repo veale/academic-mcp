@@ -74,7 +74,7 @@ async def _extract_from_landing_page(
     if not config.use_stealth_browser:
         return None
 
-    scrapling_path, html, final_url = await pdf_fetcher.fetch_with_scrapling(url)
+    scrapling_path, html, final_url = await pdf_fetcher.fetch_with_scrapling(url, use_proxy=use_proxy)
     effective_url = final_url or url
 
     if scrapling_path:
@@ -237,6 +237,11 @@ def _apply_mode_filter(
 ) -> FetchedArticle:
     """Apply mode filter: populate structured fields, set fa.text to raw slice."""
     doi = cached.doi
+    # HTML full text is a successful retrieval too. Save its citation even
+    # when the publisher exposes no downloadable PDF; a later PDF fetch can
+    # attach to this same record.
+    if cached.source.startswith("html_extraction"):
+        zotero_import.enqueue_zotero_import(doi, None, cached)
 
     if mode == "sections":
         structured_sections: list[Section] = []
@@ -506,6 +511,7 @@ def _cache_pdf_and_return(
         section_detection=result.get("section_detection", "pdf_font_analysis"),
         word_count=len(raw_text.split()),
         metadata=pdf_meta,
+        pdf_path=str(pdf_source) if isinstance(pdf_source, Path) else None,
     )
 
     # Build and persist the charmap for PDF highlight positioning.
@@ -586,6 +592,7 @@ async def fetch_article(
     DOI landing page, proxied fetch, stealth browser, HeinOnline, SSRN cookies.
     """
     from .types import ArticleId as _ArticleId  # local import avoids circular at module level
+    use_proxy = use_proxy or (config.institutional_proxy_auto and bool(config.gost_proxy_url))
     zotero_key = (identifier.zotero_key or "").strip() or None
     doi = identifier.doi
     url = (identifier.url or "").strip() or None
@@ -617,6 +624,8 @@ async def fetch_article(
     cached_article = text_cache.get_cached(doi) if not force_html else None
     if cached_article:
         logger.debug("Article cache hit for %s", doi)
+        if cached_article.pdf_path:
+            zotero_import.enqueue_zotero_import(doi, Path(cached_article.pdf_path), cached_article)
         # Backfill pdf_path for cache entries written before path persistence
         # was added.  Cheap: SQLite lookup + filesystem stat.
         if not cached_article.pdf_path:
@@ -686,9 +695,11 @@ async def fetch_article(
                 except Exception as exc:
                     logger.warning("pymupdf4llm re-extraction failed for %s: %s", doi, exc)
 
-        return _apply_mode_filter(
+        result = _apply_mode_filter(
             cached_article, mode, section_name, range_start, range_end
         )
+        result.auto_import_status = zotero_import.get_auto_import_hint(doi)
+        return result
 
     # Reject force_html early if the stealth browser is not available
     if force_html and not config.use_stealth_browser:
@@ -821,6 +832,9 @@ async def fetch_article(
                                         _url_pdf_path = await pdf_fetcher.fetch_direct(url)
                             except Exception as _ue2:
                                 logger.debug("URL tier: HEAD probe failed for %s: %s", url, _ue2)
+
+                        if not _url_pdf_path and use_proxy:
+                            _url_pdf_path = await pdf_fetcher.fetch_proxied(url)
 
                         if _url_pdf_path:
                             result = _cache_pdf_and_return(
@@ -1092,7 +1106,7 @@ async def fetch_article(
                             f"https://doi.org/{doi}" if not doi.startswith("http") else doi
                         )
                         scrapling_path, html, final_url = await pdf_fetcher.fetch_with_scrapling(
-                            doi_url
+                            doi_url, use_proxy=use_proxy
                         )
                         # force_html: skip direct PDF, use HTML extraction only.
                         if html:
@@ -1164,7 +1178,7 @@ async def fetch_article(
                     if result is None and config.use_stealth_browser:
                         for candidate in candidate_urls:
                             scrap_path, _html, _scrap_url = await pdf_fetcher.fetch_with_scrapling(
-                                candidate["url"]
+                                candidate["url"], use_proxy=use_proxy
                             )
                             if scrap_path:
                                 result = _cache_pdf_and_return(
