@@ -87,8 +87,7 @@ class Embedder:
         if not texts:
             return []
         vectors = self._encode(texts)
-        if not vectors:
-            return []
+        self._validate_vectors(vectors, len(texts))
         if self.dim is None:
             self.dim = len(vectors[0])
         return vectors
@@ -99,11 +98,17 @@ class Embedder:
             return []
         fn = self._encode_query if self._encode_query is not None else self._encode
         vectors = fn(texts)
-        if not vectors:
-            return []
+        self._validate_vectors(vectors, len(texts))
         if self.dim is None:
             self.dim = len(vectors[0])
         return vectors
+
+    def _validate_vectors(self, vectors, count):
+        if len(vectors) != count:
+            raise EmbedderUnavailable(f"Embedding response contained {len(vectors)} vectors for {count} inputs")
+        expected = self.dim or len(vectors[0])
+        if expected <= 0 or any(len(v) != expected or not np.isfinite(v).all() for v in vectors):
+            raise EmbedderUnavailable("Embedding response has inconsistent dimensions or non-finite values")
 
 
 # ---------------------------------------------------------------------------
@@ -374,21 +379,34 @@ def _openai_encoder(
                     start: int, chunk: list[str]
                 ) -> tuple[int, list[list[float]]]:
                     async with sem:
-                        resp = await client.post(
-                            endpoint,
-                            headers={
-                                "Authorization": f"Bearer {api_key}",
-                                "Content-Type": "application/json",
-                            },
-                            json={"model": model_name, "input": chunk},
-                        )
+                        for attempt in range(5):
+                            resp = await client.post(
+                                endpoint,
+                                headers={
+                                    "Authorization": f"Bearer {api_key}",
+                                    "Content-Type": "application/json",
+                                },
+                                json={"model": model_name, "input": chunk},
+                            )
+                            if resp.status_code not in (429, 500, 502, 503, 504, 529) or attempt == 4:
+                                break
+                            try:
+                                delay = float(resp.headers.get("Retry-After", 2 ** (attempt + 1)))
+                            except (TypeError, ValueError):
+                                delay = 2 ** (attempt + 1)
+                            await asyncio.sleep(min(60, max(1, delay)))
                         if resp.status_code != 200:
                             raise EmbedderUnavailable(
                                 f"OpenAI embedding request failed: {resp.status_code} "
                                 f"{resp.text[:200]}"
                             )
                         data = resp.json()
-                        vecs = [item["embedding"] for item in data.get("data", [])]
+                        entries = data.get("data", [])
+                        if entries and any("index" in item for item in entries):
+                            if sorted(item.get("index", -1) for item in entries) != list(range(len(chunk))):
+                                raise EmbedderUnavailable("Embedding response has missing or duplicate input indices")
+                            entries = sorted(entries, key=lambda item: item["index"])
+                        vecs = [item["embedding"] for item in entries]
                         if needs_client_normalize:
                             vecs = _l2_normalize(vecs)
                         return (start, vecs)

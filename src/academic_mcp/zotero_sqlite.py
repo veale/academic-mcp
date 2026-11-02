@@ -196,7 +196,10 @@ async def _get_connection() -> aiosqlite.Connection:
          the shadow stays current for the next time Zotero is open.
     """
     shadow = _shadow_path()
-    uri_primary = f"file:{sqlite_config.db_path}?mode=ro"
+    snapshot = (Path(sqlite_config.db_path).parent / ".last-sync").is_file()
+    uri_primary = Path(sqlite_config.db_path).resolve().as_uri() + "?mode=ro"
+    if snapshot:
+        uri_primary += "&immutable=1"
 
     # ── Attempt 1: primary DB ────────────────────────────────────────────
     conn = None
@@ -741,12 +744,13 @@ async def search_by_keys(keys: list[str]) -> dict[str, ZoteroItem]:
 
     Returns a ``{key: ZoteroItem}`` map; keys with no matching item are absent.
     """
-    if not sqlite_config.available:
-        return {}
     wanted = [k.strip() for k in keys if k and k.strip()]
     if not wanted:
         return {}
 
+    from .zotero_catalog import hydrate_keys
+    if not sqlite_config.available:
+        return await hydrate_keys(wanted, {})
     conn = await _get_connection()
     try:
         id_to_key: dict[int, str] = {}
@@ -766,7 +770,7 @@ async def search_by_keys(keys: list[str]) -> dict[str, ZoteroItem]:
             item = await _build_item(conn, item_id)
             if item:
                 out[item_key] = item
-        return out
+        return await hydrate_keys(wanted, out)
     except Exception as e:
         logger.warning("SQLite batch key lookup failed: %s", e)
         return {}
@@ -1197,7 +1201,8 @@ async def list_items_with_doi(
 async def list_items_for_semantic_index() -> list[dict[str, str]]:
     """Return metadata needed for semantic indexing from the SQLite shadow DB."""
     if not sqlite_config.available:
-        return []
+        from .zotero_catalog import overlay
+        return await overlay([])
 
     conn = await _get_connection()
     try:
@@ -1209,7 +1214,7 @@ async def list_items_for_semantic_index() -> list[dict[str, str]]:
         publisher_fid = await _get_field_id(conn, "publisher")
 
         if title_fid is None and abs_fid is None:
-            return []
+            raise RuntimeError("Snapshot schema has no title or abstract fields")
 
         # Also pull the first PDF attachment's key so callers can read
         # .zotero-ft-cache without a second round-trip per item.
@@ -1229,6 +1234,7 @@ async def list_items_for_semantic_index() -> list[dict[str, str]]:
                     JOIN items ai ON ia.itemID = ai.itemID
                     WHERE ia.parentItemID = i.itemID
                       AND ia.contentType = 'application/pdf'
+                      AND ai.itemID NOT IN (SELECT itemID FROM deletedItems)
                     ORDER BY ia.itemID LIMIT 1
                 ) AS attachment_key
             FROM items i
@@ -1236,6 +1242,7 @@ async def list_items_for_semantic_index() -> list[dict[str, str]]:
             LEFT JOIN itemData id ON id.itemID = i.itemID
             LEFT JOIN itemDataValues idv ON idv.valueID = id.valueID
             WHERE it.typeName NOT IN ('attachment', 'note', 'annotation')
+              AND i.itemID NOT IN (SELECT itemID FROM deletedItems)
             GROUP BY i.itemID, i.key, i.dateModified
             ORDER BY i.dateModified DESC
         """
@@ -1298,10 +1305,11 @@ async def list_items_for_semantic_index() -> list[dict[str, str]]:
                 "publisher": (row["publisher"] or "").strip(),
                 "authors": authors_by_item.get(row["itemID"], []),
             })
-        return out
+        from .zotero_catalog import overlay
+        return await overlay(out)
     except Exception as e:
         logger.warning("SQLite semantic source listing failed: %s", e)
-        return []
+        raise RuntimeError("Zotero index source read failed; retaining existing index") from e
     finally:
         await conn.close()
 
@@ -1314,7 +1322,8 @@ async def list_items_for_lexical_index() -> list[dict]:
     fields the old LIKE-based ``search_items`` matched on.
     """
     if not sqlite_config.available:
-        return []
+        from .zotero_catalog import overlay
+        return await overlay([])
 
     conn = await _get_connection()
     try:
@@ -1326,7 +1335,7 @@ async def list_items_for_lexical_index() -> list[dict]:
             )
         }
         if fids["title"] is None and fids["abstractNote"] is None:
-            return []
+            raise RuntimeError("Snapshot schema has no title or abstract fields")
 
         def _f(name: str) -> int:
             fid = fids.get(name)
@@ -1352,6 +1361,7 @@ async def list_items_for_lexical_index() -> list[dict]:
                     JOIN items ai ON ia.itemID = ai.itemID
                     WHERE ia.parentItemID = i.itemID
                       AND ia.contentType = 'application/pdf'
+                      AND ai.itemID NOT IN (SELECT itemID FROM deletedItems)
                     ORDER BY ia.itemID LIMIT 1
                 ) AS attachment_key
             FROM items i
@@ -1359,6 +1369,7 @@ async def list_items_for_lexical_index() -> list[dict]:
             LEFT JOIN itemData id ON id.itemID = i.itemID
             LEFT JOIN itemDataValues idv ON idv.valueID = id.valueID
             WHERE it.typeName NOT IN ('attachment', 'note', 'annotation')
+              AND i.itemID NOT IN (SELECT itemID FROM deletedItems)
             GROUP BY i.itemID, i.key, i.dateModified, it.typeName
             """,
             (
@@ -1424,10 +1435,11 @@ async def list_items_for_lexical_index() -> list[dict]:
                 "authors": authors_by_item.get(r["itemID"], []),
                 "tags": tags_by_item.get(r["itemID"], []),
             })
-        return out
+        from .zotero_catalog import overlay
+        return await overlay(out)
     except Exception as e:
         logger.warning("SQLite lexical source listing failed: %s", e)
-        return []
+        raise RuntimeError("Zotero index source read failed; retaining existing index") from e
     finally:
         await conn.close()
 

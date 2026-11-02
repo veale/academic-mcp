@@ -1009,6 +1009,8 @@ TOOLS = [
         name="batch_sections",
         description=(
             "Get section listings (with keywords) for multiple papers in one call. "
+            "Slow fetches return per-DOI pending status after about 20 seconds and continue "
+            "in the background. Repeat the same call to collect them without restarting downloads. "
             "Uncached papers are automatically fetched in parallel — so this is also "
             "the fastest way to fetch and survey a batch of papers from search results.\n\n"
             "Returns a combined overview showing the structure, headings, and topic "
@@ -1677,6 +1679,8 @@ async def _handle_semantic_index_status(args: dict) -> list[TextContent]:
     except Exception:
         pass
 
+    from . import zotero_catalog
+    status["metadata_catalog"] = await asyncio.to_thread(zotero_catalog.status)
     return [TextContent(type="text", text=json.dumps(status, indent=2))]
 
 
@@ -2997,25 +3001,8 @@ async def _handle_batch_sections(args: dict) -> list[TextContent]:
     if not dois:
         return [TextContent(type="text", text="No DOIs provided.")]
 
-    # Remap any SSRN DOIs to their published versions before fetching
-    resolved_dois: list[str] = []
-    ssrn_remap_index: dict[str, str] = {}  # original_doi → resolved_doi
-    async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as _rc:
-        for _doi in dois:
-            if _doi.startswith("10.2139/ssrn."):
-                try:
-                    _remap = await apis.resolve_ssrn_doi(_doi, _rc)
-                    if _remap.get("published_doi"):
-                        logger.info(
-                            "batch_sections: SSRN %s → %s", _doi, _remap["published_doi"]
-                        )
-                        ssrn_remap_index[_doi] = _remap["published_doi"]
-                        resolved_dois.append(_remap["published_doi"])
-                        continue
-                except Exception as e:
-                    logger.debug("batch_sections SSRN remap failed for %s: %s", _doi, e)
-            resolved_dois.append(_doi)
-    dois = resolved_dois
+    # Resolution belongs inside each background job and its deadline.
+    dois = list(dict.fromkeys(zotero._normalize_doi(doi) for doi in dois))
 
     # Split into cached and uncached
     cached = {}
@@ -3027,26 +3014,33 @@ async def _handle_batch_sections(args: dict) -> list[TextContent]:
         else:
             uncached.append(doi)
 
-    # Fetch uncached papers in parallel
-    if uncached:
-        fetch_tasks = [
-            _handle_fetch_pdf({
-                "doi": doi,
-                "use_proxy": use_proxy,
-                "mode": "full",
-            })
-            for doi in uncached
-        ]
-        results = await asyncio.gather(*fetch_tasks, return_exceptions=True)
+    # Do not keep the whole MCP response hostage to one slow publisher.
+    # Jobs continue after the response and repeated calls join the same jobs.
+    from .core import fetch_jobs
+    import os
+    async def fetch_one(doi):
+        resolved = doi
+        if doi.startswith("10.2139/ssrn."):
+            try:
+                async with asyncio.timeout(15), httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
+                    remap = await apis.resolve_ssrn_doi(doi, client)
+                    resolved = remap.get("published_doi") or doi
+            except Exception:
+                pass
+        response = await _handle_fetch_pdf({"doi": resolved, "use_proxy": use_proxy, "mode": "sections"})
+        return {"doi": resolved, "response": response}
 
-        # After fetching, re-check cache for newly fetched articles
-        for doi, result in zip(uncached, results):
-            if isinstance(result, Exception):
-                logger.warning("batch_sections: failed to fetch %s: %s", doi, result)
-                continue
-            article = text_cache.get_cached(doi)
-            if article:
-                cached[doi] = article
+    jobs = {}
+    for doi in uncached:
+        jobs[doi] = fetch_jobs.get_or_start(doi + f"|proxy={use_proxy}", lambda doi=doi: fetch_one(doi))
+    if jobs:
+        await asyncio.wait(set(jobs.values()), timeout=max(0, min(25, float(os.getenv("BATCH_FETCH_WAIT_SECONDS", "20")))))
+    for doi in uncached:
+        outcome = jobs[doi].result() if jobs[doi].done() and not jobs[doi].cancelled() else None
+        resolved = outcome.get("doi", doi) if isinstance(outcome, dict) else doi
+        article = text_cache.get_cached(resolved)
+        if article:
+            cached[doi] = article
 
     # Build the combined output
     lines = []
@@ -3061,7 +3055,17 @@ async def _handle_batch_sections(args: dict) -> list[TextContent]:
 
         if doi not in cached:
             # Failed to fetch
-            lines.append("⚠ Could not fetch: article not in cache after fetch attempt")
+            job = jobs.get(doi)
+            if job and not job.done():
+                lines.append("⏳ Fetch still running in the background. Retry batch_sections with this DOI to collect the result; the download is not restarted.")
+            else:
+                outcome = job.result() if job and not job.cancelled() else None
+                if isinstance(outcome, Exception):
+                    detail = "article retrieval exceeded its deadline" if isinstance(outcome, TimeoutError) else str(outcome)
+                else:
+                    response = outcome.get("response", []) if isinstance(outcome, dict) else []
+                    detail = " ".join(c.text for c in response if hasattr(c, "text"))[:500]
+                lines.append("⚠ Could not fetch: " + (detail or "article not in cache after fetch attempt"))
             lines.append("")
             continue
 

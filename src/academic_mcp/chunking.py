@@ -255,15 +255,20 @@ def chunk_item(item: dict) -> list[Chunk]:
     doi = (item.get("doi") or "").strip()
 
     # 1. Structural path: use cached article sections when available.
-    if doi:
+    cache_id = doi or ("zotero:" + item["item_key"] if item.get("item_key") else "")
+    if cache_id:
         try:
-            article = text_cache.get_cached(doi)
+            article = text_cache.get_cached(cache_id)
         except Exception:
             article = None
         if article is not None and article.sections and (article.text or "").strip():
             sec_chunks = _section_chunks(article, header)
             if sec_chunks:
                 return sec_chunks
+        if article is not None and len((article.text or "").strip()) >= 500:
+            prefix = f"{header}\n\n" if header else ""
+            return [Chunk(prefix + c.text, c.char_start, c.char_end, "article_text")
+                    for c in _sliding_chunks(article.text)]
 
     # 2. Sliding-windows path: ft-cache full text.
     ft_text = _read_ft_cache(attachment_key) if attachment_key else ""

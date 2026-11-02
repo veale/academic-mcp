@@ -76,3 +76,12 @@ def sample_pdf_base64():
     import base64
     pdf_bytes = b"%PDF-1.4\n1 0 obj\n<<>>\nendobj\n"
     return base64.b64encode(pdf_bytes).decode("ascii")
+
+
+@pytest.fixture(autouse=True)
+def inline_pdf_workers(monkeypatch):
+    """Keep extractor mocks local; dedicated tests exercise the real pool."""
+    from academic_mcp import pdf_work
+    async def extract(source,markdown,pages=None):
+        return pdf_work._extract(source,markdown,pages)
+    monkeypatch.setattr(pdf_work,'extract',extract)

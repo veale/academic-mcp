@@ -15,13 +15,14 @@ from pathlib import Path
 
 import httpx
 
-from .types import FetchedArticle, FetchMode, PreviewChunk, Section
+from .types import ArticleId, FetchedArticle, FetchMode, PreviewChunk, Section
 
 from .. import (
     apis,
     content_extractor,
     core_api,
     pdf_extractor,
+    pdf_work,
     pdf_fetcher,
     text_cache,
     web_search,
@@ -458,7 +459,7 @@ def _apply_mode_filter(
 # PDF extraction helpers
 # ---------------------------------------------------------------------------
 
-def _cache_pdf_and_return(
+async def _cache_pdf_and_return(
     pdf_source: "Path | bytes",
     doi: str,
     source: str,
@@ -484,7 +485,7 @@ def _cache_pdf_and_return(
         parts = pages_str.split("-")
         start_page = int(parts[0])
         end_page = int(parts[1]) if len(parts) > 1 else start_page
-        extracted_text = pdf_extractor.extract_text_by_pages(pdf_source, start_page, end_page)
+        extracted_text = (await pdf_work.extract(pdf_source, config.use_pymupdf4llm, pages_str))["text"]
         return FetchedArticle(
             doi=doi,
             text=extracted_text,
@@ -492,10 +493,7 @@ def _cache_pdf_and_return(
             mode=FetchMode.full,
         )
 
-    if config.use_pymupdf4llm:
-        result = pdf_extractor.extract_text_pymupdf4llm(pdf_source)
-    else:
-        result = pdf_extractor.extract_text_with_sections(pdf_source)
+    result = await pdf_work.extract(pdf_source, config.use_pymupdf4llm)
     raw_text = result["text"]
 
     # Build metadata from PDF extraction result
@@ -521,7 +519,9 @@ def _cache_pdf_and_return(
         ck = text_cache._cache_key(doi)
         cm_path = text_cache.charmap_path(ck)
         try:
-            charmap_bytes = pdf_extractor.build_charmap_bytes(pdf_source, raw_text)
+            charmap_bytes = result.get("_charmap")
+            if charmap_bytes is None:
+                raise ValueError("charmap unavailable")
             cm_path.write_bytes(charmap_bytes)
         except Exception as exc:
             logger.debug("Charmap build failed for %s: %s", doi, exc)
@@ -678,7 +678,7 @@ async def fetch_article(
             pdf_path = config.pdf_cache_dir / f"{doi_hash}.pdf"
             if pdf_path.exists():
                 try:
-                    new_result = pdf_extractor.extract_text_pymupdf4llm(pdf_path)
+                    new_result = await pdf_work.extract(pdf_path, True)
                     cached_article = text_cache.put_cached(
                         cached_article.doi,
                         new_result["text"],
@@ -764,7 +764,7 @@ async def fetch_article(
 
                     # Got PDF path from Zotero — extract text from disk
                     elif zot_result.get("pdf_path"):
-                        result = _cache_pdf_and_return(
+                        result = await _cache_pdf_and_return(
                             zot_result["pdf_path"], doi, zot_result["source"],
                             pages_str, mode, section_name, range_start, range_end,
                         )
@@ -837,7 +837,7 @@ async def fetch_article(
                             _url_pdf_path = await pdf_fetcher.fetch_proxied(url)
 
                         if _url_pdf_path:
-                            result = _cache_pdf_and_return(
+                            result = await _cache_pdf_and_return(
                                 _url_pdf_path, doi, "url_direct_pdf",
                                 pages_str, mode, section_name, range_start, range_end,
                             )
@@ -848,7 +848,7 @@ async def fetch_article(
                                 _lp = await _extract_from_landing_page(url, use_proxy)
                                 if _lp:
                                     if _lp["pdf_path"]:
-                                        result = _cache_pdf_and_return(
+                                        result = await _cache_pdf_and_return(
                                             _lp["pdf_path"], doi, _lp["source"],
                                             pages_str, mode, section_name, range_start, range_end,
                                         )
@@ -894,7 +894,7 @@ async def fetch_article(
                         for _oa_url in (_ssrn_remap or {}).get("oa_pdf_urls", []):
                             _oa_path = await pdf_fetcher.fetch_direct(_oa_url)
                             if _oa_path:
-                                result = _cache_pdf_and_return(
+                                result = await _cache_pdf_and_return(
                                     _oa_path, doi, "ssrn_remap_oa",
                                     pages_str, mode, section_name, range_start, range_end,
                                 )
@@ -937,18 +937,11 @@ async def fetch_article(
                     oa_paper = None
                     unpaywall_data = None
 
-                    try:
-                        s2_paper = await apis.s2_paper(f"DOI:{doi}")
-                    except Exception:
-                        pass
-                    try:
-                        oa_paper = await apis.openalex_work(doi)
-                    except Exception:
-                        pass
-                    try:
-                        unpaywall_data = await apis.unpaywall_lookup(doi)
-                    except Exception:
-                        pass
+                    metadata = await asyncio.gather(
+                        apis.s2_paper(f"DOI:{doi}"), apis.openalex_work(doi),
+                        apis.unpaywall_lookup(doi), return_exceptions=True,
+                    )
+                    s2_paper, oa_paper, unpaywall_data = [m if isinstance(m, dict) else None for m in metadata]
 
                     # Build citation metadata from whatever API data we have
                     cite_meta: dict = {}
@@ -980,7 +973,7 @@ async def fetch_article(
                         pdf_cached = pdf_fetcher._cache_path(url)
                         if pdf_cached.exists() and pdf_fetcher._is_pdf_file(pdf_cached):
                             logger.info("Cache hit for %s", url)
-                            result = _cache_pdf_and_return(
+                            result = await _cache_pdf_and_return(
                                 pdf_cached, doi, f"{source} (cached)",
                                 pages_str, mode, section_name, range_start, range_end,
                             )
@@ -988,7 +981,7 @@ async def fetch_article(
                                 break
                         path = await pdf_fetcher.fetch_direct(url)
                         if path:
-                            result = _cache_pdf_and_return(
+                            result = await _cache_pdf_and_return(
                                 path, doi, f"{source} (direct)",
                                 pages_str, mode, section_name, range_start, range_end,
                             )
@@ -1009,7 +1002,7 @@ async def fetch_article(
                                         _ch["core_id"], _ch.get("download_url"), _cc
                                     )
                                     if _core_path:
-                                        result = _cache_pdf_and_return(
+                                        result = await _cache_pdf_and_return(
                                             _core_path, doi, "core.ac.uk",
                                             pages_str, mode, section_name, range_start, range_end,
                                         )
@@ -1020,7 +1013,7 @@ async def fetch_article(
                                     for _src_url in _ch.get("source_fulltext_urls") or []:
                                         _src_path = await pdf_fetcher.fetch_direct(_src_url)
                                         if _src_path:
-                                            result = _cache_pdf_and_return(
+                                            result = await _cache_pdf_and_return(
                                                 _src_path, doi, "core_source_url",
                                                 pages_str, mode, section_name, range_start, range_end,
                                             )
@@ -1065,7 +1058,7 @@ async def fetch_article(
                                         except OSError:
                                             pass
                                         continue
-                                    result = _cache_pdf_and_return(
+                                    result = await _cache_pdf_and_return(
                                         _ws_path, doi, f"web_search ({_wh['source']})",
                                         pages_str, mode, section_name, range_start, range_end,
                                     )
@@ -1084,7 +1077,7 @@ async def fetch_article(
                         lp = await _extract_from_landing_page(doi_url, use_proxy, expected_doi=doi)
                         if lp:
                             if lp["pdf_path"]:
-                                result = _cache_pdf_and_return(
+                                result = await _cache_pdf_and_return(
                                     lp["pdf_path"], doi, lp["source"],
                                     pages_str, mode, section_name, range_start, range_end,
                                 )
@@ -1157,7 +1150,7 @@ async def fetch_article(
                         for candidate in candidate_urls:
                             path = await pdf_fetcher.fetch_proxied(candidate["url"])
                             if path:
-                                result = _cache_pdf_and_return(
+                                result = await _cache_pdf_and_return(
                                     path, doi, f"{candidate['source']} (proxied)",
                                     pages_str, mode, section_name, range_start, range_end,
                                 )
@@ -1169,7 +1162,7 @@ async def fetch_article(
                             )
                             path = await pdf_fetcher.fetch_proxied(doi_url)
                             if path:
-                                result = _cache_pdf_and_return(
+                                result = await _cache_pdf_and_return(
                                     path, doi, "doi_redirect (proxied)",
                                     pages_str, mode, section_name, range_start, range_end,
                                 )
@@ -1181,7 +1174,7 @@ async def fetch_article(
                                 candidate["url"], use_proxy=use_proxy
                             )
                             if scrap_path:
-                                result = _cache_pdf_and_return(
+                                result = await _cache_pdf_and_return(
                                     scrap_path, doi, f"{candidate['source']} (scrapling)",
                                     pages_str, mode, section_name, range_start, range_end,
                                 )
@@ -1195,7 +1188,7 @@ async def fetch_article(
                             async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as _hc:
                                 _hein_path = await web_search.fetch_from_heinonline(_hein_title, _hc)
                             if _hein_path:
-                                result = _cache_pdf_and_return(
+                                result = await _cache_pdf_and_return(
                                     _hein_path, doi, "heinonline",
                                     pages_str, mode, section_name, range_start, range_end,
                                 )
@@ -1216,7 +1209,7 @@ async def fetch_article(
                                 if not _ssrn_path and use_proxy:
                                     _ssrn_path = await pdf_fetcher.fetch_proxied(_ssrn_pdf_link)
                                 if _ssrn_path:
-                                    result = _cache_pdf_and_return(
+                                    result = await _cache_pdf_and_return(
                                         _ssrn_path, doi, "ssrn_cookies",
                                         pages_str, mode, section_name, range_start, range_end,
                                     )

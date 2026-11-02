@@ -53,6 +53,10 @@ class FakeCollection:
         for i, d, m in zip(ids, documents, metadatas):
             self._store[i] = {"doc": d, "metadata": m}
 
+    def update(self, ids, metadatas):
+        for cid, metadata in zip(ids, metadatas):
+            self._store[cid]["metadata"] = metadata
+
     def delete(self, ids):
         for i in ids:
             self._store.pop(i, None)
@@ -186,8 +190,9 @@ async def test_incremental_sync_skips_unchanged(fake_index, monkeypatch):
     async def _list_v2(): return items_v2
     monkeypatch.setattr(semantic_index.zotero_sqlite, "list_items_for_semantic_index", _list_v2)
     status = await idx.sync()
-    # 1 item changed; it has 1 abstract-only chunk.
-    assert status["upserted"] == 1
+    # A timestamp-only change updates metadata while retaining its vector.
+    assert status["upserted"] == 0
+    assert status["reused"] == 1
 
 
 async def test_deletion_removes_orphans(fake_index, monkeypatch):
@@ -398,7 +403,8 @@ async def test_sync_streams_upserts_incrementally(fake_index, monkeypatch):
 
     # status_writes: 1 initial (in_progress=True) + N batch writes + 1 final (in_progress=False)
     # Total = len(upsert_calls) + 2
-    assert len(status_writes) == len(col.upsert_calls) + 2
+    assert len(status_writes) >= len(col.upsert_calls) + 2
+    assert status_writes[0]["phase"] == "scanning"
 
     # Final status must reflect all chunks upserted.
     assert status["upserted"] == 50
@@ -569,3 +575,85 @@ async def test_get_embedder_caches_per_mode(tmp_path, monkeypatch):
     assert e1 is not e3  # distinct embedders for distinct modes
     # resolve_embedder called twice: once per mode.
     assert resolve_calls == ["interactive", "bulk"]
+
+
+async def test_resume_finishes_missing_chunks_without_reembedding_saved_chunks(fake_index,monkeypatch):
+    from academic_mcp.chunking import Chunk
+    idx,col=fake_index
+    async def items():return [_make_item('LONG',title='Long paper')]
+    monkeypatch.setattr(semantic_index.zotero_sqlite,'list_items_for_semantic_index',items)
+    monkeypatch.setattr(semantic_index,'chunk_item',lambda item:[Chunk(str(i),i,i+1,'ft_cache') for i in range(20)])
+    monkeypatch.setenv('SEMANTIC_UPSERT_BATCH','8')
+    original=col.upsert;calls=0
+    def crash(**kwargs):
+        nonlocal calls
+        calls+=1
+        if calls==2:raise RuntimeError('Interrupted')
+        original(**kwargs)
+    monkeypatch.setattr(col,'upsert',crash)
+    with pytest.raises(RuntimeError):await idx.sync()
+    assert col.count()==8
+    monkeypatch.setattr(col,'upsert',original)
+    status=await idx.sync()
+    assert col.count()==20
+    assert status['upserted']==12
+    assert status['reused']==8
+    assert not status['in_progress'] and status['pending']==0
+
+
+async def test_adopts_existing_unchanged_vectors_without_embedding(fake_index,monkeypatch):
+    idx,col=fake_index
+    item=_make_item('A',title='Same text')
+    async def items():return [item]
+    monkeypatch.setattr(semantic_index.zotero_sqlite,'list_items_for_semantic_index',items)
+    await idx.sync()
+    (idx.cache_dir/'index-state.sqlite').unlink()
+    before=len(col.upsert_calls)
+    status=await idx.sync()
+    assert status['upserted']==0 and status['reused']==1
+    assert len(col.upsert_calls)==before
+
+
+async def test_fulltext_change_reindexes_without_metadata_timestamp_change(fake_index,monkeypatch,tmp_path):
+    from academic_mcp.chunking import Chunk
+    idx,col=fake_index
+    attachment=tmp_path/'storage'/'PDFKEY'
+    attachment.mkdir(parents=True)
+    path=attachment/'.zotero-ft-cache';path.write_text('Original text')
+    semantic_index.zotero_sqlite.sqlite_config.storage_path=str(tmp_path/'storage')
+    item=_make_item('A',title='Paper');item['attachment_key']='PDFKEY'
+    async def items():return [item]
+    monkeypatch.setattr(semantic_index.zotero_sqlite,'list_items_for_semantic_index',items)
+    monkeypatch.setattr(semantic_index,'chunk_item',lambda item:[Chunk(path.read_text(),0,len(path.read_text()),'ft_cache')])
+    await idx.sync()
+    path.write_text('Updated full text')
+    status=await idx.sync()
+    assert status['upserted']==1
+    assert col._store['A:0']['doc']=='Updated full text'
+
+
+async def test_failed_embedding_keeps_previous_searchable_vector(fake_index,monkeypatch):
+    idx,col=fake_index
+    item=_make_item('A',title='Original')
+    async def items():return [item]
+    monkeypatch.setattr(semantic_index.zotero_sqlite,'list_items_for_semantic_index',items)
+    await idx.sync()
+    item['title']='Replacement'
+    embedder=idx._get_embedder()
+    monkeypatch.setattr(embedder,'encode',lambda texts:[])
+    import time
+    monkeypatch.setattr(time,'sleep',lambda seconds:None)
+    with pytest.raises(semantic_index.SemanticIndexUnavailable):await idx.sync()
+    assert col._store['A:0']['doc']=='Original'
+    assert idx._load_status()['in_progress']
+
+
+async def test_source_failure_keeps_existing_index(fake_index,monkeypatch):
+    idx,col=fake_index
+    async def items():return [_make_item('A',title='Paper')]
+    monkeypatch.setattr(semantic_index.zotero_sqlite,'list_items_for_semantic_index',items)
+    await idx.sync()
+    async def fail():raise RuntimeError('source unavailable')
+    monkeypatch.setattr(semantic_index.zotero_sqlite,'list_items_for_semantic_index',fail)
+    with pytest.raises(RuntimeError):await idx.sync()
+    assert col.count()==1

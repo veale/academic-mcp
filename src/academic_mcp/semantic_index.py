@@ -35,6 +35,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import hashlib
+import os
+import threading
+import fcntl
 import logging
 import warnings
 from collections import OrderedDict
@@ -43,11 +47,17 @@ from pathlib import Path
 from typing import Any
 
 from . import zotero_sqlite
+from .semantic_state import IndexState, text_hash, metadata_json
 from .chunking import chunk_item
 from .config import config
 from .embeddings import EmbedMode, Embedder, EmbedderUnavailable, resolve_embedder
 
 logger = logging.getLogger(__name__)
+
+# Embedded Chroma clients must not share their HNSW files across processes.
+# Retain both the client and an OS ownership lock for this process lifetime.
+_chroma_clients = {}
+_chroma_clients_lock = threading.Lock()
 
 
 class SemanticIndexUnavailable(RuntimeError):
@@ -87,6 +97,7 @@ _DEFAULT_UPSERT_BATCH = 64
 
 def _get_upsert_batch_size() -> int:
     import os
+
     try:
         v = int(os.getenv("SEMANTIC_UPSERT_BATCH", str(_DEFAULT_UPSERT_BATCH)))
         return max(8, v)
@@ -119,6 +130,7 @@ def _item_key_from_chunk_id(chunk_id: str) -> str:
 class SemanticIndex:
     def __init__(self) -> None:
         import os
+
         env_dir = os.getenv("SEMANTIC_CACHE_DIR")
         if env_dir:
             self.cache_dir = Path(env_dir).expanduser()
@@ -135,6 +147,7 @@ class SemanticIndex:
         # Set when we have already warned about cross-endpoint mixing so
         # the warning fires at most once per process.
         self._mix_warned: bool = False
+        self._writer_lock = threading.Lock()
 
     # -- status file -----------------------------------------------------
 
@@ -147,21 +160,47 @@ class SemanticIndex:
         return {}
 
     def _save_status(self, status: dict[str, Any]) -> None:
-        self.status_path.write_text(json.dumps(status, ensure_ascii=False), encoding="utf-8")
+        temporary = self.status_path.with_suffix(".tmp")
+        temporary.write_text(json.dumps(status, ensure_ascii=False), encoding="utf-8")
+        temporary.replace(self.status_path)
 
     # -- chroma / model --------------------------------------------------
 
     def _get_chroma_collection(self):
-        try:
-            import chromadb
-        except Exception as e:
-            raise SemanticIndexUnavailable(
-                "semantic index requires chromadb. Install with: "
-                "pip install 'academic-mcp-server[semantic]'"
-            ) from e
+        with _chroma_clients_lock:
+            return self._get_chroma_collection_owned()
 
-        client = chromadb.PersistentClient(path=str(self.cache_dir))
-        return client.get_or_create_collection(name=self.collection_name)
+    def _get_chroma_collection_owned(self):
+        path = str(self.cache_dir.resolve())
+        cached = _chroma_clients.get(path)
+        if cached is not None and cached[0] != os.getpid():
+            raise SemanticIndexUnavailable(
+                "An embedded Chroma client cannot be inherited across fork; use the MCP server"
+            )
+        if cached is None:
+            owner = (self.cache_dir / "client.lock").open("a")
+            try:
+                fcntl.flock(owner, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                owner.close()
+                raise SemanticIndexUnavailable(
+                    "The semantic index is owned by another process. Use the running server's MCP tools."
+                ) from None
+            try:
+                import chromadb
+
+                client = chromadb.PersistentClient(path=path)
+            except ImportError as exc:
+                owner.close()
+                raise SemanticIndexUnavailable(
+                    "semantic index requires chromadb; install academic-mcp-server[semantic]"
+                ) from exc
+            except BaseException:
+                owner.close()
+                raise
+            cached = (os.getpid(), owner, client)
+            _chroma_clients[path] = cached
+        return cached[2].get_or_create_collection(name=self.collection_name)
 
     def _get_embedder(
         self,
@@ -214,7 +253,8 @@ class SemanticIndex:
                     "semantic_index: bulk endpoint (%s) differs from interactive endpoint (%s); "
                     "vector cosine drift between the two is ~0.001 in practice and does not "
                     "affect top-k retrieval, but exact-equality assumptions are off.",
-                    bulk.endpoint, interactive.endpoint,
+                    bulk.endpoint,
+                    interactive.endpoint,
                 )
                 self._mix_warned = True
 
@@ -248,8 +288,10 @@ class SemanticIndex:
         status = self._load_status()
         stored_provider = status.get("provider")
         stored_model = status.get("model")
-        if stored_provider and stored_model and (
-            stored_provider != embedder.provider or stored_model != embedder.model
+        if (
+            stored_provider
+            and stored_model
+            and (stored_provider != embedder.provider or stored_model != embedder.model)
         ):
             raise SemanticIndexUnavailable(
                 f"Index was built with {stored_provider}/{stored_model} but "
@@ -295,245 +337,315 @@ class SemanticIndex:
                 stacklevel=2,
             )
 
-        if not zotero_sqlite.sqlite_config.available:
-            raise SemanticIndexUnavailable("Zotero SQLite backend is not available")
+        from .zotero_catalog import enabled as catalog_enabled
+
+        if not zotero_sqlite.sqlite_config.available and not catalog_enabled():
+            raise SemanticIndexUnavailable(
+                "Neither Zotero SQLite nor Web API metadata is available"
+            )
 
         embedder = self._get_embedder(provider=provider, model=model, mode="bulk")
         if not force_rebuild:
             # Bail out before doing any work if an existing index disagrees.
             self._assert_compatible(embedder)
 
-        items = await zotero_sqlite.list_items_for_semantic_index()
+        try:
+            items = await zotero_sqlite.list_items_for_semantic_index()
+            from .zotero_fulltext import hydrate
 
-        def _sync_blocking() -> dict[str, Any]:
-            col = self._get_chroma_collection()
-
-            # Snapshot of what's currently indexed.
-            #   prior_items[item_key] = {"dateModified": str, "chunk_ids": [str, ...]}
-            # Page the get() — chroma 1.x's Rust executor blows past the
-            # SQLite 999-variable cap if asked for the whole collection at once.
-            _GET_PAGE = 1000
-            all_ids: list[str] = []
-            all_metas: list[dict] = []
-            existing: dict[str, Any] = {"ids": all_ids, "metadatas": all_metas}
-            while True:
-                page = col.get(
-                    include=["metadatas"],
-                    limit=_GET_PAGE,
-                    offset=len(all_ids),
-                )
-                page_ids = page.get("ids") or []
-                if not page_ids:
-                    break
-                all_ids.extend(page_ids)
-                all_metas.extend(page.get("metadatas") or [])
-                if len(page_ids) < _GET_PAGE:
-                    break
-
-            # Detect old single-vector format and force rebuild if needed.
-            if not force_rebuild and self._needs_migration(existing):
-                logger.info(
-                    "semantic_index: detected old single-vector format — "
-                    "running automatic rebuild to migrate to chunk-level storage."
-                )
-                if all_ids:
-                    _chroma_delete_in_chunks(col, all_ids)
-                all_ids = []
-                all_metas = []
-                # Treat as force_rebuild for purposes of building prior.
-
-            prior_items: dict[str, dict[str, Any]] = {}
-            if not force_rebuild and all_ids:
-                for cid, md in zip(all_ids, all_metas):
-                    md = md or {}
-                    ik = _item_key_from_chunk_id(cid)
-                    entry = prior_items.setdefault(
-                        ik, {"dateModified": md.get("dateModified") or "", "chunk_ids": []}
-                    )
-                    entry["chunk_ids"].append(cid)
-            elif force_rebuild and all_ids:
-                _chroma_delete_in_chunks(col, all_ids)
-
-            # First pass: identify items that need (re)indexing and chunks
-            # that need deletion.  We do NOT chunk yet — chunking + embed +
-            # upsert happens in a streaming second pass below so peak RAM
-            # stays bounded by ``batch_size``, not by total library size.
-            seen_keys: set[str] = set()
-            items_to_index: list[dict] = []
-            to_delete_ids: list[str] = []
-
-            for it in items:
-                item_key = it.get("item_key") or ""
-                if not item_key:
-                    continue
-                seen_keys.add(item_key)
-
-                date_mod = it.get("dateModified") or ""
-                prev = prior_items.get(item_key)
-
-                if prev is not None and prev["dateModified"] == date_mod:
-                    continue
-                if prev is not None:
-                    to_delete_ids.extend(prev["chunk_ids"])
-                items_to_index.append(it)
-
-            stale_item_keys = [ik for ik in prior_items if ik not in seen_keys]
-            for ik in stale_item_keys:
-                to_delete_ids.extend(prior_items[ik]["chunk_ids"])
-
-            if to_delete_ids and not force_rebuild:
-                _chroma_delete_in_chunks(col, to_delete_ids)
-
-            upserted = 0
-            items_indexed = 0
-            total_items_to_index = len(items_to_index)
-            batch_size = _get_upsert_batch_size()
-            started_at = datetime.now(timezone.utc).isoformat()
-
-            def _write_progress_status(done: bool) -> None:
-                """Persist a status snapshot.  Called after every batch and at end."""
-                now = datetime.now(timezone.utc).isoformat()
-                snapshot = {
-                    "last_sync": now,
-                    "updated_at": now,
-                    "started_at": started_at,
-                    "count": col.count(),
-                    "provider": embedder.provider,
-                    "model": embedder.model,
-                    "dim": embedder.dim,
-                    "sqlite_items_seen": len(items),
-                    "items_to_index": total_items_to_index,
-                    "items_indexed": items_indexed,
-                    "upserted": upserted,
-                    # ``pending`` here is items not yet processed — chunk count
-                    # is unknown until each item is actually chunked.
-                    "pending": max(0, total_items_to_index - items_indexed),
-                    "deleted": (
-                        len(to_delete_ids) if not force_rebuild else len(all_ids)
-                    ),
-                    "in_progress": not done,
+            await hydrate(items)
+        except Exception as exc:
+            self._save_status(
+                {
+                    **self._load_status(),
+                    "in_progress": False,
+                    "phase": "source_error",
+                    "last_error": str(exc),
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
                 }
-                try:
-                    self._save_status(snapshot)
-                except Exception as e:
-                    # Never fail the sync for a status-write hiccup; log and keep going.
-                    logger.warning("semantic_index: status write failed: %s", e)
+            )
+            raise
 
-            _MAX_EMBED_RETRIES = 3
-            _EMBED_RETRY_DELAY = 5.0  # seconds between retries
-
-            # Streaming buffers — flushed when full or at end of run.
-            ids_buf: list[str] = []
-            docs_buf: list[str] = []
-            metas_buf: list[dict] = []
-
-            def _flush_buffers() -> None:
-                """Embed and upsert whatever's currently buffered, then clear."""
-                nonlocal upserted, ids_buf, docs_buf, metas_buf
-                if not ids_buf:
-                    return
-                ids_b, docs_b, metas_b = ids_buf, docs_buf, metas_buf
-                # Reset early so a raise from encode/upsert can't double-flush.
-                ids_buf, docs_buf, metas_buf = [], [], []
-
-                embs_b: list[list[float]] = []
-                for attempt in range(1, _MAX_EMBED_RETRIES + 1):
-                    try:
-                        embs_b = embedder.encode(docs_b)
-                        break
-                    except Exception as embed_exc:
-                        if attempt < _MAX_EMBED_RETRIES:
-                            logger.warning(
-                                "semantic_index: embed attempt %d/%d failed "
-                                "(%d chunks): %r — retrying in %.0fs",
-                                attempt, _MAX_EMBED_RETRIES, len(docs_b),
-                                embed_exc, _EMBED_RETRY_DELAY,
-                            )
-                            import time
-                            time.sleep(_EMBED_RETRY_DELAY)
-                        else:
-                            logger.error(
-                                "semantic_index: embed failed after %d attempts "
-                                "(%d chunks): %r — aborting sync",
-                                _MAX_EMBED_RETRIES, len(docs_b), embed_exc,
-                            )
-                            raise
-
-                if len(embs_b) != len(docs_b):
-                    logger.error(
-                        "semantic_index: embedder returned %d vectors for %d "
-                        "documents; dropping this batch",
-                        len(embs_b), len(docs_b),
-                    )
-                    return
-
-                col.upsert(ids=ids_b, documents=docs_b, embeddings=embs_b, metadatas=metas_b)
-                upserted += len(ids_b)
-                logger.info(
-                    "semantic_index: upserted %d chunks (%d / %d items processed)",
-                    upserted, items_indexed, total_items_to_index,
-                )
-                _write_progress_status(done=False)
-
-            if total_items_to_index:
-                logger.info(
-                    "semantic_index: beginning streamed sync of %d items "
-                    "(batch_size=%d chunks, provider=%s, model=%s)",
-                    total_items_to_index, batch_size,
-                    embedder.provider, embedder.model,
-                )
-                _write_progress_status(done=False)
-
-                # NOTE: no try/finally that writes a terminal status here.
-                # On exception we want the last successful per-batch write
-                # to remain on disk (in_progress=True) so callers can detect
-                # an incomplete sync.  The outer terminal write below only
-                # fires on the clean path.
-                for it in items_to_index:
-                    item_key = it.get("item_key") or ""
-                    if not item_key:
-                        continue
-                    chunks = chunk_item(it)
-                    items_indexed += 1
-                    if not chunks:
-                        continue
-
-                    title = (it.get("title") or "").strip()
-                    doi = (it.get("doi") or "").strip()
-                    date_mod = it.get("dateModified") or ""
-
-                    for idx, chunk in enumerate(chunks):
-                        ids_buf.append(_make_chunk_id(item_key, idx))
-                        docs_buf.append(chunk.text)
-                        metas_buf.append({
-                            "item_key": item_key,
-                            "doi": doi,
-                            "title": title[:400],
-                            "dateModified": date_mod,
-                            "chunk_idx": idx,
-                            "chunk_count": len(chunks),
-                            "char_start": chunk.char_start,
-                            "char_end": chunk.char_end,
-                            "chunk_source": chunk.source,
-                            "provider": embedder.provider,
-                            "model": embedder.model,
-                            "text_format": 2,
-                        })
-                        if len(ids_buf) >= batch_size:
-                            _flush_buffers()
-                    # Drop the local chunks list so even huge per-item
-                    # chunk arrays are eligible for GC immediately.
-                    del chunks
-                # Final flush for any tail-end partial batch.
-                _flush_buffers()
-
-            # Terminal status — only reached on the clean exit path.
-            _write_progress_status(done=True)
-
-            status = self._load_status()
-            return status
+        def _sync_blocking():
+            with self._writer_lock, (self.cache_dir / "writer.lock").open("a") as lock:
+                fcntl.flock(lock, fcntl.LOCK_EX)
+                return self._sync_items(items, embedder, force_rebuild=force_rebuild)
 
         return await asyncio.to_thread(_sync_blocking)
+
+    def _source_signature(self, item):
+        # Source identity includes the content files independently of Zotero's
+        # metadata timestamp. rsync preserves mtimes, and atomic cache rewrites
+        # change their nanosecond mtime/inode even if text length stays equal.
+        from . import text_cache, chunking
+
+        paths = []
+        doi = item.get("doi") or (
+            "zotero:" + item["item_key"] if item.get("item_key") else ""
+        )
+        if doi:
+            paths.append(text_cache._cache_path(doi))
+        attachment = item.get("attachment_key") or ""
+        if attachment:
+            storage = getattr(zotero_sqlite.sqlite_config, "storage_path", "")
+            if storage:
+                paths.append(Path(storage) / attachment / ".zotero-ft-cache")
+        files = []
+        for path in paths:
+            try:
+                stat = path.stat()
+                files.append((str(path), stat.st_size, stat.st_mtime_ns, stat.st_ino))
+            except FileNotFoundError:
+                files.append((str(path), None))
+        payload = {
+            "item": item,
+            "files": files,
+            "format": 2,
+            "chunk_chars": chunking._CHUNK_CHARS,
+            "overlap": chunking._OVERLAP_CHARS,
+            "cap": chunking._MAX_FT_CHARS,
+        }
+        return text_hash(metadata_json(payload))
+
+    def _sync_items(
+        self,
+        items,
+        embedder,
+        *,
+        force_rebuild=False,
+        remove_stale=True,
+        publish_status=True,
+    ):
+        col = self._get_chroma_collection()
+        ledger = IndexState(self.cache_dir / "index-state.sqlite")
+        previous = self._load_status()
+        started_at = datetime.now(timezone.utc).isoformat()
+        upserted = 0
+        reused = 0
+        deleted = 0
+        items_indexed = 0
+        total_items_to_index = 0
+        pending = {}
+        ids_buf = []
+        docs_buf = []
+        metas_buf = []
+
+        def status(done, error=None):
+            if not publish_status:
+                return
+            now = datetime.now(timezone.utc).isoformat()
+            snapshot = {
+                "last_sync": now if done else previous.get("last_sync"),
+                "updated_at": now,
+                "started_at": started_at,
+                "count": col.count(),
+                "provider": embedder.provider,
+                "model": embedder.model,
+                "dim": embedder.dim or previous.get("dim"),
+                "sqlite_items_seen": len(items),
+                "items_to_index": total_items_to_index,
+                "items_indexed": items_indexed,
+                "upserted": upserted,
+                "reused": reused,
+                "pending": max(0, total_items_to_index - items_indexed),
+                "deleted": deleted,
+                "in_progress": not done,
+                "phase": "complete" if done else "indexing",
+            }
+            if error:
+                snapshot["last_error"] = error
+            self._save_status(snapshot)
+
+        def finish_ready():
+            nonlocal items_indexed, deleted
+            for key in list(pending):
+                job = pending[key]
+                if job["remaining"] or not job["assembled"]:
+                    continue
+                tail = job["tail"]
+                if tail:
+                    _chroma_delete_in_chunks(col, tail)
+                    ledger.delete(tail)
+                    deleted += len(tail)
+                ledger.finish(key)
+                items_indexed += 1
+                del pending[key]
+                if items_indexed % 100 == 0:
+                    status(False)
+
+        def flush():
+            nonlocal ids_buf, docs_buf, metas_buf, upserted
+            if not ids_buf:
+                return
+            import time
+
+            for attempt in range(3):
+                try:
+                    vectors = embedder.encode(docs_buf)
+                    if len(vectors) != len(docs_buf):
+                        raise SemanticIndexUnavailable(
+                            "Embedding response omitted document vectors"
+                        )
+                    break
+                except Exception:
+                    if attempt == 2:
+                        raise
+                    time.sleep(5)
+            col.upsert(
+                ids=ids_buf, documents=docs_buf, embeddings=vectors, metadatas=metas_buf
+            )
+            with ledger.db:
+                for cid, doc, md in zip(ids_buf, docs_buf, metas_buf):
+                    ledger.put(cid, doc, md)
+                    pending[md["item_key"]]["remaining"].discard(cid)
+            upserted += len(ids_buf)
+            ids_buf = []
+            docs_buf = []
+            metas_buf = []
+            finish_ready()
+            status(False)
+            logger.info(
+                "semantic_index: upserted %d chunks; reused %d; completed %d/%d items",
+                upserted,
+                reused,
+                items_indexed,
+                total_items_to_index,
+            )
+
+        try:
+            # Status includes scanning time, rather than looking idle for the
+            # several minutes required to adopt a large pre-existing index.
+            if publish_status:
+                self._save_status(
+                    {
+                        **previous,
+                        "in_progress": True,
+                        "phase": "scanning",
+                        "started_at": started_at,
+                        "updated_at": started_at,
+                    }
+                )
+
+            def progress(scanned, total):
+                if publish_status:
+                    self._save_status(
+                        {
+                            **previous,
+                            "in_progress": True,
+                            "phase": "adopting_existing_vectors",
+                            "started_at": started_at,
+                            "updated_at": datetime.now(timezone.utc).isoformat(),
+                            "chunks_scanned": scanned,
+                            "existing_chunks": total,
+                        }
+                    )
+
+            ledger.bootstrap(col, progress)
+            if force_rebuild:
+                for key in ledger.keys():
+                    ids = list(ledger.chunks(key))
+                    _chroma_delete_in_chunks(col, ids)
+                    ledger.delete(ids)
+                    deleted += len(ids)
+                with ledger.db:
+                    ledger.db.execute("DELETE FROM items")
+            seen = {item["item_key"] for item in items if item.get("item_key")}
+            if remove_stale:
+                for key in ledger.keys() - seen:
+                    ids = list(ledger.chunks(key))
+                    _chroma_delete_in_chunks(col, ids)
+                    ledger.delete(ids)
+                    deleted += len(ids)
+                    with ledger.db:
+                        ledger.db.execute("DELETE FROM items WHERE item_key=?", (key,))
+            work = []
+            for item in items:
+                key = item.get("item_key")
+                if not key:
+                    continue
+                signature = self._source_signature(item)
+                old = ledger.item(key)
+                if old and old["complete"] and old["signature"] == signature:
+                    continue
+                work.append((item, signature))
+            total_items_to_index = len(work)
+            status(False)
+            for item, signature in work:
+                key = item["item_key"]
+                chunks = chunk_item(item)
+                old = ledger.chunks(key)
+                expected = {_make_chunk_id(key, i) for i in range(len(chunks))}
+                ledger.start(key, signature)
+                pending[key] = {
+                    "remaining": set(expected),
+                    "tail": list(set(old) - expected),
+                    "assembled": False,
+                }
+                metadata_updates = []
+                for number, chunk in enumerate(chunks):
+                    cid = _make_chunk_id(key, number)
+                    md = {
+                        "item_key": key,
+                        "doi": (item.get("doi") or "").strip(),
+                        "title": (item.get("title") or "")[:400],
+                        "dateModified": item.get("dateModified") or "",
+                        "chunk_idx": number,
+                        "chunk_count": len(chunks),
+                        "char_start": chunk.char_start,
+                        "char_end": chunk.char_end,
+                        "chunk_source": chunk.source,
+                        "provider": embedder.provider,
+                        "model": embedder.model,
+                        "text_format": 2,
+                    }
+                    prior = old.get(cid)
+                    prior_md = json.loads(prior["metadata"]) if prior else {}
+                    same_space = (
+                        prior_md.get("provider", embedder.provider) == embedder.provider
+                        and prior_md.get("model", embedder.model) == embedder.model
+                    )
+                    if (
+                        prior
+                        and same_space
+                        and prior["doc_hash"] == text_hash(chunk.text)
+                    ):
+                        reused += 1
+                        pending[key]["remaining"].discard(cid)
+                        if prior["metadata"] != metadata_json(md):
+                            metadata_updates.append((cid, chunk.text, md))
+                    else:
+                        ids_buf.append(cid)
+                        docs_buf.append(chunk.text)
+                        metas_buf.append(md)
+                    if len(ids_buf) >= _get_upsert_batch_size():
+                        flush()
+                for start in range(0, len(metadata_updates), 100):
+                    batch = metadata_updates[start : start + 100]
+                    col.update(
+                        ids=[r[0] for r in batch], metadatas=[r[2] for r in batch]
+                    )
+                    with ledger.db:
+                        for cid, doc, md in batch:
+                            ledger.put(cid, doc, md)
+                pending[key]["assembled"] = True
+                finish_ready()
+            flush()
+            finish_ready()
+            status(True)
+            return (
+                self._load_status()
+                if publish_status
+                else {"upserted": upserted, "reused": reused}
+            )
+        except Exception as exc:
+            if publish_status:
+                try:
+                    status(False, str(exc))
+                except Exception:
+                    logger.exception("Could not persist failed semantic sync status")
+            raise
+        finally:
+            ledger.close()
 
     # -- search ----------------------------------------------------------
 
@@ -567,7 +679,8 @@ class SemanticIndex:
                 score = 1.0 - float(dist)
                 out.append(
                     {
-                        "item_key": md.get("item_key") or _item_key_from_chunk_id(chunk_id),
+                        "item_key": md.get("item_key")
+                        or _item_key_from_chunk_id(chunk_id),
                         "chunk_id": chunk_id,
                         "doi": md.get("doi") or "",
                         "title": md.get("title") or "",
@@ -585,7 +698,10 @@ class SemanticIndex:
         return await asyncio.to_thread(_search_blocking)
 
     async def search_within_item(
-        self, query: str, item_key: str, k: int = 20,
+        self,
+        query: str,
+        item_key: str,
+        k: int = 20,
     ) -> list[dict[str, Any]]:
         """Return chunks for *item_key* ranked by relevance to *query*.
 
@@ -617,7 +733,8 @@ class SemanticIndex:
                 score = 1.0 - float(dist)
                 out.append(
                     {
-                        "item_key": md.get("item_key") or _item_key_from_chunk_id(chunk_id),
+                        "item_key": md.get("item_key")
+                        or _item_key_from_chunk_id(chunk_id),
                         "chunk_id": chunk_id,
                         "doi": md.get("doi") or "",
                         "title": md.get("title") or "",
@@ -656,40 +773,12 @@ class SemanticIndex:
         self._assert_compatible(embedder)
 
         def _do() -> int:
-            col = self._get_chroma_collection()
-            # Remove any stale chunks for this key first (e.g. from a
-            # previous partial upsert).
-            prior = col.get(where={"item_key": item_key}, include=[])
-            if prior.get("ids"):
-                _chroma_delete_in_chunks(col, prior["ids"])
-
-            ids, docs, metas = [], [], []
-            for idx, c in enumerate(chunks):
-                ids.append(_make_chunk_id(item_key, idx))
-                docs.append(c.text)
-                metas.append({
-                    "item_key": item_key,
-                    "doi": (target.get("doi") or "").strip(),
-                    "title": (target.get("title") or "")[:400],
-                    "dateModified": target.get("dateModified") or "",
-                    "chunk_idx": idx,
-                    "chunk_count": len(chunks),
-                    "char_start": c.char_start,
-                    "char_end": c.char_end,
-                    "chunk_source": c.source,
-                    "provider": embedder.provider,
-                    "model": embedder.model,
-                    "text_format": 2,
-                })
-            embs = embedder.encode(docs)
-            if len(embs) != len(docs):
-                logger.warning(
-                    "embed_item_now: embedder returned %d vectors for %d docs, skipping %s",
-                    len(embs), len(docs), item_key,
+            with self._writer_lock, (self.cache_dir / "writer.lock").open("a") as lock:
+                fcntl.flock(lock, fcntl.LOCK_EX)
+                result = self._sync_items(
+                    [target], embedder, remove_stale=False, publish_status=False
                 )
-                return 0
-            col.upsert(ids=ids, documents=docs, embeddings=embs, metadatas=metas)
-            return len(ids)
+                return result["upserted"]
 
         return await asyncio.to_thread(_do)
 
@@ -715,12 +804,14 @@ class SemanticIndex:
         status["cache_dir"] = str(self.cache_dir)
         # Expose the currently configured provider for drift detection.
         status["configured_provider"] = config.semantic_provider or "local"
-        status["configured_model"] = (
-            config.semantic_model
-            or {"local": "all-MiniLM-L6-v2", "openai": "text-embedding-3-small", "gemini": "gemini-embedding-001"}.get(
-                config.semantic_provider or "local", "all-MiniLM-L6-v2"
-            )
-        )
+        status["configured_model"] = config.semantic_model or {
+            "local": "all-MiniLM-L6-v2",
+            "openai": "text-embedding-3-small",
+            "gemini": "gemini-embedding-001",
+        }.get(config.semantic_provider or "local", "all-MiniLM-L6-v2")
+        from . import zotero_fulltext
+
+        status["fulltext_sync"] = zotero_fulltext.status()
         return status
 
 

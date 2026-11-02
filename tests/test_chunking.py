@@ -500,3 +500,14 @@ def test_ft_cache_reads_full_file_when_cap_is_none(tmp_path, monkeypatch):
     # Last chunk's char_end should reach the end of the source text (or very close
     # — final stride may overshoot slightly, but we should index well past 200k).
     assert chunks[-1].char_end > 400_000
+
+
+def test_unstructured_cached_fulltext_is_indexed_instead_of_just_abstract(monkeypatch):
+    from academic_mcp import text_cache
+    article=text_cache.CachedArticle(doi='10.1234/plain',text='Full paper content '*200,
+                                    source='zotero_webdav_pdf',sections=[],section_detection='unknown')
+    monkeypatch.setattr(text_cache,'get_cached',lambda doi:article)
+    chunks=chunk_item(_make_item(title='Plain paper',abstract='Abstract',doi='10.1234/plain'))
+    assert len(chunks)>1
+    assert all(c.source=='article_text' for c in chunks)
+    assert any('Full paper content' in c.text for c in chunks)

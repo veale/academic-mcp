@@ -38,6 +38,8 @@
     <key>WatchPaths</key>
     <array>
       <string>/Users/YOURUSER/Zotero/zotero.sqlite-journal</string>
+      <string>/Users/YOURUSER/Zotero/zotero.sqlite-wal</string>
+      <string>/Users/YOURUSER/Zotero/zotero.sqlite</string>
       <string>/Users/YOURUSER/Zotero/storage</string>
     </array>
 

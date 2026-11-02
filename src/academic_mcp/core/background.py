@@ -12,7 +12,7 @@ _lexical_sync_task: asyncio.Task | None = None
 _prewarm_tasks: set[asyncio.Task] = set()
 
 
-def _ensure_semantic_background_sync(max_age_hours: int = 24) -> None:
+def _ensure_semantic_background_sync(max_age_hours: int = 1) -> None:
     """Kick off a background semantic sync when stale; never blocks request paths."""
     global _semantic_sync_task
 
@@ -28,7 +28,7 @@ def _ensure_semantic_background_sync(max_age_hours: int = 24) -> None:
         for attempt in range(1, _MAX_ATTEMPTS + 1):
             try:
                 idx = get_semantic_index()
-                status = await idx.status()
+                status = await asyncio.to_thread(idx._load_status)
                 last_sync = status.get("last_sync")
                 stale = True
                 if isinstance(last_sync, str) and last_sync:

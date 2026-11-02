@@ -289,24 +289,20 @@ URL to resolve.
 
 ---
 
-## Phase 8 — Initial semantic index rebuild
+## Phase 8 — Initial semantic index sync
 
 After the first Zotero sync and container start, rebuild the semantic index
 against the mirrored data.
 
 From Claude Desktop (after reconfiguring per Phase 7):
 ```
-semantic_index_rebuild(force=True)
+semantic_index_rebuild()
 ```
 
-Or directly from the server shell:
-```bash
-docker exec academic_mcp uv run python -c "
-import asyncio
-from academic_mcp.semantic_index import get_semantic_index
-asyncio.run(get_semantic_index().sync(force_rebuild=True))
-"
-```
+Use the MCP tool rather than starting another Python process against the
+embedded Chroma directory. The running server owns that directory and rejects
+another process to protect its HNSW index. The default tool call is incremental
+and resumable; it does not wipe existing vectors.
 
 Duration is roughly equivalent to the initial MacBook build, modulated by
 Asahi's CPU.  Monitor progress:
@@ -328,7 +324,7 @@ docker exec academic_mcp watch -n 5 \
 - [ ] launchd sync ran at least once: `.last-sync` timestamp in zotero-mirror is recent
 - [ ] ft-cache files landed: `find /home/YOURUSER/ft-cache -name .zotero-ft-cache | wc -l` > 0
 - [ ] `docker exec academic_mcp ls /zotero/storage/ | head` shows `<item_key>` directories
-- [ ] `semantic_index_rebuild(force=True)` completes successfully
+- [ ] `semantic_index_rebuild()` completes successfully
 - [ ] Chroma index lives on the host: `du -sh /home/YOURUSER/academic-mcp-cache/chroma` is non-trivial
 - [ ] `ps aux | grep academic_mcp` on MacBook shows **zero** local MCP processes
 
@@ -427,3 +423,73 @@ DOI-bearing HTML retrievals save citation metadata even when no PDF is
 available. A later PDF download attaches to the same item. URL-only documents
 without DOIs currently do not auto-import. For a PDF upload failure,
 inspect `zotero_import_status`; receiving article text is not proof of a save.
+
+## Zotero freshness, WAL, and indexing
+
+The SQLite snapshot is now an optional baseline and source of historical
+`.zotero-ft-cache` text. When Web API credentials are configured, a separate
+server catalog follows incremental metadata updates and permanent deletions
+for the personal library and all accessible groups. This catalog never writes
+the private Zotero database schema. It records a library version only after
+all changed-item pages and deletion records agree on that version. Failed
+source reads retain existing indexes rather than pruning against an empty list.
+
+`SEMANTIC_SYNC_INTERVAL_SECONDS=300` checks the library every five minutes,
+and the nightly check also runs a genuine incremental sync. DOI retrieval
+refreshes missing records sooner, without waiting for the Mac snapshot.
+Zotero data sync must first send the record/attachment metadata to zotero.org;
+WebDAV file sync must send the PDF separately. A file on WebDAV alone does
+not tell the server which paper or DOI it belongs to.
+
+For newly changed Zotero records, bounded background workers download and
+extract their PDFs from the configured file backend. Personal libraries use
+WebDAV when configured; groups use their own Zotero File Storage endpoint.
+`ZOTERO_FULLTEXT_SYNC_LIMIT=20` bounds work per pass. Metadata can be indexed
+while a file is still syncing; full text is picked up once available. The
+Mac does not need to remain online after its metadata and PDF have synced.
+
+WAL permits ordinary readers alongside writers **on the source Mac**. Keep
+using SQLite's online backup API so committed WAL contents are included; do
+not rsync just the live main file. The updated launch-agent template watches
+`zotero.sqlite`, `zotero.sqlite-wal`, and the older journal file. Only the
+backup is normalised to journal mode DELETE and validated before publication.
+The original Zotero database is never checkpointed or reconfigured by this
+script. Published snapshots are opened read-only and immutable on Asahi and
+atomically replaced, avoiding redundant shadow copies and WAL sidecars.
+
+Semantic indexing now maintains `index-state.sqlite` beside Chroma. On its
+first run it streams hashes of the existing chunks into this progress ledger.
+This adoption can take several minutes for a large library, but does not
+re-embed unchanged text. Later passes skip unchanged sources; changed file
+signatures are checked independently of Zotero's `dateModified`. Changed text
+is embedded, unchanged text retains its vector, and metadata is updated as
+needed. Items become complete only after every chunk is persisted. Interrupted
+items resume their missing chunks, and previous searchable vectors remain
+until replacement embeddings succeed. Trashed items and attachments are
+excluded. Invalid/missing embedding vectors fail visibly and remain retryable.
+
+`semantic_index_status` reports adoption/indexing phase, reused/upserted chunks,
+pending work, source errors, live metadata-catalog freshness, and PDF-sync work.
+The optional Mac mirror's separate age remains visible so a stale snapshot
+cannot be mistaken for a fresh local copy.
+
+`batch_sections` now returns available sections within
+`BATCH_FETCH_WAIT_SECONDS` (default 20, maximum 25 seconds), with per-DOI
+pending/error messages. Pending jobs continue and repeated calls coalesce.
+`ARTICLE_FETCH_TIMEOUT_SECONDS=300` limits an individual active fetch. PDF
+extraction uses two processes because PyMuPDF is not thread safe; it no longer
+blocks MCP's event loop. Publisher metadata requests also run concurrently.
+
+
+The embedded Chroma client has a lifetime ownership lock as well as a writer
+lock. All vector reads/writes must run through the owning MCP server, including
+manual repairs. Separate CLI processes must not open the same Chroma directory.
+Use `semantic_index_rebuild()` through MCP to request an incremental repair,
+and read `status.json` directly for shell monitoring. The initial adoption
+ledger is a one-time operation; Chroma and the ledger are retained together.
+
+Embedding requests retry overload/rate-limit responses with exponential
+backoff and honor `Retry-After`. A failure leaves incomplete items resumable.
+For a constrained cloud backend, reduce `BULK_OPENAI_EMBED_CONCURRENCY` and
+`BULK_OPENAI_EMBED_BATCH`; do not change the model as an overload workaround,
+since its vectors must remain compatible with the existing collection.

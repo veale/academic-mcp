@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import hashlib
 import logging
 import re
 import sqlite3
@@ -122,6 +123,8 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
         )
         """
     )
+    if "signature" not in {r[1] for r in conn.execute("PRAGMA table_info(fts_meta)")}:
+        conn.execute("ALTER TABLE fts_meta ADD COLUMN signature TEXT NOT NULL DEFAULT ''")
     # Search joins fts_meta on fts_rowid to recover item_key. Without this
     # index that join scans fts_meta once per matched row, and a common term
     # matching thousands of documents ends up slower than the LIKE scan it
@@ -298,13 +301,17 @@ async def status() -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 def _document(item: dict) -> tuple[str, ...]:
+    from . import text_cache
+    article = text_cache.get_cached(item.get("doi") or "") if item.get("doi") else None
+    fulltext = (article.text[:config.fts_fulltext_max_chars] if article and config.fts_fulltext_max_chars > 0
+                else _read_fulltext(item.get("attachment_key") or ""))
     return (
         item.get("title") or "",
         " ".join(item.get("authors") or []),
         item.get("abstract") or "",
         item.get("venue") or "",
         " ".join(item.get("tags") or []),
-        _read_fulltext(item.get("attachment_key") or ""),
+        fulltext,
     )
 
 
@@ -318,12 +325,12 @@ def _sync_blocking(items: list[dict], force_rebuild: bool) -> dict[str, Any]:
             conn.execute("DELETE FROM items_fts")
             conn.execute("DELETE FROM fts_meta")
             conn.commit()
-            prior: dict[str, tuple[int, str]] = {}
+            prior: dict[str, tuple[int, str, str]] = {}
         else:
             prior = {
-                r["item_key"]: (r["fts_rowid"], r["date_modified"])
+                r["item_key"]: (r["fts_rowid"], r["date_modified"], r["signature"])
                 for r in conn.execute(
-                    "SELECT item_key, fts_rowid, date_modified FROM fts_meta"
+                    "SELECT item_key, fts_rowid, date_modified, signature FROM fts_meta"
                 )
             }
 
@@ -340,18 +347,20 @@ def _sync_blocking(items: list[dict], force_rebuild: bool) -> dict[str, Any]:
             seen.add(item_key)
 
             date_mod = item.get("dateModified") or ""
+            document = _document(item)
+            signature = hashlib.sha256(json.dumps(document, ensure_ascii=False).encode()).hexdigest()
             existing = prior.get(item_key)
-            if existing is not None and existing[1] == date_mod:
+            if existing is not None and existing[1] == date_mod and existing[2] == signature:
                 continue
             if existing is not None:
                 conn.execute("DELETE FROM items_fts WHERE rowid = ?", (existing[0],))
                 deleted += 1
 
-            cur = conn.execute(insert_sql, _document(item))
+            cur = conn.execute(insert_sql, document)
             conn.execute(
-                "INSERT OR REPLACE INTO fts_meta (item_key, fts_rowid, date_modified) "
-                "VALUES (?, ?, ?)",
-                (item_key, cur.lastrowid, date_mod),
+                "INSERT OR REPLACE INTO fts_meta (item_key, fts_rowid, date_modified, signature) "
+                "VALUES (?, ?, ?, ?)",
+                (item_key, cur.lastrowid, date_mod, signature),
             )
             indexed += 1
             if n % _SYNC_BATCH == 0:
@@ -396,8 +405,9 @@ async def sync(force_rebuild: bool = False) -> dict[str, Any]:
         raise LexicalIndexUnavailable("Lexical index disabled (LEXICAL_INDEX_ENABLED=false)")
     if not _fts5_available():
         raise LexicalIndexUnavailable("This SQLite build has no FTS5 support")
-    if not zotero_sqlite.sqlite_config.available:
-        raise LexicalIndexUnavailable("Zotero SQLite backend is not available")
+    from .zotero_catalog import enabled as catalog_enabled
+    if not zotero_sqlite.sqlite_config.available and not catalog_enabled():
+        raise LexicalIndexUnavailable("Neither Zotero SQLite nor Web API metadata is available")
 
     items = await zotero_sqlite.list_items_for_lexical_index()
     result = await asyncio.to_thread(_sync_blocking, items, force_rebuild)

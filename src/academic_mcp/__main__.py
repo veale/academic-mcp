@@ -83,17 +83,11 @@ async def _nightly_sync_loop() -> None:
         await asyncio.sleep(wait_seconds)
 
         try:
-            idx = get_semantic_index()
-            status = await idx.status()
-            done = status.get("chunks_done", 0)
-            total = status.get("chunks_total", 0)
-            if total > 0 and done < total:
-                logger.info(
-                    "Nightly sync: %d/%d chunks unprocessed — starting sync", total - done, total
-                )
-                _ensure_semantic_background_sync(max_age_hours=0)  # force trigger
-            else:
-                logger.debug("Nightly sync: index complete (%d/%d), skipping", done, total)
+            # A previously complete index can still have new/changed inputs.
+            # Incremental sync decides what needs work; old chunk counters
+            # are not an indication that today's library is up to date.
+            logger.info("Nightly sync: checking current Zotero metadata and full text")
+            _ensure_semantic_background_sync(max_age_hours=0)
         except SemanticIndexUnavailable:
             pass
         except Exception as e:
@@ -150,7 +144,11 @@ def _run_sse(port: int):
         from .core.background import _ensure_semantic_background_sync as _sync
         import logging as _logging
         _logging.getLogger(__name__).info("Startup: triggering semantic index sync check")
-        _sync(max_age_hours=0)
+        while True:
+            _sync(max_age_hours=0)
+            from .core.background import ensure_lexical_background_sync
+            ensure_lexical_background_sync(max_age_hours=0)
+            await asyncio.sleep(max(60, int(os.getenv("SEMANTIC_SYNC_INTERVAL_SECONDS", "300"))))
 
     @asynccontextmanager
     async def lifespan(app):
@@ -231,7 +229,11 @@ def _run_streamable_http(port: int):
         from .core.background import _ensure_semantic_background_sync as _sync
         import logging as _logging
         _logging.getLogger(__name__).info("Startup: triggering semantic index sync check")
-        _sync(max_age_hours=0)
+        while True:
+            _sync(max_age_hours=0)
+            from .core.background import ensure_lexical_background_sync
+            ensure_lexical_background_sync(max_age_hours=0)
+            await asyncio.sleep(max(60, int(os.getenv("SEMANTIC_SYNC_INTERVAL_SECONDS", "300"))))
 
     @asynccontextmanager
     async def lifespan(app):

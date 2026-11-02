@@ -322,7 +322,7 @@ class Config:
                 if f.suffix not in evictable_suffixes:
                     continue
                 size = f.stat().st_size
-                mtime = f.stat().st_mtime
+                mtime = max(f.stat().st_mtime, f.stat().st_atime)
                 entries.append((mtime, size, f))
                 total += size
 

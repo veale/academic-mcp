@@ -167,6 +167,24 @@ async def _web_api_get(path: str, params: dict | None = None) -> httpx.Response 
     return None
 
 
+async def _web_library_get(path: str, item_key: str, prefix: str | None = None, params=None):
+    if not prefix or prefix == zot_config.library_prefix:
+        response = await _web_api_get(path, params)
+        if response is not None:
+            return response
+        from .zotero_catalog import library_for_key
+        prefix = library_for_key(item_key)
+    if not prefix or prefix == zot_config.library_prefix:
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            response = await client.get(f"https://api.zotero.org{prefix}{path}",
+                params=params or {}, headers={"Zotero-API-Key":zot_config.api_key})
+        return response if response.status_code == 200 else None
+    except httpx.RequestError:
+        return None
+
+
 async def _build_doi_index() -> dict[str, dict]:
     """Scan all library items and build DOI -> metadata index.
 
@@ -365,12 +383,15 @@ async def _fetch_user_group_ids() -> list[str]:
 
 async def get_doi_index() -> dict[str, dict]:
     global _doi_index
-    if _doi_index is not None:
-        return _doi_index
-    # Try disk cache first
-    _doi_index = _load_cached_index()
     if _doi_index is None:
-        _doi_index = await _build_doi_index()
+        _doi_index = _load_cached_index()
+        if _doi_index is None:
+            _doi_index = await _build_doi_index()
+    from .zotero_catalog import update_doi_index
+    try:
+        _doi_index = await update_doi_index(_doi_index)
+    except Exception as exc:
+        logger.warning("Could not refresh live Zotero DOI metadata: %s", exc)
     return _doi_index
 
 
@@ -387,22 +408,22 @@ def invalidate_doi_index():
 # Item + attachment lookup
 # ---------------------------------------------------------------------------
 
-async def _get_item(item_key: str) -> dict | None:
+async def _get_item(item_key: str, library_prefix: str | None = None) -> dict | None:
     resp = await _local_api_get(f"/items/{item_key}", {"format": "json"})
     if resp:
         return resp.json()
-    resp = await _web_api_get(f"/items/{item_key}", {"format": "json"})
+    resp = await _web_library_get(f"/items/{item_key}", item_key, library_prefix, {"format": "json"})
     return resp.json() if resp else None
 
 
-async def _get_pdf_attachments(item_key: str) -> list[dict]:
+async def _get_pdf_attachments(item_key: str, library_prefix: str | None = None) -> list[dict]:
     """Get PDF attachment children for an item."""
     children = None
     resp = await _local_api_get(f"/items/{item_key}/children", {"format": "json"})
     if resp:
         children = resp.json()
     if children is None:
-        resp = await _web_api_get(f"/items/{item_key}/children", {"format": "json"})
+        resp = await _web_library_get(f"/items/{item_key}/children", item_key, library_prefix, {"format": "json"})
         children = resp.json() if resp else []
 
     return [
@@ -419,7 +440,8 @@ async def _resolve_attachment(index_entry: dict) -> dict:
     if index_entry["attachment_key"] is not None:
         return index_entry
 
-    attachments = await _get_pdf_attachments(index_entry["item_key"])
+    attachments = (await _get_pdf_attachments(index_entry["item_key"], index_entry["library_prefix"])
+                   if index_entry.get("library_prefix") else await _get_pdf_attachments(index_entry["item_key"]))
     if attachments:
         index_entry["attachment_key"] = attachments[0]["key"]
         index_entry["has_pdf"] = True
@@ -457,7 +479,7 @@ async def find_item_by_doi(doi: str) -> dict | None:
 # Fulltext retrieval
 # ---------------------------------------------------------------------------
 
-async def get_fulltext(attachment_key: str) -> dict | None:
+async def get_fulltext(attachment_key: str, library_prefix: str | None = None) -> dict | None:
     """Get Zotero's pre-extracted fulltext.
 
     Returns {content, indexedPages, totalPages} or None.
@@ -470,7 +492,7 @@ async def get_fulltext(attachment_key: str) -> dict | None:
     """
     if not zot_config.web_api_available:
         return None
-    resp = await _web_api_get(f"/items/{attachment_key}/fulltext")
+    resp = await _web_library_get(f"/items/{attachment_key}/fulltext", attachment_key, library_prefix)
     if resp:
         data = resp.json()
         if data.get("content"):
@@ -493,10 +515,13 @@ async def get_pdf_from_local_storage(attachment_key: str) -> Path | None:
     return None
 
 
-async def get_pdf_from_web_api(attachment_key: str) -> Path | None:
+async def get_pdf_from_web_api(attachment_key: str, library_prefix: str | None = None) -> Path | None:
     """Download PDF from Zotero web API, streaming to disk."""
     if not zot_config.web_api_available:
         return None
+    if not library_prefix:
+        from .zotero_catalog import library_for_key
+        library_prefix = library_for_key(attachment_key) or zot_config.library_prefix
     dest = app_config.pdf_cache_dir / f"zotero_web_{attachment_key}.pdf"
     if dest.exists():
         return dest
@@ -504,7 +529,7 @@ async def get_pdf_from_web_api(attachment_key: str) -> Path | None:
         async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
             async with client.stream(
                 "GET",
-                f"https://api.zotero.org{zot_config.library_prefix}/items/{attachment_key}/file",
+                f"https://api.zotero.org{library_prefix or zot_config.library_prefix}/items/{attachment_key}/file",
                 headers={"Zotero-API-Key": zot_config.api_key},
             ) as resp:
                 if resp.status_code != 200:
@@ -607,8 +632,20 @@ async def get_paper_from_zotero(doi: str) -> dict | None:
     Returns dict with metadata + text/pdf_path, or None if not in library.
     Tries SQLite path first (ft-cache files, local PDFs), then API path.
     """
+    index = await get_doi_index()
+    entry = index.get(_normalize_doi(doi))
+    if not entry:
+        from . import zotero_catalog
+        try:
+            await zotero_catalog.refresh(max_age_seconds=15)
+            index = await get_doi_index()
+            entry = index.get(_normalize_doi(doi))
+        except Exception as exc:
+            logger.debug("Live DOI refresh unavailable: %s", exc)
+    mirror_metadata = None
+
     # ── SQLite path (fastest — reads .zotero-ft-cache directly) ──────
-    if zotero_sqlite.sqlite_config.available:
+    if zotero_sqlite.sqlite_config.available and not (entry or {}).get("_catalog"):
         try:
             sqlite_item = await zotero_sqlite.search_by_doi(doi)
             if sqlite_item:
@@ -618,18 +655,18 @@ async def get_paper_from_zotero(doi: str) -> dict | None:
                 else:
                     # Found but no content — still return metadata
                     content.source = content.source or "sqlite_metadata_only"
-                    return content.to_zotero_result()
+                    mirror_metadata = content.to_zotero_result()
         except Exception as e:
             logger.debug("SQLite paper retrieval failed, falling back to API: %s", e)
 
     # ── API fallback ─────────────────────────────────────────────────
     doi_clean = _normalize_doi(doi)
-    index = await get_doi_index()
     entry = index.get(doi_clean)
     if not entry:
-        return None
+        return mirror_metadata
 
-    item = await _get_item(entry["item_key"])
+    prefix = entry.get("library_prefix")
+    item = await _get_item(entry["item_key"], prefix) if prefix else await _get_item(entry["item_key"])
     if not item:
         return None
 
@@ -651,7 +688,7 @@ async def get_paper_from_zotero(doi: str) -> dict | None:
         return result
 
     # 1. Fulltext (web API only, best path)
-    ft = await get_fulltext(att_key)
+    ft = await get_fulltext(att_key, prefix) if prefix else await get_fulltext(att_key)
     if ft and ft.get("content"):
         result["text"] = ft["content"]
         result["source"] = "zotero_fulltext"
@@ -685,8 +722,16 @@ async def get_paper_from_zotero(doi: str) -> dict | None:
         result["source"] = "zotero_local_pdf"
         return result
 
+    # Personal WebDAV libraries should not probe Zotero File Storage first.
+    if not (prefix or zot_config.library_prefix).startswith("/groups/") and zot_config.webdav_available:
+        pdf = await get_pdf_from_webdav(att_key)
+        if pdf:
+            result["pdf_path"] = pdf
+            result["source"] = "zotero_webdav_pdf"
+            return result
+
     # 3. Web API file download (streams to disk, returns Path)
-    pdf = await get_pdf_from_web_api(att_key)
+    pdf = await get_pdf_from_web_api(att_key, prefix) if prefix else await get_pdf_from_web_api(att_key)
     if pdf:
         result["pdf_path"] = pdf
         result["source"] = "zotero_web_pdf"

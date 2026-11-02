@@ -220,3 +220,13 @@ def test_fulltext_skipped_when_cap_is_zero(fts_db, tmp_path, monkeypatch):
 @pytest.mark.asyncio
 async def test_search_returns_empty_when_index_absent(fts_db):
     assert await lx.search("anything") == []
+
+
+def test_fulltext_updates_without_zotero_metadata_date_change(fts_db,monkeypatch):
+    content=['Old text']
+    monkeypatch.setattr(lx,'_read_fulltext',lambda key:content[0])
+    item=_item('A','Paper')
+    lx._sync_blocking([item],False)
+    content[0]='Recently extracted full text'
+    result=lx._sync_blocking([item],False)
+    assert result['indexed']==1

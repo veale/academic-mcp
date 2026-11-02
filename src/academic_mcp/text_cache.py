@@ -19,6 +19,8 @@ Typical usage::
 import hashlib
 import json
 import logging
+import os
+import time
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -121,15 +123,16 @@ class CachedArticle:
 def get_cached(doi: str) -> Optional[CachedArticle]:
     """Return the cached article for *doi*, or ``None`` if not cached.
 
-    Touching the file on read updates its mtime so LRU eviction keeps
-    recently-accessed articles alive.
+    Refresh access time while retaining content modification time, which
+    incremental semantic indexing uses to detect extraction changes.
     """
     path = _cache_path(doi)
     if not path.exists():
         return None
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-        path.touch()  # refresh mtime for LRU eviction
+        stat = path.stat()
+        os.utime(path, ns=(time.time_ns(), stat.st_mtime_ns))
         return CachedArticle.from_dict(data)
     except Exception as exc:
         logger.debug("Failed to read article cache for %s: %s", doi, exc)

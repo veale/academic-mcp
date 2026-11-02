@@ -726,3 +726,30 @@ class TestBulkVsInteractiveEndpoint:
         assert emb_int.endpoint != emb_bulk.endpoint
         # Same model on both — vectors are in the same space.
         assert emb_int.model == emb_bulk.model
+
+
+@pytest.mark.parametrize('vectors', [[], [[1,2],[1]], [[float('nan'),0],[1,2]]])
+def test_invalid_embedding_responses_are_rejected(vectors):
+    from academic_mcp.embeddings import Embedder,EmbedderUnavailable
+    embedder=Embedder('openai','test',None,lambda texts:vectors)
+    with pytest.raises(EmbedderUnavailable):embedder.encode(['one','two'])
+
+
+def test_embedding_overload_respects_retry_after_and_preserves_response_order(monkeypatch):
+    import httpx
+    import asyncio
+    from academic_mcp import embeddings
+    calls=[];sleeps=[]
+    def handler(request):
+        calls.append(request)
+        if len(calls)==1:return httpx.Response(429,headers={'Retry-After':'3'})
+        return httpx.Response(200,json={'data':[{'index':1,'embedding':[0.,1.]},{'index':0,'embedding':[1.,0.]}]})
+    original=httpx.AsyncClient
+    monkeypatch.setattr(embeddings.httpx,'AsyncClient',lambda **kw:original(transport=httpx.MockTransport(handler),**kw))
+    monkeypatch.setattr(embeddings,'config',_mock_config(provider='openai',openai_key='test',openai_base_url='https://embed.example/v1'))
+    async def sleep(seconds):sleeps.append(seconds)
+    monkeypatch.setattr(asyncio,'sleep',sleep)
+    encode,_,_=embeddings._openai_encoder('test')
+    assert encode(['one','two'])==[[1.,0.],[0.,1.]]
+    assert sleeps==[3.]
+    assert len(calls)==2

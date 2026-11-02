@@ -60,6 +60,13 @@ if ! sqlite3 -readonly -cmd ".timeout 5000" "$SRC_SQLITE" ".backup '$SNAPSHOT'" 
     exit 3
 fi
 
+# Publish a self-contained rollback-journal snapshot. Only the backup is
+# changed; the live Zotero database and its WAL are never modified.
+if [ "$(sqlite3 "$SNAPSHOT" 'PRAGMA journal_mode=DELETE; PRAGMA quick_check;')" != $'delete\nok' ]; then
+    echo "zotero-sync: snapshot validation failed; keeping previous mirror." >&2
+    exit 3
+fi
+
 # ── 2. Ship snapshot → REMOTE_DIR/zotero.sqlite (atomic rename) ─────────────
 "$RSYNC" \
     --archive --partial --compress --compress-level=1 \
