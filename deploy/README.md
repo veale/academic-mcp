@@ -493,3 +493,7 @@ backoff and honor `Retry-After`. A failure leaves incomplete items resumable.
 For a constrained cloud backend, reduce `BULK_OPENAI_EMBED_CONCURRENCY` and
 `BULK_OPENAI_EMBED_BATCH`; do not change the model as an overload workaround,
 since its vectors must remain compatible with the existing collection.
+
+`PDF_PARSE_TIMEOUT_SECONDS=120` is a hard per-parser deadline. A timed-out or
+cancelled parse terminates its worker process and releases its slot, so one
+pathological document cannot leave the PDF worker pool permanently occupied.

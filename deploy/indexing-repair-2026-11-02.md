@@ -65,7 +65,7 @@ PDF caches and WebDAV files were retained throughout.
 
 ## Validation
 
-The full suite passes 300 tests, including real PDF process execution,
+The full suite passes 301 tests, including real PDF process execution and hard worker timeout cleanup,
 non-blocking batch responses, response coalescing, WAL backup with an open
 writer, trashed-item exclusion, timestamp-independent content updates,
 interrupted-paper completion, vector reuse, failed-source preservation,

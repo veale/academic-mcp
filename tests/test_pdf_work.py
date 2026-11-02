@@ -23,3 +23,19 @@ async def test_real_pdf_process_worker_returns_text_without_blocking_loop(tmp_pa
     result = await task
     assert "privacy research" in result["text"]
     assert heartbeats > 0
+
+
+def _sleeping_child(sender, source, markdown, pages):
+    import time
+
+    time.sleep(10)
+
+
+async def test_pdf_timeout_terminates_worker_and_releases_slot(tmp_path, monkeypatch):
+    import pytest
+
+    monkeypatch.setattr(pdf_work, "_extract_child", _sleeping_child)
+    monkeypatch.setenv("PDF_PARSE_TIMEOUT_SECONDS", "0.05")
+    with pytest.raises(TimeoutError, match="PDF parsing exceeded"):
+        await process_extract(tmp_path / "ignored.pdf", False)
+    assert pdf_work._semaphore._value == 2
