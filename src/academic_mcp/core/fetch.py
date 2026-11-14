@@ -272,7 +272,7 @@ def _needs_revalidation(cached: "text_cache.CachedArticle") -> bool:
     source = (cached.source or "").lower()
     if source.startswith(_SEARCH_DERIVED_SOURCES) and status != identity.PASS:
         return True
-    if _is_zotero_source(source) and not meta.get("auto_import_checked") and status != identity.PASS:
+    if _is_zotero_source(source) and not meta.get("auto_import_checked_v2") and status != identity.PASS:
         # Library copies are rechecked once in case the attachment is one
         # this server auto-imported (then it is treated as a web download).
         return True
@@ -296,6 +296,22 @@ async def _is_auto_imported(doi: str | None, zotero_key: str | None) -> bool:
     except Exception as exc:
         logger.debug("Auto-import tag lookup failed for %s: %s", doi or zotero_key, exc)
         return False
+
+
+async def _same_work(title: str | None, doi: str) -> bool:
+    """Whether *doi* is registered under (a variant of) *title*; True if unknown."""
+    if not title:
+        return True
+    titles = await _published_titles(doi)
+    if not titles:
+        return True
+    verdicts = [identity._compare_titles(title, t) for t in titles]
+    if any(v and v[0] == identity.PASS for v in verdicts):
+        return True
+    if any(v and v[0] == identity.MISMATCH for v in verdicts):
+        logger.warning("Not following %s: registered as %r, not %r", doi, titles[0][:80], title[:80])
+        return False
+    return True
 
 
 async def _published_titles(doi: str) -> list[str]:
@@ -393,7 +409,7 @@ async def _revalidate_cached(
     meta["identity"] = check.to_dict()
     meta["content_warnings"] = identity.assess_content(cached.text, pages=meta.get("pages"))
     if _is_zotero_source(cached.source):
-        meta["auto_import_checked"] = True
+        meta["auto_import_checked_v2"] = True
     return text_cache.put_cached(
         cached.doi, cached.text, cached.source,
         sections=cached.sections,
@@ -1441,7 +1457,9 @@ async def _fetch_article(
                                     break
 
                         # If a published DOI was found, re-enter pipeline with it
-                        if result is None and (_ssrn_remap or {}).get("published_doi"):
+                        if result is None and (_ssrn_remap or {}).get("published_doi") and await _same_work(
+                            (_ssrn_remap or {}).get("title"), _ssrn_remap["published_doi"]
+                        ):
                             _pub_doi = _ssrn_remap["published_doi"]
                             logger.info("SSRN %s → published %s", doi, _pub_doi)
                             result = await fetch_article(
@@ -1458,7 +1476,10 @@ async def _fetch_article(
                                 _title_remap = await apis.search_by_title_for_published_version(
                                     _ssrn_remap["title"], doi, _c
                                 )
-                            if _title_remap and _title_remap.get("published_doi"):
+                            if (
+                                _title_remap and _title_remap.get("published_doi")
+                                and await _same_work(_ssrn_remap["title"], _title_remap["published_doi"])
+                            ):
                                 logger.info(
                                     "SSRN title search %r → %s",
                                     _ssrn_remap["title"][:60], _title_remap["published_doi"],

@@ -418,7 +418,7 @@ async def test_cached_users_own_library_copy_is_kept(cache_dir, monkeypatch):
     monkeypatch.setattr(fetch, "_is_auto_imported", AsyncMock(return_value=False))
     kept = await fetch.verified_cached(doi)
     assert kept is not None and kept.metadata["identity"]["status"] == identity.UNCERTAIN
-    assert kept.metadata["auto_import_checked"] is True
+    assert kept.metadata["auto_import_checked_v2"] is True
 
 
 async def test_legacy_search_hit_must_positively_match(cache_dir, monkeypatch):
@@ -476,3 +476,15 @@ async def test_auto_imported_same_author_paper_is_rejected(cache_dir, monkeypatc
     finally:
         fetch._ctx.reset(token)
     assert result is None
+
+
+async def test_ssrn_title_search_remap_must_be_the_same_work(monkeypatch):
+    monkeypatch.setattr(fetch, "_published_titles", AsyncMock(return_value=[
+        "Measuring Compliance in the Age of Governance: How the Governance Turn Has Impacted "
+        "Compliance Measurement by the State"]))
+    assert not await fetch._same_work(
+        "Cosmetic Compliance and the Failure of Negotiated Governance", "10.1017/9781108770941.003")
+    monkeypatch.setattr(fetch, "_published_titles", AsyncMock(return_value=[
+        "Cosmetic Compliance and the Failure of Negotiated Governance"]))
+    assert await fetch._same_work(
+        "Cosmetic compliance and the failure of negotiated governance", "10.1/x")

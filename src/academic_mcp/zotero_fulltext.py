@@ -120,7 +120,7 @@ async def _extract(item):
                     # download: never let it stand in for the work.
                     _rejected.add((item["attachment_key"], item.get("attachment_md5") or ""))
                     return 0
-            metadata["auto_import_checked"] = True
+            metadata["auto_import_checked_v2"] = True
             text_cache.put_cached(
                 item.get("doi") or "zotero:" + item["item_key"],
                 result["text"],

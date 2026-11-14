@@ -35,7 +35,7 @@ async def _audit_one(path: Path, dry_run: bool, sem: asyncio.Semaphore) -> dict 
         if isinstance(verdict, dict) and not (
             fetch._is_zotero_source(str(data.get("source") or ""))
             and str(verdict.get("reason", "")).startswith("the attachment's opening text")
-            and not meta.get("auto_import_checked")
+            and not meta.get("auto_import_checked_v2")
         ):
             return {"doi": doi, "status": "already_checked", "verdict": verdict.get("status")}
         zotero_key = doi.split(":", 1)[1] if doi.startswith("zotero:") else None
