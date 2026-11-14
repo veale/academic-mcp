@@ -20,6 +20,7 @@ import logging
 import re
 import tempfile
 from pathlib import Path
+from datetime import timedelta
 from urllib.parse import urlparse, urljoin
 
 import httpx
@@ -257,10 +258,13 @@ def _build_tool_args(url: str, tool_name: str = "", use_proxy: bool = False) -> 
     ``GOST_PROXY_URL`` is configured so the remote browser routes through
     the institution's network.
     """
-    args: dict = {"url": url}
-    if tool_name == "stealthy_fetch":
+    args: dict = {"url": url, "extraction_type": "html", "main_content_only": False}
+    if tool_name in {"stealthy_fetch", "browser_fetch_once"}:
         args["solve_cloudflare"] = True
-        args["extraction_type"] = "html"
+        args["timeout"] = 45000
+        args["google_search"] = False
+    elif tool_name in {"get", "make_request"}:
+        args["timeout"] = 30
     if use_proxy and config.gost_proxy_url:
         args["proxy"] = config.gost_proxy_url
     return args
@@ -315,7 +319,7 @@ async def fetch_with_scrapling(
 
 # Prefer stealthy_fetch — it has fingerprint spoofing and solve_cloudflare.
 # Fall back to fetch (plain Playwright) then get (HTTP-only).
-_TOOL_CANDIDATES = ("stealthy_fetch", "fetch", "scrape", "fetch_page", "get")
+_TOOL_CANDIDATES = ("browser_fetch_once", "stealthy_fetch", "fetch", "make_request", "get")
 
 
 async def _scrapling_via_mcp(
@@ -344,7 +348,9 @@ async def _scrapling_via_mcp(
         return None, None, None
 
     try:
-        async with streamablehttp_client(mcp_url) as (read_stream, write_stream, _):
+        headers = {"Authorization": "Bearer " + config.scrapling_mcp_auth_token} if config.scrapling_mcp_auth_token else None
+        async with streamablehttp_client(mcp_url, headers=headers, timeout=timedelta(seconds=10),
+                                         sse_read_timeout=timedelta(seconds=90)) as (read_stream, write_stream, _):
             async with ClientSession(read_stream, write_stream) as session:
                 await session.initialize()
 
@@ -364,7 +370,8 @@ async def _scrapling_via_mcp(
 
                 # Return HTML to the caller — they decide whether to extract
                 # article text or follow a PDF download link.
-                raw_text = _text_from_result(result)
+                structured = getattr(result, "structuredContent", None)
+                raw_text = json.dumps(structured) if structured else _text_from_result(result)
                 if not raw_text:
                     logger.debug("Scrapling MCP returned no content for %s", url)
                     return None, None, None
@@ -373,7 +380,7 @@ async def _scrapling_via_mcp(
                 return None, html, final_url or url
 
     except Exception as e:
-        logger.debug("Scrapling MCP session failed for %s: %s", url, e)
+        logger.warning("Scrapling MCP session failed for %s: %s", url, str(e).splitlines()[0])
     return None, None, None
 
 
@@ -388,13 +395,7 @@ async def _discover_tool(session) -> str | None:
                 logger.debug("Using remote Scrapling tool: %s", candidate)
                 return candidate
 
-        # Single-purpose server — just take the first tool.
-        if listing.tools:
-            name = listing.tools[0].name
-            logger.debug("No known tool name; using first tool: %s", name)
-            return name
-
-        logger.warning("Scrapling MCP server exposes no tools")
+        logger.warning("Scrapling MCP exposes no recognised fetch tool (available: %s)", sorted(available))
     except Exception as e:
         logger.debug("MCP tool discovery failed: %s", e)
     return None
@@ -408,7 +409,7 @@ async def _mcp_call(session, tool_name: str, arguments: dict):
             err = "".join(
                 getattr(c, "text", "") for c in result.content
             )
-            logger.debug(
+            logger.warning(
                 "MCP tool %s error for %s: %s",
                 tool_name, arguments.get("url"), err[:300],
             )
@@ -493,8 +494,10 @@ def _unwrap_scrapling_response(text: str) -> tuple[str, str]:
     # Scrapling returns {"status": 403, "content": [...]} for blocked pages
     # rather than raising an exception, so an empty body with status 200 is
     # fine (handled below) but a 4xx/5xx should be treated as a fetch failure.
+    if isinstance(data.get("result"), dict):
+        data = data["result"]
     status = data.get("status")
-    if status is not None and status != 200:
+    if status is not None and not (isinstance(status, int) and 200 <= status < 300):
         logger.debug("Scrapling returned HTTP %s inside JSON wrapper", status)
         return "", ""
 
@@ -508,7 +511,7 @@ def _unwrap_scrapling_response(text: str) -> tuple[str, str]:
     else:
         html = text
 
-    return html or text, final_url
+    return html, final_url
 
 
 def _extract_pdf_link_from_html(html: str, base_url: str) -> str | None:

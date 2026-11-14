@@ -827,6 +827,20 @@ TOOLS = [
         },
     ),
     Tool(
+        name="browser_acquisition",
+        description=("Request or monitor full-text acquisition through the user's persistent iMac browser. "
+                     "Uses institutional access and Zotero publisher translators, prefers HTML, and queues "
+                     "PDFs for the configured Zotero library without duplicate parents. Returns immediately. "
+                     "When needs_login/needs_review, tell the user to visit the iMac; resume only after they "
+                     "finish. content_ready means fetch_fulltext can read it; Zotero saving is separate. "
+                     "Actions: request (doi/url), status (optional id), resume/cancel (id)."),
+        inputSchema={"type": "object", "properties": {
+            "action": {"type": "string", "enum": ["request", "status", "resume", "cancel"], "default": "status"},
+            "doi": {"type": "string"}, "url": {"type": "string"}, "id": {"type": "string"}
+        }},
+        annotations={"readOnlyHint": False, "destructiveHint": False},
+    ),
+    Tool(
         name="zotero_import_status",
         description=(
             "Inspect recent Zotero auto-import attempts, startup write probe state, "
@@ -1347,6 +1361,21 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> Any:
             return await _handle_list_libraries(arguments)
         elif name == "refresh_zotero_index":
             return await _handle_refresh_zotero_index(arguments)
+        elif name == "browser_acquisition":
+            import json
+            from . import browser_acquisition
+            action = arguments.get("action", "status")
+            if action == "request":
+                result = await browser_acquisition.request_acquisition(arguments.get("doi"), arguments.get("url"))
+            elif action == "status":
+                result = await browser_acquisition.status(arguments.get("id"))
+            elif action in {"resume", "cancel"}:
+                if not arguments.get("id"):
+                    raise ValueError("Job id is required")
+                result = await browser_acquisition.control(arguments["id"], action)
+            else:
+                raise ValueError("Unknown acquisition action")
+            return [TextContent(type="text", text=json.dumps(result, ensure_ascii=False))]
         elif name == "zotero_import_status":
             return await _handle_zotero_import_status(arguments)
         elif name == "scite_enrich":

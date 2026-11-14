@@ -62,3 +62,23 @@ async def test_group_attachment_uses_its_group_api_endpoint(tmp_path, monkeypatc
     await fulltext._extract(item)
     get.assert_awaited_once_with("PDFKEY", "/groups/123")
     assert text_cache.get_cached("zotero:GROUP") is not None
+
+
+async def test_new_pdf_augments_browser_html_without_replacing_it(tmp_path, monkeypatch):
+    pdf = tmp_path / "paper.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n")
+    monkeypatch.setattr(text_cache.config, "pdf_cache_dir", tmp_path)
+    monkeypatch.setattr(fulltext.zotero, "get_pdf_from_web_api", AsyncMock(return_value=pdf))
+    parse = AsyncMock()
+    monkeypatch.setattr(fulltext.pdf_work, "extract", parse)
+    text_cache.put_cached("10.1234/html", "Structured HTML body", "desktop_browser_html", [], html_path="article.html")
+    item = {"item_key": "HTML", "doi": "10.1234/html", "attachment_key": "PDFKEY",
+            "_catalog": True, "library_prefix": "/groups/123"}
+    assert fulltext._needs_text(item)
+    await fulltext._extract(item)
+    cached = text_cache.get_cached(item["doi"])
+    assert cached.text == "Structured HTML body"
+    assert cached.source == "desktop_browser_html"
+    assert cached.pdf_path == str(pdf)
+    assert cached.metadata["zotero_attachment_key"] == "PDFKEY"
+    parse.assert_not_awaited()

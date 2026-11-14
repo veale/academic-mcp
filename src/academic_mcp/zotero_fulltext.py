@@ -22,6 +22,9 @@ def _needs_text(item):
         return False
     cached = text_cache.get_cached(item.get("doi") or "zotero:" + key)
     if cached and cached.text:
+        # A newly synced PDF must be eligible after an older HTML-only fetch.
+        if not cached.pdf_path and not cached.metadata.get("zotero_attachment_key"):
+            return True
         old_hash = cached.metadata.get("zotero_attachment_md5")
         return bool(
             old_hash
@@ -75,7 +78,6 @@ async def _extract(item):
                         raise RuntimeError(
                             "Attachment checksum differs from synced metadata"
                         )
-            result = await pdf_work.extract(path, config.use_pymupdf4llm)
             metadata = {
                 "title": item.get("title", ""),
                 "authors": item.get("authors", []),
@@ -83,6 +85,14 @@ async def _extract(item):
                 "zotero_attachment_key": attachment,
                 "zotero_attachment_md5": expected or "",
             }
+            identity = item.get("doi") or "zotero:" + item["item_key"]
+            existing = text_cache.get_cached(identity)
+            if existing and existing.source == "desktop_browser_html" and existing.html_path:
+                text_cache.put_cached(identity, existing.text, existing.source, existing.sections,
+                    section_detection=existing.section_detection, word_count=existing.word_count,
+                    metadata={**existing.metadata, **metadata}, pdf_path=str(path), html_path=existing.html_path)
+                return existing.word_count
+            result = await pdf_work.extract(path, config.use_pymupdf4llm)
             text_cache.put_cached(
                 item.get("doi") or "zotero:" + item["item_key"],
                 result["text"],

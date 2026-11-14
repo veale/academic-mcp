@@ -213,7 +213,8 @@ cp .env.example .env
 | `OPENALEX_API_KEY` | *(empty)* | Optional; premium rate limits via `Authorization: Bearer` |
 | `GOST_PROXY_URL` | *(empty)* | SOCKS5/HTTP proxy for institutional access |
 | `USE_STEALTH_BROWSER` | `true` | Enable Scrapling-based fetching |
-| `SCRAPLING_MCP_URL` | *(empty)* | Remote Scrapling MCP server SSE endpoint (see below) |
+| `SCRAPLING_MCP_URL` | *(empty)* | Remote Scrapling Streamable HTTP endpoint (`/mcp`) |
+| `SCRAPLING_MCP_AUTH_TOKEN` | *(empty)* | Shared bearer credential for the internal Scrapling connection |
 | `PDF_CACHE_DIR` | `~/.cache/academic-mcp/pdfs` | Where to cache downloaded PDFs |
 | `PDF_CACHE_MAX_BYTES` | `2147483648` (2 GB) | Max cache size before LRU eviction kicks in |
 | `MAX_CONTEXT_LENGTH` | `100000` | Max characters returned to the LLM |
@@ -991,12 +992,14 @@ By default, Scrapling launches a local Chromium instance. On headless servers or
 **Remote mode** (`SCRAPLING_MCP_URL` set):
 ```bash
 # On the remote machine (has Chromium installed):
+# Configure SCRAPLING_MCP_AUTH_TOKEN before starting HTTP mode.
 scrapling mcp --http --host 0.0.0.0 --port 8000
 
 # In your .env:
-SCRAPLING_MCP_URL=http://192.168.1.50:8000/sse
+SCRAPLING_MCP_URL=http://192.168.1.50:8000/mcp
+SCRAPLING_MCP_AUTH_TOKEN=the-shared-backend-token
 ```
-The local server acts as an MCP *client*, connecting over Streamable HTTP to the remote Scrapling MCP server. It discovers available tools at runtime via `list_tools()`, calls `stealthy_fetch` with `{"url": "...", "proxy": "..."}`, and handles two response shapes: if the response contains base64-encoded PDF bytes, they are decoded and cached directly; if it contains HTML, the HTML is passed to the extraction pipeline (`citation_pdf_url` meta tag → trafilatura → `<a>`-tag PDF link scanning) without making a second browser call. When `GOST_PROXY_URL` is configured, it's forwarded in every tool call so the *remote* browser routes through your institution's network. No local Scrapling or Chromium needed.
+The local server acts as a Streamable HTTP MCP client. It discovers tools at runtime and prefers `browser_fetch_once`, with compatibility for older `stealthy_fetch` servers. It requests full HTML so citation metadata is retained, understands native structured responses, and forwards the institutional proxy when requested. HTML enters the article extraction pipeline; returned PDF blobs are decoded and cached. No local Scrapling or Chromium is needed. For the managed deployment, lifecycle limits, automatic recovery and connector compatibility, see [deploy/scrapling/README.md](deploy/scrapling/README.md).
 
 **Local mode** (default — `SCRAPLING_MCP_URL` empty):
 ```bash

@@ -90,7 +90,7 @@ directory).
 
 The container joins an existing Docker network (`YOUR-DOCKER-NETWORK` in
 the default `docker-run-mcp.sh`). Other containers on the same network (e.g.
-`llama_embed`, `scrapling_mcp`) are reachable by container name.
+`llama_embed`, `scrapling-mcp`) are reachable by container name.
 
 Port 8765 is exposed but not published to the host — your reverse proxy
 routes traffic at the network level.
@@ -99,5 +99,6 @@ routes traffic at the network level.
 
 The Scrapling sidecar handles all stealth browser work. If the sidecar is
 unavailable, the MCP server continues to function via its OA fetch pipeline
-(Unpaywall, CORE, S2, Zotero-local). Set `SCRAPLING_MCP_URL=` (empty) to
-intentionally disable the sidecar.
+(Unpaywall, CORE, S2, Zotero-local). Set `USE_STEALTH_BROWSER=false` to
+disable browser retrieval. An empty `SCRAPLING_MCP_URL` selects local-browser
+mode instead. See `deploy/scrapling/README.md` for the managed ARM64 sidecar.

@@ -49,7 +49,8 @@ OPENAI_BASE_URL=http://llama_embed:8080/v1
 OPENAI_API_KEY=sk-embed-key-from-llama-container
 
 # Stealth sidecar
-SCRAPLING_MCP_URL=http://scrapling_mcp:8000/sse
+SCRAPLING_MCP_URL=http://scrapling-mcp:8000/mcp
+SCRAPLING_MCP_AUTH_TOKEN=the-shared-backend-token
 
 # Reranker
 CROSS_RERANKER_MODEL=BAAI/bge-reranker-v2-m3
@@ -217,21 +218,20 @@ Semantic Scholar, Zotero-local) continue to function.  Only anti-bot
 stealth fetches require Scrapling.
 
 ```bash
-# Build Scrapling ARM64 image (do this once on Asahi)
-git clone https://github.com/D4Vinci/Scrapling /tmp/scrapling
-cd /tmp/scrapling
-docker build -t scrapling-mcp:arm64 .
+# Build the pinned ARM64/AMD64 sidecar from this checkout
+docker build -t local/scrapling-mcp:managed-0.5.1 deploy/scrapling
 
 # Start the sidecar
-bash deploy/docker-run-scrapling.sh
+SCRAPLING_ENV_FILE=/path/to/private/scrapling.env bash deploy/docker-run-scrapling.sh
 
 # Verify reachability from the MCP container
-docker exec academic_mcp curl -s http://scrapling_mcp:8000/healthz || \
+docker exec academic_mcp curl -s http://scrapling-mcp:8000/healthz || \
   echo "Check sidecar — endpoint may differ"
 ```
 
-If the sidecar proves flaky on ARM64, set `SCRAPLING_MCP_URL=` (empty) in
-`/home/YOURUSER/academic-mcp-config/.env` and restart `academic_mcp`.
+For lifecycle, health recovery and connector compatibility, see
+`deploy/scrapling/README.md`. Keep the public OAuth connector URL unchanged;
+the backend token is configured on Academic and on the gateway's upstream leg.
 
 ---
 

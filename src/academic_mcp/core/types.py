@@ -280,6 +280,7 @@ class FetchedArticle(BaseModel):
 
     # Operational
     auto_import_status: str | None = None
+    browser_acquisition: dict | None = None
     attempted_sources: list[str] = []
     error: str | None = None
     failure_hints: list[str] = []

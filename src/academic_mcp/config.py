@@ -56,11 +56,14 @@ class Config:
     )
 
     # Remote Scrapling MCP server (``scrapling mcp --http``).
-    # When set, the fetcher acts as an MCP *client* over SSE and calls
+    # When set, the fetcher acts as a Streamable HTTP MCP client and calls
     # the remote tool instead of launching a local Chromium instance.
-    # Example: http://192.168.1.50:8000/sse
+    # Example: http://scrapling-mcp:8000/mcp
     scrapling_mcp_url: str = field(
         default_factory=lambda: os.getenv("SCRAPLING_MCP_URL", "")
+    )
+    scrapling_mcp_auth_token: str = field(
+        default_factory=lambda: os.getenv("SCRAPLING_MCP_AUTH_TOKEN", "")
     )
 
     # ── PDF cache ────────────────────────────────────────────────────

@@ -40,6 +40,7 @@ class ArticleMetaResponse(BaseModel):
     viewers: ArticleViewers
     error: str | None = None
     failure_hints: list[str] = []
+    browser_acquisition: dict | None = None
 
 
 class ArticleTextResponse(BaseModel):
@@ -126,6 +127,7 @@ async def get_article(
         ),
         error=fa.error,
         failure_hints=fa.failure_hints,
+        browser_acquisition=fa.browser_acquisition,
     )
 
 

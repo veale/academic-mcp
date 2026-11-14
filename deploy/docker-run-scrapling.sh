@@ -1,22 +1,22 @@
 #!/usr/bin/env bash
 # Canonical `docker run` for the Scrapling stealth-browser sidecar.
 #
-# Scrapling is an MCP server in its own right.  There is no maintained
-# ARM64 image on Docker Hub; build locally from the Scrapling project:
+# Build the pinned, managed sidecar for either ARM64 or AMD64:
 #
-#   git clone https://github.com/D4Vinci/Scrapling /tmp/scrapling
-#   cd /tmp/scrapling && docker build -t scrapling-mcp:arm64 .
+#   docker build -t local/scrapling-mcp:managed-0.5.1 deploy/scrapling
 #
 # Then run this script to start the sidecar:
 set -euo pipefail
 
-NETWORK=YOUR-DOCKER-NETWORK
+NETWORK="${DOCKER_NETWORK:-mcp}"
+: "${SCRAPLING_ENV_FILE:?Set SCRAPLING_ENV_FILE to a private env file containing SCRAPLING_MCP_AUTH_TOKEN}"
 
 docker run -d \
-    --name scrapling_mcp \
-    --restart always \
+    --name scrapling-mcp \
+    --restart unless-stopped \
     --network "$NETWORK" \
-    --memory 3g \
+    --memory 4g --memory-swap 4g --cpus 2 \
+    --pids-limit 1024 --shm-size 512m \
+    --env-file "$SCRAPLING_ENV_FILE" \
     --label project=academic-mcp \
-    scrapling-mcp:arm64 \
-        mcp --http --host 0.0.0.0 --port 8000
+    local/scrapling-mcp:managed-0.5.1

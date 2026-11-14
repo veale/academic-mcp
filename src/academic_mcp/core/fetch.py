@@ -574,7 +574,7 @@ async def _resolve_short_doi(doi: str) -> str:
 # Main fetch pipeline
 # ---------------------------------------------------------------------------
 
-async def fetch_article(
+async def _fetch_article(
     identifier: "ArticleId",
     mode: str = "sections",
     section: str | None = None,
@@ -1311,4 +1311,30 @@ async def fetch_article(
             if doi in _doi_locks and not _doi_locks[doi].locked():
                 del _doi_locks[doi]
 
+    return result
+
+
+async def fetch_article(
+    identifier: ArticleId, mode="sections", section=None, range_start=None,
+    range_end=None, use_proxy=False, pages=None, source="auto", _original_ssrn_doi=None,
+) -> FetchedArticle:
+    """Normal retrieval, with a durable desktop fallback for unavailable text."""
+    result = await _fetch_article(identifier, mode, section, range_start, range_end,
+                                  use_proxy, pages, source, _original_ssrn_doi)
+    if result.error and not result.source and (identifier.doi or identifier.url):
+        from .. import browser_acquisition
+        if browser_acquisition.enabled():
+            try:
+                job = await browser_acquisition.request_acquisition(
+                    doi=result.doi if not result.doi.startswith(("url:", "zotero:")) else None,
+                    url=identifier.url)
+                result.browser_acquisition = job
+                result.failure_hints = [
+                    f"\nDesktop acquisition {job['id']} is {job['state']}. "
+                    "Use browser_acquisition(action='status', id='" + job['id'] +
+                    "') for progress. Complete any login on the iMac, then resume. "
+                    "Once content_ready is true, repeat fetch_fulltext.\n"
+                ]
+            except Exception as exc:
+                logger.warning("Could not queue desktop browser acquisition: %s", exc)
     return result

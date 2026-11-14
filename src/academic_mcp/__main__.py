@@ -274,6 +274,8 @@ def _run_streamable_http(port: int):
         Route("/mcp", endpoint=handle_mcp_root, methods=["GET", "POST", "DELETE"]),
         Mount("/mcp/", app=handle_mcp),
     ]
+    from .browser_acquisition import routes as browser_routes
+    _routes.extend(browser_routes())
     if _webapp_enabled:
         _routes.insert(0, Mount("/webapp", app=create_webapp()))
 
