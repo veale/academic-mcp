@@ -109,12 +109,13 @@ async def _extract(item):
                 result["text"], pages=result.get("pages"))
             metadata["zotero_key"] = item["item_key"]
             metadata["attachment_key"] = attachment
-            if check.rejected:
+            auto_imported = "auto-imported" in (item.get("tags") or [])
+            if check.rejected or (auto_imported and check.status != _identity.PASS):
                 logger.warning(
                     "Zotero attachment %s of %s appears to be %r, not %r",
                     attachment, item["item_key"], check.found_title[:80], check.expected_title[:80],
                 )
-                if "auto-imported" in (item.get("tags") or []):
+                if auto_imported:
                     # Created by this server's auto-import from a wrong web
                     # download: never let it stand in for the work.
                     _rejected.add((item["attachment_key"], item.get("attachment_md5") or ""))

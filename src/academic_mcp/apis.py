@@ -865,6 +865,16 @@ async def resolve_ssrn_doi(
     result = await _resolve_ssrn_doi_unverified(ssrn_doi, client)
     published = result.get("published_doi")
     title = result.get("title")
+    if published:
+        # Prefer SSRN's own registration: an aggregator that merged the record
+        # reports the other work's title too.
+        try:
+            own = await crossref_work(ssrn_doi)
+            own_titles = (own or {}).get("title") or []
+            if own_titles:
+                title = own_titles[0]
+        except Exception:
+            pass
     if published and title:
         from . import identity
         try:

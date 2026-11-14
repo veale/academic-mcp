@@ -450,9 +450,29 @@ async def test_ssrn_remap_to_a_different_work_is_ignored(monkeypatch):
     from academic_mcp import apis
     monkeypatch.setattr(apis, "_resolve_ssrn_doi_unverified", AsyncMock(return_value={
         "published_doi": "10.1017/9781108770941.003",
-        "title": "Cosmetic Compliance and the Failure of Negotiated Governance",
+        # The merged aggregator record reports the other work's title.
+        "title": "Measuring Compliance in the Age of Governance",
         "oa_pdf_urls": [], "all_dois": ["10.2139/ssrn.448221", "10.1017/9781108770941.003"]}))
-    monkeypatch.setattr(apis, "crossref_work", AsyncMock(return_value={
-        "title": ["Measuring Compliance in the Age of Governance"]}))
+    async def crossref(doi):
+        if "ssrn" in doi:
+            return {"title": ["Cosmetic Compliance and the Failure of Negotiated Governance"]}
+        return {"title": ["Measuring Compliance in the Age of Governance"]}
+    monkeypatch.setattr(apis, "crossref_work", crossref)
     result = await apis.resolve_ssrn_doi("10.2139/ssrn.448221")
     assert result["published_doi"] is None
+
+
+async def test_auto_imported_same_author_paper_is_rejected(cache_dir, monkeypatch):
+    monkeypatch.setattr(fetch.pdf_work, "extract", _extract_returning(
+        _paper("COVID-19 and the Necrocapitalist Production of Death in Residential Care Homes",
+               "Joe Greener")))
+    token = fetch._ctx.set(fetch._FetchContext())
+    try:
+        fetch._current_ctx().zotero_untrusted = True
+        fetch._set_expected({"title": GREENER + " in a Residential Care Home", "authors": ["Greener"]})
+        result = await fetch._cache_pdf_and_return(
+            Path("/library/storage/NFJC7R5K/x.pdf"), "10.1007/s10612-019-09467-3",
+            "zotero_webdav_pdf", None, "sections", None, None, None)
+    finally:
+        fetch._ctx.reset(token)
+    assert result is None

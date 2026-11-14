@@ -171,11 +171,15 @@ def _gate(
     if not rejected:
         check = _soften_for_library(check, source, ctx.zotero_untrusted)
     # Search-derived hits (title queries against search engines, CORE,
-    # HeinOnline) are only candidates: they must positively match.
+    # HeinOnline) and attachments auto-imported from such downloads are only
+    # candidates: they must positively match.
     if (
         not rejected
         and check.status != identity.PASS
-        and (source or "").lower().startswith(_SEARCH_DERIVED_SOURCES)
+        and (
+            (source or "").lower().startswith(_SEARCH_DERIVED_SOURCES)
+            or (_is_zotero_source(source) and ctx.zotero_untrusted)
+        )
         and ctx.expected.get("title")
     ):
         rejected = True
@@ -268,10 +272,7 @@ def _needs_revalidation(cached: "text_cache.CachedArticle") -> bool:
     source = (cached.source or "").lower()
     if source.startswith(_SEARCH_DERIVED_SOURCES) and status != identity.PASS:
         return True
-    if _is_zotero_source(source) and not meta.get("auto_import_checked") and (
-        status == identity.MISMATCH
-        or str(verdict.get("reason", "")).startswith("the attachment's opening text")
-    ):
+    if _is_zotero_source(source) and not meta.get("auto_import_checked") and status != identity.PASS:
         # Library copies are rechecked once in case the attachment is one
         # this server auto-imported (then it is treated as a web download).
         return True
@@ -351,8 +352,14 @@ async def _revalidate_cached(
             check = identity.check_identity_any(
                 cached.text, [expected["title"], *published], expected.get("authors"), **kwargs)
     auto_imported = False
-    if check.rejected and _is_zotero_source(cached.source):
+    if check.status != identity.PASS and _is_zotero_source(cached.source):
         auto_imported = await _is_auto_imported(doi, zotero_key)
+        if auto_imported and not check.rejected:
+            check = identity.IdentityCheck(
+                identity.MISMATCH,
+                f"auto-imported attachment not confirmed as the requested work ({check.reason})",
+                check.expected_title, check.found_title,
+            )
     check = _soften_for_library(check, cached.source, auto_imported)
     if (
         check.status != identity.PASS
