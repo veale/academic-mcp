@@ -53,6 +53,8 @@ COPY pyproject.toml uv.lock README.md ./
 #                     reranker (~150 MB total). Activated by setting
 #                     RERANKER_PRIMARY=fastembed (or as fallback). Skipped
 #                     by the cross-encoder reranker (semantic_search_zotero).
+#   documents       — markitdown with PDF/Word/PowerPoint/Excel converters,
+#                     used by fetch_document for non-PDF office files.
 #
 # NOT installed (kept out to keep the image small):
 #   local-models    — sentence-transformers + torch (~4 GB). Without it,
@@ -62,12 +64,12 @@ COPY pyproject.toml uv.lock README.md ./
 #                     and a hosted embedder instead.
 #   stealth         — scrapling browser deps; the scrapling-mcp sidecar
 #                     handles browser work.
-RUN uv sync --frozen --no-install-project --extra semantic --extra semantic-openai --extra fastembed
+RUN uv sync --frozen --no-install-project --extra semantic --extra semantic-openai --extra fastembed --extra documents
 
 # Copy source and install the project itself.
 COPY src/ ./src/
 COPY --from=frontend-builder /webapp_dist/ ./src/academic_mcp/webapp_dist/
-RUN uv sync --frozen --extra semantic --extra semantic-openai --extra fastembed
+RUN uv sync --frozen --extra semantic --extra semantic-openai --extra fastembed --extra documents
 
 # Runtime env defaults.  Every one of these is overridable at `docker run` time.
 ENV PYTHONUNBUFFERED=1 \

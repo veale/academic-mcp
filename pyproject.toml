@@ -60,6 +60,9 @@ semantic-openai = [
 semantic-gemini = [
     "google-genai>=0.3.0",
 ]
+documents = [
+    "markitdown[docx,pdf,pptx,xls,xlsx]>=0.1.2",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/academic_mcp"]

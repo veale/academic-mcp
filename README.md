@@ -21,6 +21,7 @@ An MCP server that searches academic papers, fetches full text, and returns cont
 │  ├── fetch_fulltext      (multi-strategy HTML + PDF extraction)  │
 │  │     mode: full | sections | preview | section | range         │
 │  │     source: auto | html                                       │
+│  ├── fetch_document      (any PDF/Word/PPT/Excel URL → Markdown)  │
 │  ├── search_in_article   (BM25 search + dispersion heatmap)      │
 │  ├── search_in_corpus    (ranked passages across many cached PDFs)│
 │  ├── search_and_read     (combined search → full text)           │
@@ -99,6 +100,32 @@ An MCP server that searches academic papers, fetches full text, and returns cont
 │       Web-fetched PDFs → Crossref metadata → Zotero library      │
 └──────────────────────────────────────────────────────────────────┘
 ```
+
+## Reading documents at any URL (`fetch_document`)
+
+Web scrapers (e.g. a Scrapling MCP server) return raw bytes for PDFs and Office
+files. `fetch_document(url=...)` downloads the file (plain HTTP, then the
+institutional proxy with `use_proxy=true`, then the Scrapling stealth browser
+to get past bot challenges), converts it to Markdown, caches it under
+`url:<sha256-16>` and returns it with the same navigation as `fetch_fulltext`:
+`mode='auto'` (whole text when short, otherwise a section map), `sections`,
+`section`, `preview`, `range`, and `search_in_article(ref=...)`.
+
+- **PDF** — the server's PDF pipeline (pymupdf4llm Markdown, heading
+  detection, OCR for scans); markitdown is the fallback.
+- **Word, PowerPoint, Excel (.xlsx/.xls), EPUB, CSV** — Microsoft
+  [markitdown](https://github.com/microsoft/markitdown). Slides and sheets
+  become sections; long documents with no headings get keyword chunks.
+- **HTML pages** — main-content text (trafilatura, markitdown fallback) plus a
+  list of the document links on the page.
+
+It is meant for any research, not only scholarly work, so it skips the DOI
+identity checks and never auto-imports to Zotero. With
+`save_to_zotero=true` it creates a Zotero `document` item with the URL (PDFs
+attached, tagged `fetched-document`), skipping URLs already in the library.
+Office conversion needs the `documents` extra (`uv sync --extra documents`;
+included in the Docker image). `DOCUMENT_MAX_BYTES` caps downloads (default
+150 MB).
 
 ## Key Design Decisions
 

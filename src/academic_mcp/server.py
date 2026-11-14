@@ -35,7 +35,15 @@ INSTRUCTIONS = (
     "wrong, a result you could not tell was truncated. Report at the level of the system "
     "rather than the symptom, and include the call you made and what came back — a "
     "finding you only mention in your reply dies with the conversation. Batch several "
-    "findings into one report if you have them."
+    "findings into one report if you have them.\n\n"
+    "READING DOCUMENTS AT A URL (any topic, not only academic): HTML scrapers and web-fetch "
+    "tools (e.g. scrapling) cannot read PDFs or Office files — they hand back raw bytes. "
+    "Whenever a link points to a PDF, Word, PowerPoint or Excel file (government reports, "
+    "consultation responses, judgments, slide decks, datasets, white papers), use "
+    "fetch_document(url=...) instead. It downloads the file (getting past blocks with the "
+    "stealth browser), converts it to Markdown, and returns it whole or as a navigable "
+    "section map. It does not touch Zotero unless you pass save_to_zotero=true. For a "
+    "scholarly article with a DOI, prefer fetch_fulltext."
 )
 
 server = Server("academic-research", instructions=INSTRUCTIONS)
@@ -690,6 +698,73 @@ TOOLS = [
                     "default": "auto",
                 },
             },
+        },
+    ),
+    Tool(
+        name="fetch_document",
+        description=(
+            "Read ANY document at a URL — PDF, Word (.docx), PowerPoint (.pptx), Excel "
+            "(.xlsx/.xls), EPUB or CSV — as Markdown. Not limited to academic work: use it for "
+            "reports, policy papers, guidance, judgments, consultation documents, slide decks "
+            "and spreadsheets.\n\n"
+            "USE THIS WHENEVER A LINK IS A FILE RATHER THAN A WEB PAGE. Web scrapers and "
+            "fetch tools such as scrapling cannot parse PDFs or Office files; they return raw "
+            "bytes that are unreadable. This tool downloads the file (plain HTTP, then the "
+            "institutional proxy, then a stealth browser past Cloudflare-style blocks), "
+            "converts it (PDFs through the server's PDF pipeline with heading detection and "
+            "OCR for scans; Office files through markitdown), and caches it.\n\n"
+            "NAVIGATION (same as fetch_fulltext): mode='auto' (default) returns short documents "
+            "whole and longer ones as a section map with keywords and character offsets. Then "
+            "read with mode='section' (heading name; PowerPoint slides are sections, Excel "
+            "sheets are sections), mode='range' (range_start/range_end), or "
+            "search_in_article(ref='<url>', terms=[...]). Repeat calls are served from cache.\n\n"
+            "If the URL is an HTML page, its text is returned along with any PDF/Office links "
+            "found on it — call this tool again on the link you want.\n\n"
+            "ZOTERO: nothing is added unless save_to_zotero=true. Set it when the document is a "
+            "source worth keeping for ongoing research or citing later; it creates a Zotero "
+            "'document' item with the URL (and the PDF attached, for PDFs), skipping URLs "
+            "already in the library. For scholarly articles with a DOI use fetch_fulltext, "
+            "which verifies the text is the right paper."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "url": {
+                    "type": "string",
+                    "description": "http(s) URL of the document (or of a page that links to it).",
+                },
+                "mode": {
+                    "type": "string",
+                    "enum": ["auto", "full", "sections", "preview", "section", "range"],
+                    "default": "auto",
+                    "description": (
+                        "'auto' — whole text if short (≤20,000 chars), otherwise the section map. "
+                        "'sections' — headings/slides/sheets with keywords and offsets. "
+                        "'section' — one section by name (fuzzy). 'preview' — opening of each "
+                        "section. 'range' — character slice. 'full' — everything (truncated at "
+                        "the response limit; continue with mode='range')."
+                    ),
+                },
+                "section": {"type": "string", "description": "Section/slide/sheet name for mode='section'."},
+                "range_start": {"type": "integer", "description": "Start character offset for mode='range'."},
+                "range_end": {"type": "integer", "description": "End character offset (exclusive) for mode='range'."},
+                "use_proxy": {
+                    "type": "boolean", "default": False,
+                    "description": "Also try the institutional proxy (for paywalled or IP-restricted files).",
+                },
+                "refresh": {
+                    "type": "boolean", "default": False,
+                    "description": "Ignore the cached copy and download the document again.",
+                },
+                "save_to_zotero": {
+                    "type": "boolean", "default": False,
+                    "description": (
+                        "Also save the document to the Zotero library (as a 'document' item with "
+                        "its URL; PDFs are attached). Off by default."
+                    ),
+                },
+            },
+            "required": ["url"],
         },
     ),
     Tool(
@@ -1376,6 +1451,8 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> Any:
             return await _handle_get_book_chapters(arguments)
         elif name in ("fetch_fulltext", "fetch_pdf"):
             return await _handle_fetch_pdf(arguments)
+        elif name == "fetch_document":
+            return await _handle_fetch_document(arguments)
         elif name == "search_and_read":
             return await _handle_search_and_read(arguments)
         elif name == "find_pdf_urls":
@@ -2882,6 +2959,92 @@ async def _handle_fetch_pdf(args: dict) -> list[TextContent]:
         source=args.get("source", "auto"),
     )
     return _format_fetched_for_mcp(article)
+
+async def _handle_fetch_document(args: dict) -> list[TextContent] | CallToolResult:
+    from .core import documents
+    from .core.types import FetchMode
+
+    url = (args.get("url") or "").strip()
+    result = await documents.fetch_document(
+        url,
+        mode=args.get("mode", "auto"),
+        section=args.get("section"),
+        range_start=args.get("range_start"),
+        range_end=args.get("range_end"),
+        use_proxy=bool(args.get("use_proxy", False)),
+        refresh=bool(args.get("refresh", False)),
+        save=bool(args.get("save_to_zotero", False)),
+    )
+    if result.error:
+        lines = [result.error]
+        if result.attempts:
+            lines.append("Tried:\n" + "\n".join(f"  - {a}" for a in result.attempts))
+        lines.append(
+            "If the file needs a login, use use_proxy=true for institutional access, or ask the "
+            "user to download it and share it directly."
+        )
+        return _error_result("\n".join(lines))
+
+    fa, cached = result.article, result.cached
+    meta = cached.metadata or {}
+    key = documents.cache_key_for(url)
+    kind = meta.get("document_kind") or ""
+    label = documents.KINDS.get(kind, (None, "HTML page"))[1]
+    detail = [label]
+    if meta.get("pages"):
+        detail.append(f"{meta['pages']} pages")
+    detail.append(f"{cached.word_count:,} words")
+    if meta.get("converter"):
+        detail.append(f"converted with {meta['converter']}")
+    if meta.get("fetched_via"):
+        detail.append(f"fetched via {meta['fetched_via']}")
+    header = [
+        "── Document ──",
+        f"Title: {meta.get('title') or '(untitled)'}",
+        f"URL: {url}",
+    ]
+    if meta.get("final_url") and meta["final_url"] != url:
+        header.append(f"Redirected to: {meta['final_url']}")
+    header.append("Type: " + " · ".join(detail) + (" (cached)" if result.from_cache else ""))
+    header.append(f"Reference for search_in_article: ref=\"{key}\"")
+    for warning in meta.get("content_warnings") or []:
+        header.append(f"⚠ {warning}")
+    header.append("──────────────\n\n")
+
+    if fa.error:
+        body = fa.text or fa.error
+    elif fa.mode == FetchMode.sections:
+        body = _format_sections_index(fa)
+    elif fa.mode == FetchMode.section:
+        body = _format_single_section(fa)
+    elif fa.mode == FetchMode.preview:
+        body = _format_preview(fa)
+    elif fa.mode == FetchMode.range:
+        body = _format_range(fa)
+    else:
+        body = _format_full_body(fa)
+    # The shared formatters speak of DOIs and fetch_fulltext; point them here.
+    body = (
+        body.replace(f'fetch_fulltext(doi="{key}"', f'fetch_document(url="{url}"')
+        .replace(f'search_in_article(doi="{key}"', f'search_in_article(ref="{key}"')
+        .replace(f"DOI: {key}", f"document {key}")
+    )
+
+    tail: list[str] = []
+    if kind == "html":
+        tail.append(
+            "\n\nThis URL is a web page, not a document file. For ordinary web pages a scraper "
+            "may give cleaner text."
+        )
+        links = meta.get("document_links") or []
+        if links:
+            tail.append("Document links on this page (read one with fetch_document(url=...)):")
+            tail.extend(f"  - {link}" for link in links)
+    if result.zotero:
+        tail.append("\n" + result.zotero)
+    text = "\n".join(header) + body + ("\n".join(tail) if tail else "")
+    return [TextContent(type="text", text=text)]
+
 
 async def _handle_search_and_read(args: dict) -> list[TextContent]:
     query = args["query"]
