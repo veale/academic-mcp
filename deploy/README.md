@@ -332,7 +332,38 @@ docker exec academic_mcp watch -n 5 \
 
 ## Zotero mirror modes
 
-### Mode A — ft-cache only (default)
+### Recommended — built from the Zotero Web API (no desktop push)
+
+The server builds and maintains its own copy of every library it can read
+(personal and groups) from the Zotero Web API, in the same SQLite layout and
+`storage/<key>/.zotero-ft-cache` files the rest of the server reads. Nothing
+runs on a Mac, and Zotero desktop's exclusive database lock is irrelevant.
+
+- Every 5 minutes it fetches what changed since the last synced library
+  version (items, collections, deletions, extracted full text).
+- Once a day per library it reconciles every key and version against the
+  API and repairs any difference.
+- `refresh_zotero_index` runs a sync; with `force_rebuild=true` it reconciles.
+  `semantic_index_status` shows per-library versions, counts and errors.
+
+Changes appear once Zotero desktop has synced them, normally within minutes.
+Full text requires "Sync full-text content" in Zotero's sync settings.
+
+Container settings:
+```
+-v /home/YOURUSER/docker-binds/academic-mcp/zotero-api:/zotero
+-e ZOTERO_API_MIRROR=true
+-e ZOTERO_SQLITE_PATH=/zotero/zotero.sqlite
+-e ZOTERO_LOCAL_STORAGE=/zotero/storage
+# Optional, first build only: start from a desktop snapshot so only later
+# changes are downloaded and the search indexes need no re-embedding.
+-v /path/to/old/zotero-mirror:/zotero-seed:ro
+-e ZOTERO_API_MIRROR_SEED=/zotero-seed/zotero.sqlite
+```
+Without a seed, the first build downloads every item and full text (an hour
+or so for a large library). Mode A below is the older desktop-push setup.
+
+### Mode A — ft-cache only (desktop push; superseded)
 
 The sync script ships `zotero.sqlite` (via SQLite `.backup`) and just the
 `.zotero-ft-cache` plain-text extracts from `~/Zotero/storage/`. PDFs are not

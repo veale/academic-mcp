@@ -217,7 +217,10 @@ async def _get_connection() -> aiosqlite.Connection:
         # The sync script publishes immutable snapshots by atomic rename and
         # marks their directory with .last-sync. Another periodic shadow copy
         # of that mirror adds disk I/O without improving availability.
-        if not (Path(sqlite_config.db_path).parent / ".last-sync").is_file():
+        _dir = Path(sqlite_config.db_path).parent
+        if not (_dir / ".last-sync").is_file() and not (_dir / ".api-mirror").is_file():
+            # The API mirror is written in WAL mode by this process and is
+            # never locked by a desktop Zotero, so it needs no shadow.
             _maybe_schedule_shadow_refresh(sqlite_config.db_path, shadow)
         return conn
     except Exception as e:

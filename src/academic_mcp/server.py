@@ -1736,8 +1736,10 @@ async def _handle_semantic_index_status(args: dict) -> list[TextContent]:
     except Exception:
         pass
 
-    from . import zotero_catalog
+    from . import zotero_catalog, zotero_api_mirror
     status["metadata_catalog"] = await asyncio.to_thread(zotero_catalog.status)
+    if zotero_api_mirror.enabled():
+        status["zotero_api_mirror"] = await asyncio.to_thread(zotero_api_mirror.status)
     return [TextContent(type="text", text=json.dumps(status, indent=2))]
 
 
@@ -3614,10 +3616,26 @@ async def _handle_refresh_zotero_index(args: dict) -> list[TextContent]:
     except ImportError:
         from academic_mcp.core import libraries as core_libraries
 
+    from . import zotero_api_mirror
+    mirror_text = ""
+    if zotero_api_mirror.enabled():
+        try:
+            summary = await zotero_api_mirror.sync(reconcile=bool(args.get("force_rebuild", False)) or None)
+            changed = {p: c for p, c in summary.get("libraries", {}).items()
+                       if any(v for k, v in c.items() if k != "reconciled")}
+            mirror_text = (
+                f"Zotero library copy (Web API): updated in {summary.get('seconds')}s; "
+                + (", ".join(f"{p}: {c}" for p, c in changed.items()) or "no changes")
+                + ("; errors: " + json.dumps(summary["errors"]) if summary.get("errors") else "")
+                + "\n"
+            )
+        except Exception as e:
+            mirror_text = f"Zotero library copy (Web API): FAILED — {e}\n"
+
     result = await core_libraries.refresh_zotero_index()
     status = result.connections
 
-    text = f"Zotero DOI index rebuilt: {result.doi_count} DOIs indexed.\n"
+    text = mirror_text + f"Zotero DOI index rebuilt: {result.doi_count} DOIs indexed.\n"
     text += f"Index cached to: {result.index_path}\n"
 
     # The FTS5 mirror backs lexical search, so a "refresh the index" request

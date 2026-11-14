@@ -12,6 +12,25 @@ _lexical_sync_task: asyncio.Task | None = None
 _prewarm_tasks: set[asyncio.Task] = set()
 
 
+async def sync_zotero_api_mirror() -> None:
+    """Update the server's copy of the Zotero libraries from the Web API.
+
+    Runs before the index syncs so they see current data. Bounded, and never
+    raises: a failed run keeps the previous copy and is retried next cycle.
+    """
+    from .. import zotero_api_mirror
+
+    if not zotero_api_mirror.enabled():
+        return
+    try:
+        async with asyncio.timeout(float(__import__("os").getenv("ZOTERO_API_MIRROR_TIMEOUT_SECONDS", "3600"))):
+            await zotero_api_mirror.sync()
+    except asyncio.CancelledError:
+        raise
+    except Exception as e:
+        logger.warning("Zotero API mirror sync failed: %s", e, exc_info=True)
+
+
 def _ensure_semantic_background_sync(max_age_hours: int = 1) -> None:
     """Kick off a background semantic sync when stale; never blocks request paths."""
     global _semantic_sync_task

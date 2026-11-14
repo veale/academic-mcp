@@ -145,6 +145,8 @@ def _run_sse(port: int):
         import logging as _logging
         _logging.getLogger(__name__).info("Startup: triggering semantic index sync check")
         while True:
+            from .core.background import sync_zotero_api_mirror
+            await sync_zotero_api_mirror()
             _sync(max_age_hours=0)
             from .core.background import ensure_lexical_background_sync
             ensure_lexical_background_sync(max_age_hours=0)
@@ -230,6 +232,8 @@ def _run_streamable_http(port: int):
         import logging as _logging
         _logging.getLogger(__name__).info("Startup: triggering semantic index sync check")
         while True:
+            from .core.background import sync_zotero_api_mirror
+            await sync_zotero_api_mirror()
             _sync(max_age_hours=0)
             from .core.background import ensure_lexical_background_sync
             ensure_lexical_background_sync(max_age_hours=0)
