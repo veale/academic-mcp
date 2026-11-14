@@ -39,7 +39,30 @@ PUBLISHER_SELECTORS: dict[str, str] = {
     "tandfonline.com": "div.NLM_sec_level_1",
     "journals.sagepub.com": "div.body",
     "cambridge.org": "div.article-body",
+    # ACM DL: abstract and body are separate sections of a 1 MB page whose
+    # navigation otherwise swamps the extractor.
+    "dl.acm.org": "section#summary-abstract, section#abstract, section#bodymatter",
 }
+
+
+def _selector_xpath(selector: str) -> str:
+    """XPath for the simple ``tag``, ``tag#id`` and ``tag.class`` selectors
+    above (comma-separated alternatives allowed). lxml's cssselect needs an
+    extra package that is not installed, which made every selector a no-op."""
+    parts = []
+    for one in selector.split(","):
+        one = one.strip()
+        match = re.fullmatch(r"([a-zA-Z][\w-]*)?(?:#([\w-]+)|\.([\w-]+))?", one)
+        if not match:
+            raise ValueError(f"unsupported selector {one!r}")
+        tag, ident, cls = match.groups()
+        expr = "//" + (tag or "*")
+        if ident:
+            expr += f"[@id='{ident}']"
+        if cls:
+            expr += f"[contains(concat(' ', normalize-space(@class), ' '), ' {cls} ')]"
+        parts.append(expr)
+    return " | ".join(parts)
 
 # Marker delimiter — chosen to be invisible in real academic text.
 _MARKER_DELIM = "§§"
@@ -142,9 +165,14 @@ def _pre_filter_html(html: str, url: str) -> str:
         import lxml.etree as etree
 
         doc = lxml.html.fromstring(html)
-        elements = doc.cssselect(selector)
+        elements = doc.xpath(_selector_xpath(selector))
+        # Drop matches nested inside another match (document order is kept).
+        elements = [e for e in elements if not any(a in elements for a in e.iterancestors())]
         if elements:
-            return etree.tostring(elements[0], encoding="unicode", method="html")
+            # trafilatura extracts nothing from a bare fragment.
+            return "<html><body><article>" + "".join(
+                etree.tostring(e, encoding="unicode", method="html") for e in elements
+            ) + "</article></body></html>"
     except Exception as exc:
         logger.debug("Pre-filter HTML failed for %s (%s): %s", url, selector, exc)
 
@@ -152,6 +180,22 @@ def _pre_filter_html(html: str, url: str) -> str:
 
 
 def _extract_with_sections_sync(html: str, url: str) -> dict | None:
+    """Extract from the publisher's body container, else from the whole page."""
+    filtered = _pre_filter_html(html, url)
+    result = _extract_marked(filtered, url)
+    if result is None and filtered is not html:
+        result = _extract_marked(html, url)
+    if result is not None and not result["sections"]:
+        # Some pages (ACM DL) open each <section> with its heading; the
+        # extractor drops loose text there, taking the markers with it.
+        # Markers inside the heading element survive.
+        inside = _extract_marked(filtered, url, inside=True)
+        if inside is not None and inside["sections"] and inside["word_count"] >= 0.9 * result["word_count"]:
+            result = inside
+    return result
+
+
+def _extract_marked(filtered_html: str, url: str, inside: bool = False) -> dict | None:
     """Synchronous marker-based extraction — call via ``asyncio.to_thread``.
 
     Strategy:
@@ -171,14 +215,13 @@ def _extract_with_sections_sync(html: str, url: str) -> dict | None:
     if not _TRAFILATURA_AVAILABLE:
         return None
 
-    filtered_html = _pre_filter_html(html, url)
-
     # ── Inject markers ────────────────────────────────────────────────
     counter = [0]
 
     def _inject(m: re.Match) -> str:
-        tag = m.group(1)          # "h2" or "h3"
-        inner_html = m.group(2)   # raw inner HTML of the heading element
+        opening = m.group(1)      # the opening heading tag
+        tag = m.group(2)          # "h2" or "h3"
+        inner_html = m.group(3)   # raw inner HTML of the heading element
         level = 2 if tag.lower() == "h2" else 3
         # Strip nested tags to get plain title text
         title = re.sub(r"<[^>]+>", "", inner_html).strip()
@@ -189,12 +232,14 @@ def _extract_with_sections_sync(html: str, url: str) -> dict | None:
         mid = counter[0]
         counter[0] += 1
         marker = f"{_MARKER_DELIM}SEC:{mid}:{level}:{title}{_MARKER_DELIM}"
+        if inside:
+            return f"{opening}{marker} {inner_html}</{tag}>"
         # Prepend marker as a standalone line so trafilatura sees it as a
         # distinct text node rather than run-on text inside the heading.
         return f"\n{marker}\n" + m.group(0)
 
     marked_html = re.sub(
-        r"<(h[23])\b[^>]*>(.*?)</\1>",
+        r"(<(h[23])\b[^>]*>)(.*?)</\2>",
         _inject,
         filtered_html,
         flags=re.IGNORECASE | re.DOTALL,
