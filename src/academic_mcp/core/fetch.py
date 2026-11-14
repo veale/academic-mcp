@@ -1108,6 +1108,18 @@ async def _fetch_article(
         _ref = zotero_sqlite.normalize_reference_key(zotero_key)
         if zotero_sqlite.is_item_key(_ref):
             zotero_key = _ref
+            if not doi:
+                # The item's DOI lets the web tiers (Unpaywall, publisher,
+                # repositories) find the work when the library has no usable
+                # file, and keeps the cache keyed by DOI.
+                try:
+                    _keyed = await zotero_sqlite.search_by_key(zotero_key)
+                    if _keyed is None:
+                        _keyed = (await zotero_sqlite.search_by_keys([zotero_key])).get(zotero_key)
+                    if _keyed is not None and _is_real_doi(zotero._normalize_doi(_keyed.DOI or "")):
+                        doi = zotero._normalize_doi(_keyed.DOI)
+                except Exception as exc:
+                    logger.debug("DOI lookup for Zotero item %s failed: %s", zotero_key, exc)
         else:
             _item, _via = await zotero_sqlite.resolve_reference(_ref)
             if _item is None:
