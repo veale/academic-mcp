@@ -26,9 +26,13 @@ COPY --from=oauth-gateway /usr/local/bin/mcp-auth-proxy /usr/local/bin/mcp-auth-
 #   - build-essential only during install; stripped after
 #   - tini: proper PID 1 for clean shutdown on docker stop
 ENV DEBIAN_FRONTEND=noninteractive
+#   - tesseract-ocr (+ language data): OCR for scanned PDFs with no text
+#     layer, run through PyMuPDF (OCR_LANGUAGES selects, default eng)
 RUN apt-get update && apt-get install -y --no-install-recommends \
         curl ca-certificates libmagic1 sqlite3 tini \
+        tesseract-ocr tesseract-ocr-eng tesseract-ocr-deu tesseract-ocr-fra \
     && rm -rf /var/lib/apt/lists/*
+ENV TESSDATA_PREFIX=/usr/share/tesseract-ocr/5/tessdata
 
 # uv (repo-standard package manager)
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh \

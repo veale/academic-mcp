@@ -576,7 +576,8 @@ TOOLS = [
             "Get the full text of a paper for analysis. Checks Zotero first, "
             "then tries open-access sources, stealth browser, and institutional proxy. "
             "After the first fetch, text is cached locally — subsequent calls are instant.\n\n"
-            "Accepts any of: doi (preferred when available), zotero_key (for Zotero-only "
+            "Simplest: pass ref= with whatever you have (DOI, Zotero key, citekey, URL, "
+            "SSRN/arXiv id, or title + author). Also accepts any of: doi, zotero_key (for Zotero-only "
             "items without a DOI), or url (for items visible on the web but without a DOI — "
             "typical for theses, reports, working papers, institutional documents). "
             "When multiple are provided, DOI wins. search_papers results now include a url "
@@ -603,6 +604,18 @@ TOOLS = [
         inputSchema={
             "type": "object",
             "properties": {
+                "ref": {
+                    "type": "string",
+                    "description": (
+                        "Any identifier for the work, resolved against the Zotero library "
+                        "first: a DOI (any case, doi: or doi.org form), Zotero item key, "
+                        "zotero:// link, Better BibTeX citekey, URL, SSRN id ('SSRN 3867634'), "
+                        "arXiv id ('2501.01234'), or a title, optionally with the first author's "
+                        "surname and year ('Making Standards Stick Sandholtz 2012'). When "
+                        "several different library items match a title, they are listed with "
+                        "their keys instead of guessing. Use this OR doi/zotero_key/url."
+                    ),
+                },
                 "doi": {
                     "type": "string",
                     "description": "DOI of the paper (from search_papers results)",
@@ -997,6 +1010,13 @@ TOOLS = [
                     "type": "string",
                     "description": "DOI of the article to search within",
                 },
+                "ref": {
+                    "type": "string",
+                    "description": (
+                        "Instead of doi: any identifier accepted by fetch_fulltext's ref "
+                        "(Zotero key, citekey, URL, SSRN/arXiv id, title + author)."
+                    ),
+                },
                 "terms": {
                     "type": "array",
                     "items": {"type": "string"},
@@ -1016,7 +1036,7 @@ TOOLS = [
                     "default": 3,
                 },
             },
-            "required": ["doi", "terms"],
+            "required": ["terms"],
         },
     ),
     Tool(
@@ -1040,7 +1060,15 @@ TOOLS = [
                 "dois": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "DOIs to get sections for (up to 10)",
+                    "description": "DOIs to get sections for (up to 10, together with refs)",
+                },
+                "refs": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "Any identifiers, as for fetch_fulltext's ref: Zotero keys, citekeys, "
+                        "URLs, SSRN/arXiv ids or titles (+ author). Mixed freely with dois."
+                    ),
                 },
                 "use_proxy": {
                     "type": "boolean",
@@ -1048,7 +1076,6 @@ TOOLS = [
                     "default": False,
                 },
             },
-            "required": ["dois"],
         },
     ),
     Tool(
@@ -2607,6 +2634,14 @@ def _format_provenance(fa) -> str:
         if meta.get("library"):
             handle += f", {meta['library']}"
         lines.append(handle)
+    if meta.get("resolved_via"):
+        lines.append(f"Resolved via: {meta['resolved_via']}")
+    if meta.get("duplicates"):
+        from .core import refs as _refs
+        lines.append(
+            "The library holds this work more than once; the first copy with a PDF was used:\n"
+            + _refs.format_candidates(meta["duplicates"])
+        )
     for rejected in fa.rejected_sources or []:
         lines.append(
             f"Rejected {rejected.get('source')}: it contained "
@@ -2834,6 +2869,7 @@ async def _handle_fetch_pdf(args: dict) -> list[TextContent]:
             doi=args.get("doi"),
             zotero_key=args.get("zotero_key"),
             url=args.get("url"),
+            ref=args.get("ref"),
         ),
         mode=args.get("mode", "sections"),
         section=args.get("section"),
@@ -2950,7 +2986,11 @@ async def _handle_find_pdf_urls(args: dict) -> list[TextContent]:
 
 async def _handle_search_in_article(args: dict) -> list[TextContent]:
     """BM25 keyword search within a cached article's full text."""
-    doi = args["doi"]
+    from .core import refs as core_refs
+    ref = (args.get("doi") or args.get("ref") or "").strip()
+    doi, _fetch_args, ref_error = await core_refs.cache_target(ref)
+    if ref_error:
+        return [TextContent(type="text", text=ref_error)]
     terms = args.get("terms", [])
     context_chars = min(int(args.get("context_chars", 500)), 2000)
     max_matches = min(int(args.get("max_matches_per_term", 3)), 10)
@@ -3078,17 +3118,33 @@ async def _handle_search_in_article(args: dict) -> list[TextContent]:
 
 async def _handle_batch_sections(args: dict) -> list[TextContent]:
     """Get section listings for multiple papers, fetching uncached ones in parallel."""
-    dois = args.get("dois", [])
     use_proxy = args.get("use_proxy", False)
+    entries = [e for e in list(args.get("refs") or []) + list(args.get("dois") or []) if e and str(e).strip()]
+    entries = list(dict.fromkeys(str(e).strip() for e in entries))[:10]
 
-    # Cap at 10 DOIs
-    dois = dois[:10]
+    if not entries:
+        return [TextContent(type="text", text="No DOIs or refs provided.")]
 
-    if not dois:
-        return [TextContent(type="text", text="No DOIs provided.")]
-
-    # Resolution belongs inside each background job and its deadline.
-    dois = list(dict.fromkeys(zotero._normalize_doi(doi) for doi in dois))
+    # Each entry (DOI, Zotero key, citekey, URL, SSRN/arXiv id or title) maps
+    # to the key its text is cached under and the fetch_fulltext arguments.
+    from .core import refs as core_refs
+    targets = await asyncio.gather(*(core_refs.cache_target(e) for e in entries), return_exceptions=True)
+    dois: list[str] = []
+    labels: dict[str, str] = {}
+    fetch_args: dict[str, dict] = {}
+    unresolved: dict[str, str] = {}
+    for entry, target in zip(entries, targets):
+        if isinstance(target, Exception):
+            target = (entry, {}, f"could not resolve: {target}")
+        key, fargs, error = target
+        if key in labels:
+            continue
+        dois.append(key)
+        labels[key] = entry
+        if error:
+            unresolved[key] = error
+        else:
+            fetch_args[key] = fargs
 
     # Split into cached and uncached.  Cached entries are re-verified: text
     # cached before identity checks existed may be a different work, in which
@@ -3100,6 +3156,8 @@ async def _handle_batch_sections(args: dict) -> list[TextContent]:
         *(core_fetch.verified_cached(doi) for doi in dois), return_exceptions=True
     )
     for doi, article in zip(dois, verified):
+        if doi in unresolved:
+            continue
         if isinstance(article, Exception):
             logger.warning("Cache verification failed for %s: %s", doi, article)
             article = text_cache.get_cached(doi)
@@ -3114,6 +3172,9 @@ async def _handle_batch_sections(args: dict) -> list[TextContent]:
     import os
     async def fetch_one(doi):
         resolved = doi
+        if not fetch_args[doi].get("doi") or fetch_args[doi].get("zotero_key"):
+            response = await _handle_fetch_pdf({**fetch_args[doi], "use_proxy": use_proxy, "mode": "sections"})
+            return {"doi": doi, "response": response}
         if doi.startswith("10.2139/ssrn."):
             try:
                 async with asyncio.timeout(15), httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
@@ -3145,8 +3206,13 @@ async def _handle_batch_sections(args: dict) -> list[TextContent]:
     lines.append("")
 
     for doi in dois:
-        lines.append(f"── {doi} ───────────────────────────────────")
+        label = doi if labels.get(doi, doi).lower() == doi.lower() else f"{labels[doi]} → {doi}"
+        lines.append(f"── {label} ───────────────────────────────────")
 
+        if doi in unresolved:
+            lines.append("⚠ " + unresolved[doi])
+            lines.append("")
+            continue
         if doi not in cached:
             # Failed to fetch
             job = jobs.get(doi)

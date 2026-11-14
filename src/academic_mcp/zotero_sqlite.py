@@ -666,7 +666,12 @@ async def _excluded_type_ids(conn: aiosqlite.Connection) -> list[int]:
 # ---------------------------------------------------------------------------
 
 async def search_by_doi(doi: str) -> Optional[ZoteroItem]:
-    """Look up an item by DOI — pure async, no thread pool."""
+    """Look up an item by DOI.
+
+    Libraries often hold the same work two or three times. The copy chosen is
+    the one most likely to have the right file: an item with a PDF attachment,
+    added by the user rather than by auto-import, oldest first.
+    """
     if not sqlite_config.available:
         return None
     doi_clean = (
@@ -685,24 +690,25 @@ async def search_by_doi(doi: str) -> Optional[ZoteroItem]:
             SELECT id.itemID FROM itemData id
             JOIN itemDataValues idv ON id.valueID = idv.valueID
             WHERE id.fieldID = ? AND LOWER(TRIM(idv.value)) = ?
-            LIMIT 1
+              AND id.itemID NOT IN (SELECT itemID FROM deletedItems)
         """, (doi_fid, doi_clean))
-        row = await cursor.fetchone()
+        ids = [row["itemID"] for row in await cursor.fetchall()]
 
-        if not row:
+        if not ids:
             extra_fid = await _get_field_id(conn, "extra")
             if extra_fid:
                 cursor = await conn.execute("""
                     SELECT id.itemID FROM itemData id
                     JOIN itemDataValues idv ON id.valueID = idv.valueID
                     WHERE id.fieldID = ? AND LOWER(idv.value) LIKE ?
-                    LIMIT 1
+                      AND id.itemID NOT IN (SELECT itemID FROM deletedItems)
                 """, (extra_fid, f"%{doi_clean}%"))
-                row = await cursor.fetchone()
+                ids = [row["itemID"] for row in await cursor.fetchall()]
 
-        if not row:
+        if not ids:
             return None
-        return await _build_item(conn, row["itemID"])
+        ranked = await _rank_items(conn, ids)
+        return ranked[0][0] if ranked else None
     except Exception as e:
         logger.warning("SQLite DOI lookup failed: %s", e)
         return None
@@ -710,9 +716,149 @@ async def search_by_doi(doi: str) -> Optional[ZoteroItem]:
         await conn.close()
 
 
-# ---------------------------------------------------------------------------
-# Search: by item key
-# ---------------------------------------------------------------------------
+async def _pdf_attachments(conn: aiosqlite.Connection, item_id: int) -> list[dict]:
+    """Non-trashed PDF attachments of *item_id*, oldest first."""
+    cursor = await conn.execute("""
+        SELECT ai.key, ia.path FROM itemAttachments ia
+        JOIN items ai ON ia.itemID = ai.itemID
+        WHERE ia.parentItemID = ? AND ia.contentType = 'application/pdf'
+          AND ai.itemID NOT IN (SELECT itemID FROM deletedItems)
+        ORDER BY ia.itemID
+    """, (item_id,))
+    out = []
+    for row in await cursor.fetchall():
+        path = row["path"] or ""
+        out.append({"key": row["key"], "filename": path.split(":", 1)[-1] if path.startswith("storage:") else path})
+    return out
+
+
+async def _rank_items(
+    conn: aiosqlite.Connection, item_ids: list[int],
+) -> list[tuple[ZoteroItem, list[dict]]]:
+    """Items with their PDF attachments, best copy of a work first."""
+    ranked = []
+    for item_id in dict.fromkeys(item_ids):
+        item = await _build_item(conn, item_id)
+        if item is None:
+            continue
+        ranked.append((item, await _pdf_attachments(conn, item_id)))
+    ranked.sort(key=lambda pair: (
+        not pair[1],                                # has a PDF
+        "auto-imported" in (pair[0].tags or []),    # the user's own copy
+        _is_preprint(pair[0]),                      # the published version
+        pair[0].dateAdded or "",                    # the original entry
+    ))
+    return ranked
+
+
+def _is_preprint(item: ZoteroItem) -> bool:
+    doi = (item.DOI or "").lower()
+    return item.itemType in ("preprint", "report") or doi.startswith(("10.2139/", "10.48550/", "10.31235/"))
+
+
+def candidate_summary(item: ZoteroItem, attachments: list[dict]) -> dict:
+    """What a caller needs to tell duplicate or similar library items apart."""
+    year = re.search(r"\b(1[5-9]|20)\d\d\b", item.date or "")
+    return {
+        "zotero_key": item.key,
+        "library": item.libraryName or "",
+        "title": item.title,
+        "authors": [c.lastName or c.firstName for c in item.creators][:3],
+        "year": year.group(0) if year else "",
+        "doi": item.DOI or "",
+        "citation_key": getattr(item, "citation_key", "") or "",
+        "has_pdf": bool(attachments),
+        "attachment": attachments[0]["filename"] if attachments else "",
+        "auto_imported": "auto-imported" in (item.tags or []),
+    }
+
+
+# (db mtime, rows) where rows are (itemID, folded title, surnames, year, folded main title).
+_title_rows: tuple[float, list[tuple[int, str, list[str], str, str]]] = (0.0, [])
+
+
+async def _title_index(conn: aiosqlite.Connection) -> list[tuple[int, str, list[str], str, str]]:
+    global _title_rows
+    try:
+        mtime = Path(sqlite_config.db_path).stat().st_mtime
+    except OSError:
+        mtime = 0.0
+    if _title_rows[1] and _title_rows[0] == mtime:
+        return _title_rows[1]
+    from .identity import _fold
+    from .core.refs import main_title
+    cursor = await conn.execute("""
+        SELECT i.itemID,
+               MAX(CASE WHEN f.fieldName = 'title' THEN v.value END) AS title,
+               MAX(CASE WHEN f.fieldName = 'date' THEN v.value END) AS date
+        FROM items i
+        JOIN itemTypes it ON it.itemTypeID = i.itemTypeID
+        JOIN itemData d ON d.itemID = i.itemID
+        JOIN fields f ON f.fieldID = d.fieldID
+        JOIN itemDataValues v ON v.valueID = d.valueID
+        WHERE it.typeName NOT IN ('attachment', 'note', 'annotation')
+          AND i.itemID NOT IN (SELECT itemID FROM deletedItems)
+          AND f.fieldName IN ('title', 'date')
+        GROUP BY i.itemID
+    """)
+    titles = {r["itemID"]: (r["title"] or "", r["date"] or "") for r in await cursor.fetchall()}
+    cursor = await conn.execute("""
+        SELECT ic.itemID, c.lastName, c.firstName FROM itemCreators ic
+        JOIN creators c ON c.creatorID = ic.creatorID
+        ORDER BY ic.itemID, ic.orderIndex
+    """)
+    surnames: dict[int, list[str]] = {}
+    for r in await cursor.fetchall():
+        name = _fold(r["lastName"] or r["firstName"] or "")
+        if name:
+            surnames.setdefault(r["itemID"], []).append(name)
+    rows = []
+    for item_id, (title, date) in titles.items():
+        folded = _fold(title)
+        if folded:
+            year = re.search(r"\b(1[5-9]|20)\d\d\b", date)
+            rows.append((item_id, folded, surnames.get(item_id, []), year.group(0) if year else "",
+                         main_title(title)))
+    _title_rows = (mtime, rows)
+    return rows
+
+
+async def find_by_title(ref: str) -> list[tuple[ZoteroItem, list[dict], float]]:
+    """Library items whose title (plus optional author/year) matches *ref*.
+
+    Returns ``(item, pdf_attachments, score)``, best first. Only strong
+    matches are returned: the whole title, or its main title, must appear in
+    *ref*, or the two must be near-identical; any other words in *ref* must
+    name one of the item's authors.
+    """
+    from .identity import _fold
+    from .core.refs import match_title
+    if not sqlite_config.available:
+        return []
+    folded_ref = _fold(ref)
+    if not folded_ref:
+        return []
+    conn = await _get_connection()
+    try:
+        rows = await _title_index(conn)
+        scored = []
+        for item_id, folded_title, surnames, year, folded_main in rows:
+            score = match_title(folded_ref, folded_title, surnames, year, folded_main)
+            if score is not None:
+                scored.append((item_id, score))
+        if not scored:
+            return []
+        scored.sort(key=lambda pair: -pair[1])
+        best = scored[0][1]
+        keep = {item_id: score for item_id, score in scored if score >= best - 0.08}
+        ranked = await _rank_items(conn, list(keep)[:25])
+        return [(item, atts, keep[item.itemID]) for item, atts in ranked]
+    except Exception as e:
+        logger.warning("SQLite title lookup failed: %s", e)
+        return []
+    finally:
+        await conn.close()
+
 
 async def search_by_key(key: str) -> Optional[ZoteroItem]:
     """Look up an item by its 8-char Zotero key — pure async, no thread pool."""

@@ -251,6 +251,8 @@ class ArticleId(BaseModel):
     doi: str | None = None
     zotero_key: str | None = None
     url: str | None = None
+    # Any identifier or a title; resolved by core.refs into the fields above.
+    ref: str | None = None
 
 
 class FetchedArticle(BaseModel):

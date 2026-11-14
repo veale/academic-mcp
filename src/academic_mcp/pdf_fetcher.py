@@ -570,6 +570,55 @@ def _extract_pdf_link_from_html(html: str, base_url: str) -> str | None:
     return None
 
 
+_UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+
+
+def repository_pdf_urls(html: str, page_url: str, citation_pdf_url: str = "") -> list[str]:
+    """Candidate file URLs on an institutional repository item page.
+
+    Handle and item pages (DSpace, EPrints, OJS) are landing pages, not
+    files. DSpace 7 is the awkward case: its ``citation_pdf_url`` can omit
+    the UI base path (``/renate`` at TIB), and its ``/bitstreams/<uuid>/
+    download`` links are app routes, so each bitstream is also tried through
+    the REST API (``<ui>/server/api/core/bitstreams/<uuid>/content``).
+    The item's main file (the one ``citation_pdf_url`` names) comes first.
+    """
+    parsed = urlparse(page_url)
+    origin = f"{parsed.scheme}://{parsed.netloc}"
+    base = re.search(r'<base\s+href=["\']([^"\']+)["\']', html or "", re.I)
+    ui_root = urljoin(origin + "/", base.group(1)).rstrip("/") if base else origin
+    if not ui_root.startswith(origin):
+        ui_root = origin
+    urls: list[str] = []
+
+    def add(url: str) -> None:
+        if url and url not in urls:
+            urls.append(url)
+
+    uuids: list[str] = []
+    for found in re.findall(r"/bitstreams?/(" + _UUID + r")(?:/download|/content)?", citation_pdf_url or "", re.I):
+        uuids.append(found.lower())
+    for found in re.findall(r'href=["\'][^"\']*/bitstreams/(' + _UUID + r')/download', html or "", re.I):
+        if found.lower() not in uuids:
+            uuids.append(found.lower())
+    if citation_pdf_url and not uuids:
+        add(urljoin(page_url, citation_pdf_url))
+    for uuid in uuids[:3]:
+        add(f"{ui_root}/bitstreams/{uuid}/download")
+        add(f"{ui_root}/server/api/core/bitstreams/{uuid}/content")
+        add(f"{origin}/server/api/core/bitstreams/{uuid}/content")
+    # DSpace 5/6 and EPrints link files directly.
+    for href in re.findall(
+        r'href=["\']([^"\']*(?:/bitstream/handle/|/bitstream/\d|/files/)[^"\']*\.pdf[^"\']*)["\']'
+        r'|href=["\']([^"\']*/\d+/\d+/[^"\'/]+\.pdf)["\']',
+        html or "", re.I,
+    ):
+        add(urljoin(page_url, href[0] or href[1]))
+    if citation_pdf_url and uuids:
+        add(urljoin(page_url, citation_pdf_url))
+    return urls[:6]
+
+
 # ── Local: Scrapling StealthyFetcher in a thread ─────────────────────────
 
 async def _scrapling_local(url: str, use_proxy: bool = False) -> Path | None:

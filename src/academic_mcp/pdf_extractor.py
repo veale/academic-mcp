@@ -1418,3 +1418,47 @@ def _looks_like_header(line: str) -> bool:
         return True
 
     return False
+
+
+# ---------------------------------------------------------------------------
+# OCR for scanned or badly encoded PDFs
+# ---------------------------------------------------------------------------
+
+def ocr_available() -> bool:
+    """Whether Tesseract language data is installed for PyMuPDF's OCR."""
+    import os
+    import shutil
+
+    prefix = os.getenv("TESSDATA_PREFIX", "")
+    return bool(shutil.which("tesseract")) and (not prefix or Path(prefix).is_dir())
+
+
+def ocr_text(source: Path | bytes, max_pages: int = 80, dpi: int = 200,
+             language: str = "eng") -> dict:
+    """Recognise the text of every page (up to *max_pages*) with Tesseract.
+
+    ``full=True`` ignores any existing text layer, which is what a PDF with
+    a broken font encoding needs as much as a pure scan.
+    """
+    from .content_extractor import detect_sections_from_text
+
+    doc = _open_doc(source)
+    try:
+        total = len(doc)
+        parts: list[str] = []
+        for index in range(min(total, max_pages)):
+            page = doc[index]
+            textpage = page.get_textpage_ocr(dpi=dpi, full=True, language=language)
+            parts.append(page.get_text("text", textpage=textpage).strip())
+        text = _clean_ocr_text("\n\n".join(p for p in parts if p))
+        return {
+            "text": text,
+            "sections": detect_sections_from_text(text, is_ocr=True),
+            "section_detection": "text_heuristic",
+            "pages": total,
+            "metadata": dict(doc.metadata or {}, pages=total),
+            "ocr": True,
+            "ocr_pages": min(total, max_pages),
+        }
+    finally:
+        doc.close()

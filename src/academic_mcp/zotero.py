@@ -432,6 +432,7 @@ async def _get_pdf_attachments(item_key: str, library_prefix: str | None = None)
         for c in children
         if c.get("data", {}).get("itemType") == "attachment"
         and c.get("data", {}).get("contentType") == "application/pdf"
+        and not c.get("data", {}).get("deleted")
     ]
 
 

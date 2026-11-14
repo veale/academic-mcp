@@ -523,6 +523,20 @@ async def _extract_from_landing_page(
                 "sections": None, "section_detection": None, "word_count": None,
             }
 
+    # Repository item pages (DSpace handles, EPrints) link their files
+    # rather than embedding the text; follow those links.
+    for candidate in pdf_fetcher.repository_pdf_urls(html, effective_url, citation_pdf)[:4]:
+        if candidate == citation_pdf:
+            continue
+        path = await pdf_fetcher.fetch_direct(candidate)
+        if path:
+            logger.info("Repository file for %s: %s", effective_url, candidate)
+            return {
+                "text": None, "source": "repository_bitstream",
+                "pdf_path": path,
+                "sections": None, "section_detection": None, "word_count": None,
+            }
+
     # Trafilatura HTML extraction.
     extraction = await content_extractor.extract_article_with_sections(html, effective_url)
     if extraction:
@@ -943,11 +957,20 @@ async def _cache_pdf_and_return(
     if _pages:
         pdf_meta["pages"] = _pages
     pdf_meta["full_extraction"] = True
+    if result.get("ocr"):
+        pdf_meta["ocr"] = True
 
     check, warnings, rejected = _gate(
         raw_text, source, pdf_title=str(_pdf_info.get("title") or ""),
         pages=_pages if isinstance(_pages, int) else None,
     )
+    if result.get("ocr"):
+        warnings = list(warnings) + [
+            f"ocr_text: the PDF had no usable text layer; this text was recognised by OCR from "
+            f"{result.get('ocr_pages')} of {result.get('pages')} pages and may contain recognition errors"
+        ]
+    elif result.get("ocr_error"):
+        warnings = list(warnings) + [f"ocr_failed: {result['ocr_error']}"]
     if rejected:
         if not _is_zotero_source(source):
             _discard_rejected_pdf(pdf_source)
@@ -1913,6 +1936,19 @@ async def fetch_article(
     range_end=None, use_proxy=False, pages=None, source="auto", _original_ssrn_doi=None,
 ) -> FetchedArticle:
     """Normal retrieval, with a durable desktop fallback for unavailable text."""
+    resolved_via = ""
+    duplicates: list = []
+    if identifier.ref and not (identifier.doi or identifier.zotero_key or identifier.url):
+        from . import refs
+        resolved = await refs.resolve(identifier.ref)
+        if resolved.error:
+            text = resolved.error
+            if resolved.candidates:
+                text += "\nCandidates:\n" + refs.format_candidates(resolved.candidates)
+            return FetchedArticle(doi="", text=text, error=text)
+        identifier = ArticleId(doi=resolved.doi, zotero_key=resolved.zotero_key, url=resolved.url)
+        resolved_via = resolved.via
+        duplicates = resolved.candidates
     ctx = _FetchContext()
     token = _ctx.set(ctx)
     attempts: list = []
@@ -1930,6 +1966,11 @@ async def fetch_article(
         ]
     if ctx.rejections:
         result.rejected_sources = list(ctx.rejections)
+    if resolved_via and not result.error:
+        result.metadata = {**(result.metadata or {}), "resolved_via": resolved_via}
+        if duplicates:
+            from . import refs
+            result.metadata["duplicates"] = duplicates
     if result.error and not result.source and (identifier.doi or identifier.url):
         from .. import browser_acquisition
         if browser_acquisition.enabled():

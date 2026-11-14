@@ -453,7 +453,9 @@ async def _item_has_pdf_attachment(item_key: str) -> bool:
         children = resp.json()
         for child in children:
             data = child.get("data") or {}
-            if data.get("contentType") != "application/pdf":
+            # A trashed attachment (e.g. a wrong PDF removed by the user) does
+            # not count: the item still needs its real file.
+            if data.get("contentType") != "application/pdf" or data.get("deleted"):
                 continue
             if remote and zotero_webdav.enabled():
                 if await zotero_webdav.has_file(child.get("key") or data["key"], data):
@@ -911,7 +913,8 @@ async def _attach_pdf_web(parent_key: str, pdf_path: Path, filename: str) -> tup
         for child in children.json():
             data = child.get("data") or {}
             if (data.get("contentType") == "application/pdf"
-                    and data.get("linkMode") == "imported_file"):
+                    and data.get("linkMode") == "imported_file"
+                    and not data.get("deleted")):
                 key = child.get("key") or data.get("key")
                 if not data.get("md5") or (zotero_webdav.enabled() and not await zotero_webdav.has_file(key, data)):
                     attachment_key = key
