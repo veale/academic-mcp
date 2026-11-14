@@ -180,6 +180,21 @@ def put_cached(
     return article
 
 
+def delete_cached(doi: str) -> bool:
+    """Remove the cached article (and its charmap) for *doi*. Returns True if removed."""
+    key = _cache_key(doi)
+    removed = False
+    for path in (_cache_path(doi), charmap_path(key), config.pdf_cache_dir / f"{key}.paths.json"):
+        try:
+            path.unlink()
+            removed = removed or path.suffix == ".json"
+        except FileNotFoundError:
+            pass
+        except OSError as exc:
+            logger.warning("Failed to delete cache file %s: %s", path, exc)
+    return removed
+
+
 def charmap_path(cache_key: str) -> Path:
     """Return the path to the charmap binary for a given *cache_key*.
 

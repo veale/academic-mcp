@@ -92,7 +92,8 @@ async def search_in_article(
     from .. import text_cache, apis
     from ..config import config
 
-    cached = text_cache.get_cached(doi)
+    from .fetch import verified_cached
+    cached = await verified_cached(doi)
 
     # SSRN remapping: preprint DOIs sometimes resolve to published DOIs.
     if not cached and doi.startswith("10.2139/ssrn."):

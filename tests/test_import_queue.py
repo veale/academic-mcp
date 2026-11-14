@@ -30,7 +30,7 @@ def _make_job(doi: str, pdf_path: Path):
         sections=[],
         section_detection="unknown",
         word_count=0,
-        metadata={"title": f"Paper {doi}"},
+        metadata={"title": f"Paper {doi}", "identity": {"status": "pass"}},
     )
     return zotero_import._ImportJob(doi=doi, pdf_path=pdf_path, cached_article=cached)
 

@@ -278,6 +278,11 @@ class FetchedArticle(BaseModel):
     range_chars: tuple[int, int] | None = None
     preview_chunks: list[PreviewChunk] = []
 
+    # Provenance: is this text the requested work, and is it the whole work?
+    identity: dict | None = None
+    content_warnings: list[str] = []
+    rejected_sources: list[dict] = []
+
     # Operational
     auto_import_status: str | None = None
     browser_acquisition: dict | None = None

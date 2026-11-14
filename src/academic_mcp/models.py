@@ -144,8 +144,20 @@ class ZoteroItem:
             "libraryName": self.libraryName,
             "libraryType": self.libraryType,
             "groupID": self.groupID,
+            "citationKey": self.citation_key,
             "_match_type": self._match_type,
         }
+
+    @property
+    def citation_key(self) -> str:
+        """Zotero 7 / Better BibTeX citation key, if the item has one."""
+        key = (self.fields or {}).get("citationKey", "")
+        if key:
+            return key
+        for line in (self.extra or "").splitlines():
+            if line.lower().startswith("citation key:"):
+                return line.split(":", 1)[1].strip()
+        return ""
 
 
 @dataclass
@@ -168,6 +180,8 @@ class PaperContent:
     truncated: bool = False
     indexed_pages: Optional[int] = None
     total_pages: Optional[int] = None
+    tags: list[str] = field(default_factory=list)
+    attachment_key: str = ""
 
     @property
     def has_content(self) -> bool:
@@ -199,6 +213,8 @@ class PaperContent:
             "indexed_pages": self.indexed_pages,
             "total_pages": self.total_pages,
             "libraryName": self.libraryName,
+            "tags": list(self.tags),
+            "attachment_key": self.attachment_key,
         }
 
 

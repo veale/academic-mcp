@@ -20,6 +20,16 @@ def clear_field_ids_cache():
     zotero_sqlite._field_ids.clear()
 
 
+@pytest.fixture(autouse=True)
+def offline_identity_metadata(monkeypatch):
+    """Keep tests offline: no Crossref/S2 lookups for identity verification.
+
+    Tests that exercise verification patch ``_expected_for`` themselves.
+    """
+    from academic_mcp.core import fetch
+    monkeypatch.setattr(fetch, "_expected_for", AsyncMock(return_value={}))
+
+
 @pytest.fixture
 def mock_aiosqlite_connection():
     """Create a mock aiosqlite connection with proper row factory."""

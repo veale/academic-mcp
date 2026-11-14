@@ -259,6 +259,27 @@ async def ingest(job_id, lease, kind, data, metadata):
                 result = await pdf_work.extract(path, config.use_pymupdf4llm)
                 if len(result.get("text", "").split()) < 30:
                     raise ValueError("PDF has no usable text (OCR may be required)")
+            # The browser may have been redirected (login walls, "related
+            # article" pages); never accept a different work under this DOI.
+            from . import identity as _identity
+            from .core.fetch import _expected_for
+            expected = await _expected_for(doi) if doi else {}
+            check = _identity.check_identity(
+                result.get("text", ""), expected.get("title"), expected.get("authors"),
+                pdf_title=str((result.get("metadata") or {}).get("title") or ""),
+            )
+            if check.rejected:
+                raise ValueError(
+                    f"identity_mismatch: the {kind} is '{check.found_title or 'an unknown document'}', "
+                    f"not '{check.expected_title}' ({check.reason})"
+                )
+            metadata = {
+                **(metadata or {}),
+                **{k: v for k, v in expected.items() if v},
+                "identity": check.to_dict(),
+                "content_warnings": _identity.assess_content(
+                    result.get("text", ""), pages=result.get("pages")),
+            }
             await conn.execute("BEGIN IMMEDIATE")
             await owned(conn, job_id, lease)  # A cancellation during extraction wins.
             existing = text_cache.get_cached(identity)

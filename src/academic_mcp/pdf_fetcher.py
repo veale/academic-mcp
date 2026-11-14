@@ -14,6 +14,7 @@ held in memory, keeping RAM usage near-zero regardless of PDF size.
 
 import asyncio
 import base64
+import contextvars
 import hashlib
 import json
 import logging
@@ -28,6 +29,18 @@ import httpx
 from .config import config
 
 logger = logging.getLogger(__name__)
+
+# Per-request record of download attempts, so a failure can say what each
+# source actually returned (HTTP status, HTML instead of PDF, network error).
+attempt_log: contextvars.ContextVar[list | None] = contextvars.ContextVar(
+    "pdf_fetch_attempts", default=None
+)
+
+
+def _note_attempt(url: str, via: str, result: str) -> None:
+    log = attempt_log.get()
+    if log is not None and len(log) < 40:
+        log.append({"url": url, "via": via, "result": result})
 
 _PDF_MAGIC = b"%PDF-"
 
@@ -79,6 +92,8 @@ async def _stream_to_cache(url: str, resp: httpx.Response) -> Path | None:
                 if not header_checked:
                     if not _is_pdf_header(chunk):
                         logger.debug("Not a PDF: %s", url)
+                        ctype = (resp.headers.get("content-type") or "unknown type").split(";")[0]
+                        _note_attempt(url, "download", f"not a PDF ({ctype}); likely a landing or login page")
                         return None
                     header_checked = True
                 f.write(chunk)
@@ -206,11 +221,22 @@ async def fetch_direct(url: str) -> Path | None:
             async with client.stream("GET", url) as resp:
                 if resp.status_code != 200:
                     logger.debug("Direct fetch of %s returned status=%s", url, resp.status_code)
+                    _note_attempt(url, "direct", _status_reason(resp.status_code))
                     return None
                 return await _stream_to_cache(url, resp)
     except httpx.RequestError as e:
         logger.debug("Direct fetch failed for %s: %s", url, e)
+        _note_attempt(url, "direct", f"network error: {type(e).__name__}")
     return None
+
+
+def _status_reason(status: int) -> str:
+    return {
+        401: "HTTP 401 (login required)",
+        403: "HTTP 403 (blocked or subscription required)",
+        404: "HTTP 404 (not found)",
+        429: "HTTP 429 (rate limited)",
+    }.get(status, f"HTTP {status}")
 
 
 # ---------------------------------------------------------------------------
@@ -238,10 +264,12 @@ async def fetch_proxied(url: str) -> Path | None:
         ) as client:
             async with client.stream("GET", url) as resp:
                 if resp.status_code != 200:
+                    _note_attempt(url, "institutional proxy", _status_reason(resp.status_code))
                     return None
                 return await _stream_to_cache(url, resp)
     except httpx.RequestError as e:
         logger.debug("Proxied fetch failed for %s: %s", url, e)
+        _note_attempt(url, "institutional proxy", f"network error: {type(e).__name__}")
     return None
 
 

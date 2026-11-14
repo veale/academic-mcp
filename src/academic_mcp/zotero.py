@@ -678,11 +678,13 @@ async def get_paper_from_zotero(doi: str) -> dict | None:
                       "publicationTitle", "itemType", "url")},
         "text": None, "pdf_path": None, "source": None,
         "truncated": False, "indexed_pages": None, "total_pages": None,
+        "tags": [t.get("tag", "") for t in item_data.get("tags") or [] if isinstance(t, dict)],
     }
 
     # Resolve attachment
     await _resolve_attachment(entry)
     att_key = entry.get("attachment_key")
+    result["attachment_key"] = att_key or ""
     if not att_key:
         result["source"] = "zotero_metadata_only"
         return result
@@ -778,11 +780,13 @@ async def get_paper_from_zotero_by_key(key: str) -> dict | None:
                       "publicationTitle", "itemType", "url")},
         "text": None, "pdf_path": None, "source": None,
         "truncated": False, "indexed_pages": None, "total_pages": None,
+        "tags": [t.get("tag", "") for t in item_data.get("tags") or [] if isinstance(t, dict)],
     }
 
     entry = {"item_key": key, "attachment_key": None, "has_pdf": False}
     await _resolve_attachment(entry)
     att_key = entry.get("attachment_key")
+    result["attachment_key"] = att_key or ""
     if not att_key:
         result["source"] = "zotero_metadata_only"
         return result

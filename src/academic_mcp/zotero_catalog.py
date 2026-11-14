@@ -402,6 +402,38 @@ async def update_doi_index(index):
     return result
 
 
+def find_keys(citekey=None, url_patterns=(), dois=()):
+    """Item keys in the live catalog matching a citekey, url pattern or DOI."""
+    if not enabled():
+        return []
+    clauses, params = [], []
+    if citekey:
+        clauses.append("json_extract(data,'$.citationKey') = ?")
+        params.append(citekey)
+        clauses.append("json_extract(data,'$.extra') LIKE ?")
+        params.append(f"%Citation Key: {citekey}%")
+    for pattern in url_patterns or ():
+        clauses.append("json_extract(data,'$.url') LIKE ?")
+        params.append(pattern)
+    for doi in dois or ():
+        clauses.append("LOWER(json_extract(data,'$.DOI')) = ?")
+        params.append(doi.lower())
+    if not clauses:
+        return []
+    try:
+        with _connect() as db:
+            rows = db.execute(
+                "SELECT key FROM items WHERE (" + " OR ".join(clauses) + ") "
+                "AND COALESCE(json_extract(data,'$.deleted'),0) = 0 "
+                "AND json_extract(data,'$.itemType') NOT IN ('attachment','note','annotation') "
+                "LIMIT 5",
+                params,
+            ).fetchall()
+    except sqlite3.Error:
+        return []
+    return [row[0] for row in rows]
+
+
 def library_for_key(key):
     if not enabled():
         return None

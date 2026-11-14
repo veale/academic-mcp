@@ -22,8 +22,9 @@ def _needs_text(item):
         return False
     cached = text_cache.get_cached(item.get("doi") or "zotero:" + key)
     if cached and cached.text:
-        # A newly synced PDF must be eligible after an older HTML-only fetch.
-        if not cached.pdf_path and not cached.metadata.get("zotero_attachment_key"):
+        # The library attachment is the user's copy of record: it replaces
+        # any web-fetched text (HTML or PDF) cached under the same DOI.
+        if not cached.metadata.get("zotero_attachment_key"):
             return True
         old_hash = cached.metadata.get("zotero_attachment_md5")
         return bool(
@@ -93,6 +94,21 @@ async def _extract(item):
                     metadata={**existing.metadata, **metadata}, pdf_path=str(path), html_path=existing.html_path)
                 return existing.word_count
             result = await pdf_work.extract(path, config.use_pymupdf4llm)
+            from . import identity as _identity
+            check = _identity.check_identity(
+                result["text"], item.get("title"), item.get("authors"),
+                pdf_title=str((result.get("metadata") or {}).get("title") or ""),
+            )
+            metadata["identity"] = check.to_dict()
+            metadata["content_warnings"] = _identity.assess_content(
+                result["text"], pages=result.get("pages"))
+            metadata["zotero_key"] = item["item_key"]
+            metadata["attachment_key"] = attachment
+            if check.rejected:
+                logger.warning(
+                    "Zotero attachment %s of %s appears to be %r, not %r",
+                    attachment, item["item_key"], check.found_title[:80], check.expected_title[:80],
+                )
             text_cache.put_cached(
                 item.get("doi") or "zotero:" + item["item_key"],
                 result["text"],

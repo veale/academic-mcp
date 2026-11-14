@@ -193,8 +193,9 @@ async def search_in_corpus(
 
     articles: list[tuple[str, object]] = []
     missing: list[str] = []
+    from .fetch import verified_cached
     for doi in wanted:
-        cached = text_cache.get_cached(doi)
+        cached = await verified_cached(doi)
         if cached and (cached.text or "").strip():
             articles.append((doi, cached))
         else:

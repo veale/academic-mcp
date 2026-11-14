@@ -40,6 +40,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 import shutil
 import sqlite3
 import tempfile
@@ -736,6 +737,163 @@ async def search_by_key(key: str) -> Optional[ZoteroItem]:
         await conn.close()
 
 
+_ITEM_KEY_RE = re.compile(r"^[A-Z0-9]{8}$")
+_ZOTERO_LINK_RE = re.compile(r"^zotero://select/(?:library|users/\d+|groups/\d+)/items/([A-Z0-9]{8})", re.I)
+
+
+def normalize_reference_key(ref: str) -> str:
+    """Strip zotero:// select links and whitespace from an item reference."""
+    ref = (ref or "").strip()
+    m = _ZOTERO_LINK_RE.match(ref)
+    return m.group(1).upper() if m else ref
+
+
+def is_item_key(ref: str) -> bool:
+    return bool(_ITEM_KEY_RE.match(ref or ""))
+
+
+async def search_by_citekey(citekey: str) -> Optional[ZoteroItem]:
+    """Resolve a Better BibTeX / Zotero 7 citation key to an item.
+
+    Checks the native ``citationKey`` field and the legacy ``Citation Key:``
+    line in Extra, in the desktop mirror and then the live Web API catalog.
+    """
+    citekey = (citekey or "").strip()
+    if not citekey:
+        return None
+    if sqlite_config.available:
+        conn = await _get_connection()
+        try:
+            for field_name, op, value in (
+                ("citationKey", "=", citekey),
+                ("extra", "LIKE", f"%Citation Key: {citekey}%"),
+            ):
+                fid = await _get_field_id(conn, field_name)
+                if fid is None:
+                    continue
+                cursor = await conn.execute(
+                    f"""SELECT id.itemID FROM itemData id
+                        JOIN itemDataValues idv ON id.valueID = idv.valueID
+                        JOIN items i ON i.itemID = id.itemID
+                        LEFT JOIN deletedItems di ON di.itemID = i.itemID
+                        WHERE id.fieldID = ? AND idv.value {op} ? AND di.itemID IS NULL
+                        LIMIT 1""",
+                    (fid, value),
+                )
+                row = await cursor.fetchone()
+                if row:
+                    item = await _build_item(conn, row["itemID"])
+                    if item:
+                        return item
+        except Exception as e:
+            logger.warning("SQLite citekey lookup failed: %s", e)
+        finally:
+            await conn.close()
+    from .zotero_catalog import find_keys
+    keys = find_keys(citekey=citekey)
+    if keys:
+        hydrated = await search_by_keys(keys[:1])
+        return hydrated.get(keys[0])
+    return None
+
+
+def reference_url_patterns(url: str) -> tuple[list[str], list[str]]:
+    """Return (LIKE patterns for a url field, equivalent DOIs) for a web address.
+
+    SSRN abstract pages and arXiv abs/pdf pages are matched by their numeric
+    identifiers so that every URL spelling finds the same library item.
+    """
+    url = (url or "").strip()
+    dois: list[str] = []
+    patterns: list[str] = []
+    m = re.search(r"ssrn\.com/.*?abstract(?:_id)?=(\d+)", url, re.I) or re.search(
+        r"10\.2139/ssrn\.(\d+)", url, re.I)
+    if m:
+        sid = m.group(1)
+        dois.append(f"10.2139/ssrn.{sid}")
+        patterns += [f"%abstract_id={sid}%", f"%abstract={sid}%", f"%ssrn.{sid}%"]
+        return patterns, dois
+    m = re.search(r"arxiv\.org/(?:abs|pdf)/([0-9]{4}\.[0-9]{4,5}|[a-z\-]+/[0-9]{7})", url, re.I) or re.search(
+        r"10\.48550/arxiv\.([0-9]{4}\.[0-9]{4,5})", url, re.I)
+    if m:
+        aid = m.group(1)
+        dois.append(f"10.48550/arxiv.{aid.lower()}")
+        patterns.append(f"%arxiv.org/%/{aid}%")
+        return patterns, dois
+    core = re.sub(r"^https?://(www\.)?", "", url, flags=re.I).split("#", 1)[0].rstrip("/")
+    if core:
+        patterns += [f"http://{core}", f"https://{core}", f"http://www.{core}",
+                     f"https://www.{core}", f"http%://{core}/", f"http%://www.{core}/"]
+    return patterns, dois
+
+
+async def search_by_url(url: str) -> Optional[ZoteroItem]:
+    """Find a library item whose url field (or SSRN/arXiv identifier) matches *url*."""
+    patterns, dois = reference_url_patterns(url)
+    for doi in dois:
+        item = await search_by_doi(doi)
+        if item:
+            return item
+    if sqlite_config.available and patterns:
+        conn = await _get_connection()
+        try:
+            fid = await _get_field_id(conn, "url")
+            if fid is not None:
+                for pattern in patterns:
+                    cursor = await conn.execute(
+                        """SELECT id.itemID FROM itemData id
+                           JOIN itemDataValues idv ON id.valueID = idv.valueID
+                           JOIN items i ON i.itemID = id.itemID
+                           JOIN itemTypes it ON it.itemTypeID = i.itemTypeID
+                           LEFT JOIN deletedItems di ON di.itemID = i.itemID
+                           WHERE id.fieldID = ? AND idv.value LIKE ?
+                             AND it.typeName NOT IN ('attachment', 'note', 'annotation')
+                             AND di.itemID IS NULL
+                           LIMIT 1""",
+                        (fid, pattern),
+                    )
+                    row = await cursor.fetchone()
+                    if row:
+                        item = await _build_item(conn, row["itemID"])
+                        if item:
+                            return item
+        except Exception as e:
+            logger.warning("SQLite url lookup failed: %s", e)
+        finally:
+            await conn.close()
+    from .zotero_catalog import find_keys
+    keys = find_keys(url_patterns=patterns, dois=dois)
+    if keys:
+        hydrated = await search_by_keys(keys[:1])
+        return hydrated.get(keys[0])
+    return None
+
+
+async def resolve_reference(ref: str) -> tuple[Optional[ZoteroItem], str]:
+    """Resolve an item key, zotero:// link, citekey or URL to a library item.
+
+    Returns ``(item, resolved_via)``; *item* is None when nothing matches.
+    """
+    ref = normalize_reference_key(ref)
+    if not ref:
+        return None, ""
+    if is_item_key(ref):
+        item = await search_by_key(ref)
+        if item is None:
+            hydrated = await search_by_keys([ref])
+            item = hydrated.get(ref)
+        if item is not None:
+            return item, "item_key"
+    if re.match(r"^https?://", ref, re.I):
+        item = await search_by_url(ref)
+        return (item, "url") if item else (None, "")
+    if re.match(r"^[\w:\-.+/]+$", ref) and not ref.startswith("10."):
+        item = await search_by_citekey(ref)
+        if item is not None:
+            return item, "citekey"
+    return None, ""
+
+
 async def search_by_keys(keys: list[str]) -> dict[str, ZoteroItem]:
     """Look up many items at once, over a single connection.
 
@@ -991,7 +1149,7 @@ async def get_paper_content(item: ZoteroItem) -> PaperContent:
         title=item.title, DOI=item.DOI, creators=item.creators,
         date=item.date, abstractNote=item.abstractNote,
         publicationTitle=item.publicationTitle, itemType=item.itemType,
-        url=item.url, libraryName=item.libraryName,
+        url=item.url, libraryName=item.libraryName, tags=list(item.tags),
     )
     if not sqlite_config.available:
         return result
@@ -1002,6 +1160,7 @@ async def get_paper_content(item: ZoteroItem) -> PaperContent:
         if not att:
             result.source = "sqlite_metadata_only"
             return result
+        result.attachment_key = att.key
 
         # Resolve a PDF path through the full fallback chain so callers always
         # know where the file lives, regardless of whether we also have text:

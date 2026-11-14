@@ -1675,9 +1675,10 @@ async def _handle_semantic_search_zotero(args: dict) -> list[TextContent]:
                 f"    chunk: chars {h.char_start or 0}–{h.char_end or 0} "
                 f"(chunk {(h.chunk_idx or 0)+1}/{h.chunk_count or 1})"
             )
+            _ident = f"doi='{h.doi}'" if h.doi else f"zotero_key='{h.item_key}'"
             lines.append(
-                f"    → fetch_fulltext(doi='{h.doi or ''}', mode='range', "
-                f"start={h.char_start or 0}, end={h.char_end or 0})"
+                f"    → fetch_fulltext({_ident}, mode='range', "
+                f"range_start={h.char_start or 0}, range_end={h.char_end or 0})"
             )
         if h.snippet:
             lines.append(f"    {h.snippet[:220]}")
@@ -1905,6 +1906,8 @@ def _render_search_hit(i: int, r, current_year: int) -> str:
     # fetch_fulltext.  When a DOI is present it's already the canonical handle.
     if r.url and not r.doi:
         text += f"    URL: {r.url}\n"
+    if r.in_zotero and r.zotero_key:
+        text += f"    Zotero key: {r.zotero_key}\n"
 
     # Follow-up action guidance
     text += "\n    → "
@@ -1919,15 +1922,15 @@ def _render_search_hit(i: int, r, current_year: int) -> str:
             text += f"Available via institutional access: {r.primo_proxy_url}"
         else:
             text += f"May need proxy. Call fetch_fulltext(doi=\"{r.doi}\", use_proxy=true, mode=\"sections\") to explore."
+    elif r.in_zotero and r.zotero_key:
+        text += (
+            f"No DOI, but in Zotero. Call fetch_fulltext(zotero_key=\"{r.zotero_key}\", "
+            "mode=\"sections\") to read the library copy."
+        )
     elif r.url:
         text += (
             f"No DOI, but URL available. "
             f"Call fetch_fulltext(url=\"{r.url}\", mode=\"sections\") to explore."
-        )
-    elif r.in_zotero and r.zotero_key:
-        text += (
-            f"No DOI, but in Zotero. Call fetch_fulltext(zotero_key=\"{r.zotero_key}\", "
-            "mode=\"sections\") to explore."
         )
     else:
         text += "No DOI — full text retrieval not available for this result."
@@ -2571,6 +2574,49 @@ def _format_citation_header(doi: str, metadata: dict | None = None) -> str:
     return "── Citation ──\n" + "\n".join(parts) + "\n──────────────\n\n"
 
 
+def _format_provenance(fa) -> str:
+    """Identity verdict, completeness warnings and library handles for a fetch."""
+    lines: list[str] = []
+    verdict = fa.identity or {}
+    status = verdict.get("status")
+    expected = verdict.get("expected_title") or ""
+    found = verdict.get("found_title") or ""
+    if status == "mismatch":
+        lines.append(
+            f"⚠ IDENTITY MISMATCH: this text appears to be '{found or 'a different document'}', "
+            f"not '{expected}'. It comes from the library attachment ({fa.source}); "
+            "do not cite it as the requested work. Check or replace the attachment in Zotero."
+        )
+    elif status == "uncertain":
+        lines.append(
+            f"⚠ Identity uncertain ({verdict.get('reason', '')}). Expected '{expected}'"
+            + (f"; document begins '{found}'" if found else "")
+            + ". Confirm title and authors before quoting."
+        )
+    elif status == "pass":
+        lines.append(f"Identity: verified as '{expected}' ({verdict.get('reason', '')})")
+    elif status == "not_checkable":
+        lines.append(f"Identity: not checked ({verdict.get('reason', '')})")
+    for warning in fa.content_warnings or []:
+        lines.append(f"⚠ {warning}")
+    meta = fa.metadata or {}
+    if meta.get("zotero_key"):
+        handle = f"Zotero item: {meta['zotero_key']}"
+        if meta.get("attachment_key"):
+            handle += f" (attachment {meta['attachment_key']})"
+        if meta.get("library"):
+            handle += f", {meta['library']}"
+        lines.append(handle)
+    for rejected in fa.rejected_sources or []:
+        lines.append(
+            f"Rejected {rejected.get('source')}: it contained "
+            f"'{(rejected.get('found_title') or 'a different document')[:120]}' ({rejected.get('reason')})"
+        )
+    if not lines:
+        return ""
+    return "── Provenance ──\n" + "\n".join(lines) + "\n────────────────\n\n"
+
+
 def _format_sections_index(fa) -> str:
     """Render the sections index from fa.available_sections."""
     from .core.types import FetchMode
@@ -2706,7 +2752,10 @@ def _format_range(fa) -> str:
         f"Source: {fa.source}\n"
         + "=" * 60 + "\n\n"
     )
-    return header + fa.text
+    tail = ""
+    if fa.truncated:
+        tail = f"\n\n[... more text follows; continue with range_start={end} ...]"
+    return header + fa.text + tail
 
 
 def _format_full_body(fa) -> str:
@@ -2719,7 +2768,12 @@ def _format_full_body(fa) -> str:
     )
     full = header + fa.text
     if fa.truncated:
-        full = full + "\n\n[... TRUNCATED ...]"
+        shown = len(fa.text)
+        full = full + (
+            f"\n\n[... TRUNCATED at {shown:,} characters of {fa.word_count:,} words. Continue with "
+            f"fetch_fulltext(doi=\"{doi}\", mode=\"range\", range_start={shown}) or locate "
+            "passages with search_in_article ...]"
+        )
     return full
 
 
@@ -2745,6 +2799,9 @@ def _format_fetched_for_mcp(fa) -> list[TextContent]:
     citation = _format_citation_header(fa.doi, fa.metadata)
     if citation and fa.mode != FetchMode.sections:
         parts.append(citation)
+    provenance = _format_provenance(fa)
+    if provenance:
+        parts.append(provenance)
 
     if fa.mode == FetchMode.sections:
         parts.append(_format_sections_index(fa))
@@ -3033,11 +3090,19 @@ async def _handle_batch_sections(args: dict) -> list[TextContent]:
     # Resolution belongs inside each background job and its deadline.
     dois = list(dict.fromkeys(zotero._normalize_doi(doi) for doi in dois))
 
-    # Split into cached and uncached
+    # Split into cached and uncached.  Cached entries are re-verified: text
+    # cached before identity checks existed may be a different work, in which
+    # case it is purged here and fetched again below.
+    from .core import fetch as core_fetch
     cached = {}
     uncached = []
-    for doi in dois:
-        article = text_cache.get_cached(doi)
+    verified = await asyncio.gather(
+        *(core_fetch.verified_cached(doi) for doi in dois), return_exceptions=True
+    )
+    for doi, article in zip(dois, verified):
+        if isinstance(article, Exception):
+            logger.warning("Cache verification failed for %s: %s", doi, article)
+            article = text_cache.get_cached(doi)
         if article:
             cached[doi] = article
         else:
@@ -3086,14 +3151,22 @@ async def _handle_batch_sections(args: dict) -> list[TextContent]:
             # Failed to fetch
             job = jobs.get(doi)
             if job and not job.done():
-                lines.append("⏳ Fetch still running in the background. Retry batch_sections with this DOI to collect the result; the download is not restarted.")
+                state = fetch_jobs.describe(doi + f"|proxy={use_proxy}")
+                lines.append(
+                    "⏳ Fetch still in progress" + (f" ({state})" if state else "")
+                    + ". Retry batch_sections with this DOI to collect the result; the download is not "
+                    "restarted, and a fetch that reaches its limit reports why it failed."
+                )
             else:
                 outcome = job.result() if job and not job.cancelled() else None
                 if isinstance(outcome, Exception):
-                    detail = "article retrieval exceeded its deadline" if isinstance(outcome, TimeoutError) else str(outcome)
+                    detail = (
+                        "article retrieval exceeded its deadline" if isinstance(outcome, TimeoutError)
+                        else (str(outcome) or type(outcome).__name__)
+                    )
                 else:
                     response = outcome.get("response", []) if isinstance(outcome, dict) else []
-                    detail = " ".join(c.text for c in response if hasattr(c, "text"))[:500]
+                    detail = " ".join(c.text for c in response if hasattr(c, "text"))[:1200]
                 lines.append("⚠ Could not fetch: " + (detail or "article not in cache after fetch attempt"))
             lines.append("")
             continue
@@ -3125,6 +3198,18 @@ async def _handle_batch_sections(args: dict) -> list[TextContent]:
             if venue:
                 cite_line += f". {venue}"
             lines.append(cite_line)
+
+        verdict = meta.get("identity") if isinstance(meta.get("identity"), dict) else {}
+        if verdict.get("status") == "mismatch":
+            lines.append(
+                f"⚠ IDENTITY MISMATCH: library attachment appears to be "
+                f"'{verdict.get('found_title') or 'a different document'}'; do not cite it as this DOI."
+            )
+        elif verdict.get("status") == "uncertain":
+            lines.append(f"⚠ Identity uncertain: {verdict.get('reason', '')}; confirm before quoting.")
+        for warning in meta.get("content_warnings") or []:
+            lines.append(f"⚠ {warning}")
+        lines.append(f"Source: {article.source}")
 
         # Get section detection method
         det = article.section_detection
@@ -3358,13 +3443,20 @@ async def _handle_search_zotero(args: dict) -> list[TextContent]:
             text += f"    Date: {r['date']}\n"
         if r.get("DOI"):
             text += f"    DOI: {r['DOI']}\n"
+        if r.get("key"):
+            handle = f"    Zotero key: {r['key']}"
+            if r.get("citationKey"):
+                handle += f"  (citekey: {r['citationKey']})"
+            text += handle + "\n"
         text += f"    Type: {r.get('itemType', '?')}\n"
         if r.get("abstractNote"):
             abstract = r['abstractNote']
             if len(abstract) > 200:
                 abstract = abstract[:200] + "..."
             text += f"    Abstract: {abstract}\n"
-        if r.get("DOI"):
+        if r.get("key"):
+            text += f"    → fetch_fulltext(zotero_key=\"{r['key']}\") to read the library copy\n"
+        elif r.get("DOI"):
             text += f"    → fetch_fulltext(doi=\"{r['DOI']}\") to read\n"
         text += "\n"
 

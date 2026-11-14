@@ -34,7 +34,7 @@ async def test_batch_returns_partial_results_while_slow_fetch_continues(monkeypa
     args = {"dois": ["10.1234/fast", "10.1234/slow"]}
     response = await server._handle_batch_sections(args)
     assert "No sections detected" in response[0].text
-    assert "still running in the background" in response[0].text
+    assert "still in progress" in response[0].text
     await server._handle_batch_sections(args)
     assert started.count("10.1234/slow") == 1
     release.set()

@@ -311,6 +311,16 @@ async def _probe_web_write_access() -> None:
 # Source eligibility
 # ---------------------------------------------------------------------------
 
+def _identity_verified(cached_article: CachedArticle) -> bool:
+    """Only text confirmed to be the requested work may be written to Zotero.
+
+    Entries cached before identity checks existed carry no verdict and are
+    not imported; they are re-verified the next time they are read.
+    """
+    verdict = (cached_article.metadata or {}).get("identity")
+    return isinstance(verdict, dict) and verdict.get("status") == "pass"
+
+
 def _is_web_fetched(source: str) -> bool:
     """Return True if this article was fetched from the web, not from Zotero."""
     source_lower = source.lower()
@@ -1060,6 +1070,15 @@ async def import_to_zotero(
         _record_attempt(doi, "guard", "skipped", "source is Zotero")
         return False
 
+    if not _identity_verified(cached_article):
+        verdict = (cached_article.metadata or {}).get("identity") or {}
+        _record_attempt(
+            doi, "guard", "skipped",
+            "document identity not verified as this DOI (" + str(verdict.get("status") or "unchecked") + ")",
+        )
+        # True: the job is complete (deliberately not imported), not retryable.
+        return True
+
     if not zot_config.local_enabled and not zot_config.web_api_available:
         logger.debug("Skipping Zotero import: no writable API configured")
         _record_attempt(doi, "guard", "error", "no writable Zotero API configured")
@@ -1296,6 +1315,8 @@ def enqueue_zotero_import(
     if not doi or not re.match(r"^10\.\d{4,9}/\S+$", zotero._normalize_doi(doi)):
         return
     if not _is_web_fetched(cached_article.source):
+        return
+    if not _identity_verified(cached_article):
         return
     if pdf_path is not None and not pdf_path.exists():
         return

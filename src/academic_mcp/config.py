@@ -82,6 +82,12 @@ class Config:
     max_context_length: int = field(
         default_factory=lambda: int(os.getenv("MAX_CONTEXT_LENGTH", "100000"))
     )
+    # Upper bound on text extracted and cached per document.  Responses are
+    # still limited to MAX_CONTEXT_LENGTH; long works are read with
+    # mode='range' / search_in_article over the whole cached text.
+    extract_max_chars: int = field(
+        default_factory=lambda: int(os.getenv("EXTRACT_MAX_CHARS", "4000000"))
+    )
 
     # ── External-API response cache ──────────────────────────────────
     # Agent loops re-issue near-identical searches; a short TTL turns the

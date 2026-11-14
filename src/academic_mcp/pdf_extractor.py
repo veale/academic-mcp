@@ -505,7 +505,7 @@ def extract_text(source: Path | bytes, max_length: int | None = None) -> dict:
             "sections": list[dict],   # [{title, page, level, start, end, word_count}]
         }
     """
-    max_len = max_length or config.max_context_length
+    max_len = max_length or config.extract_max_chars
 
     doc = _open_doc(source)
 
@@ -655,7 +655,7 @@ def extract_text_with_sections(
     # Local import avoids circular dependency (content_extractor ← server → pdf_extractor)
     from . import content_extractor as _ce
 
-    max_len = max_length or config.max_context_length
+    max_len = max_length or config.extract_max_chars
 
     doc = _open_doc(source)
     is_latex = _is_latex_pdf(doc)
@@ -1305,7 +1305,7 @@ def extract_text_pymupdf4llm(
         logger.debug("pymupdf4llm not installed — falling back to extract_text_with_sections")
         return extract_text_with_sections(source, max_length)
 
-    max_len = max_length or config.max_context_length
+    max_len = max_length or config.extract_max_chars
     doc = _open_doc(source)
 
     is_ocr = _is_ocr_pdf(doc)

@@ -9,6 +9,7 @@ Contains:
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import hashlib
 import logging
 from pathlib import Path
@@ -21,6 +22,7 @@ from .. import (
     apis,
     content_extractor,
     core_api,
+    identity,
     pdf_extractor,
     pdf_work,
     pdf_fetcher,
@@ -52,6 +54,320 @@ async def _get_doi_lock(doi: str) -> asyncio.Lock:
         if doi not in _doi_locks:
             _doi_locks[doi] = asyncio.Lock()
         return _doi_locks[doi]
+
+
+# ---------------------------------------------------------------------------
+# Identity gate
+# ---------------------------------------------------------------------------
+#
+# Each fetch carries the bibliographic record it is trying to satisfy.  Every
+# tier hands its text to the gate before caching: text that is a different
+# work is rejected (and the next tier tried), never returned or cached under
+# the requested identifier, and never written to Zotero.
+
+class _FetchContext:
+    def __init__(self) -> None:
+        self.expected: dict = {}
+        self.rejections: list[dict] = []
+        # Zotero attachments created by this server's auto-import are subject
+        # to the same rejection rule as web sources.
+        self.zotero_untrusted = False
+
+
+_ctx: contextvars.ContextVar[_FetchContext | None] = contextvars.ContextVar(
+    "academic_fetch_ctx", default=None
+)
+
+
+def _current_ctx() -> _FetchContext:
+    ctx = _ctx.get()
+    if ctx is None:
+        ctx = _FetchContext()
+        _ctx.set(ctx)
+    return ctx
+
+
+def _set_expected(meta: dict | None) -> None:
+    """Record the requested work's title/authors (first non-empty wins per field)."""
+    if not meta:
+        return
+    ctx = _current_ctx()
+    for key in ("title", "authors", "year", "venue"):
+        value = meta.get(key)
+        if value and not ctx.expected.get(key):
+            ctx.expected[key] = value
+    # Keep every title the record is known by (library vs published title).
+    titles = ctx.expected.setdefault("titles", [])
+    for title in [meta.get("title"), *(meta.get("titles") or [])]:
+        if title and title not in titles:
+            titles.append(title)
+
+
+def _zotero_expected(zot_result: dict) -> dict:
+    meta = zot_result.get("metadata") or {}
+    creators = meta.get("creators") or []
+    return {
+        "title": meta.get("title") or "",
+        "authors": [c.get("lastName") or c.get("name") or c.get("firstName") or ""
+                    for c in creators if isinstance(c, dict)],
+        "year": str(meta.get("date") or "")[:4],
+        "venue": meta.get("publicationTitle") or "",
+    }
+
+
+def _is_zotero_source(source: str) -> bool:
+    return (source or "").lower().startswith(("zotero_", "sqlite_"))
+
+
+_SEARCH_DERIVED_SOURCES = ("web_search", "core.ac.uk", "core_source_url", "heinonline")
+
+
+_HTML_SOURCES = ("html_extraction", "desktop_browser_html", "ssrn_cookies_html")
+
+
+def _is_html_source(source: str) -> bool:
+    return (source or "").lower().startswith(_HTML_SOURCES)
+
+
+def _soften_for_library(check, source: str, untrusted: bool):
+    """The user's own attachment is never rejected; flag it gently instead.
+
+    Item titles in a personal library are often informal ('DFA proposal'),
+    and encyclopedia or proceedings PDFs hold many works, so a missing title
+    is a prompt to check, not proof of a wrong file.
+    """
+    if check.rejected and _is_zotero_source(source) and not untrusted:
+        return identity.IdentityCheck(
+            identity.UNCERTAIN,
+            "the attachment's opening text does not show the library item's title; "
+            "check the attachment if this is not the work",
+            check.expected_title, check.found_title,
+        )
+    return check
+
+
+def _gate(
+    text: str, source: str, *, pdf_title: str = "", pages: int | None = None,
+    page_title: str = "", page_doi: str = "", requested_doi: str = "",
+):
+    """Check identity and quality. Returns (check, warnings, rejected)."""
+    ctx = _current_ctx()
+    if (
+        page_doi and requested_doi and _is_real_doi(requested_doi)
+        and zotero._normalize_doi(page_doi) == zotero._normalize_doi(requested_doi)
+    ):
+        check = identity.IdentityCheck(
+            identity.PASS, "publisher page declares this DOI",
+            str(ctx.expected.get("title") or ""), page_title[:200],
+        )
+    else:
+        check = identity.check_identity_any(
+            text, ctx.expected.get("titles") or [ctx.expected.get("title") or ""],
+            ctx.expected.get("authors"),
+            pdf_title=pdf_title, page_title=page_title, html=_is_html_source(source),
+        )
+    warnings = identity.assess_content(text, pages=pages)
+    rejected = check.rejected and (not _is_zotero_source(source) or ctx.zotero_untrusted)
+    if not rejected:
+        check = _soften_for_library(check, source, ctx.zotero_untrusted)
+    # Search-derived hits (title queries against search engines, CORE,
+    # HeinOnline) are only candidates: they must positively match.
+    if (
+        not rejected
+        and check.status != identity.PASS
+        and (source or "").lower().startswith(_SEARCH_DERIVED_SOURCES)
+        and ctx.expected.get("title")
+    ):
+        rejected = True
+        check = identity.IdentityCheck(
+            identity.MISMATCH, f"search result not confirmed as the requested work ({check.reason})",
+            check.expected_title, check.found_title,
+        )
+    if check.rejected:
+        logger.warning(
+            "Identity %s from %s: expected %r, found %r (%s)%s",
+            check.status, source, check.expected_title[:80], check.found_title[:80],
+            check.reason, " — rejected" if rejected else " — kept (user's Zotero copy)",
+        )
+    if rejected:
+        ctx.rejections.append({
+            "source": source,
+            "found_title": check.found_title,
+            "reason": check.reason,
+        })
+    return check, warnings, rejected
+
+
+def _provenance_metadata(base: dict | None, check, warnings: list[str]) -> dict:
+    """Citation metadata for a cache entry: the requested record, not the PDF's own fields."""
+    ctx = _current_ctx()
+    meta = dict(base or {})
+    if not check.rejected:
+        for key, value in ctx.expected.items():
+            if value and key != "titles":
+                meta[key] = value
+    meta["identity"] = check.to_dict()
+    meta["content_warnings"] = list(warnings)
+    return meta
+
+
+def _is_real_doi(doi: str | None) -> bool:
+    return bool(doi) and not doi.startswith(("zotero:", "url:")) and doi.startswith("10.")
+
+
+async def _expected_for(doi: str | None, zotero_key: str | None = None) -> dict:
+    """Bibliographic record for an identifier: Zotero first, then Crossref, then S2."""
+    try:
+        item = None
+        if zotero_key and zotero_sqlite.sqlite_config.available:
+            item = await zotero_sqlite.search_by_key(zotero_key)
+        elif _is_real_doi(doi) and zotero_sqlite.sqlite_config.available:
+            item = await zotero_sqlite.search_by_doi(doi)
+        if item and item.title:
+            return {
+                "title": item.title,
+                "authors": [c.lastName or c.firstName for c in item.creators],
+                "year": (item.date or "")[:4],
+            }
+    except Exception as exc:
+        logger.debug("Zotero metadata lookup failed for %s: %s", doi or zotero_key, exc)
+    if not _is_real_doi(doi):
+        return {}
+    try:
+        work = await apis.crossref_work(doi)
+        if work and work.get("title"):
+            title = work["title"][0] if isinstance(work["title"], list) else work["title"]
+            subtitle = (work.get("subtitle") or [""])[0] if isinstance(work.get("subtitle"), list) else ""
+            if subtitle and subtitle.lower() not in title.lower():
+                title = f"{title}: {subtitle}"
+            return {
+                "title": title,
+                "authors": [a.get("family") or a.get("name") or "" for a in work.get("author") or []],
+            }
+    except Exception as exc:
+        logger.debug("Crossref metadata lookup failed for %s: %s", doi, exc)
+    try:
+        paper = await apis.s2_paper(f"DOI:{doi}")
+        if paper and paper.get("title"):
+            return {
+                "title": paper["title"],
+                "authors": [a.get("name", "") for a in paper.get("authors") or []],
+            }
+    except Exception as exc:
+        logger.debug("S2 metadata lookup failed for %s: %s", doi, exc)
+    return {}
+
+
+async def _published_titles(doi: str) -> list[str]:
+    try:
+        work = await apis.crossref_work(doi)
+    except Exception:
+        return []
+    titles = list((work or {}).get("title") or [])
+    subtitle = ((work or {}).get("subtitle") or [""])[0]
+    if titles and subtitle:
+        titles.append(f"{titles[0]}: {subtitle}")
+    return [t for t in titles if t]
+
+
+_TRUNCATION_MARKER = "[... TRUNCATED — full text exceeds context limit ...]"
+
+
+async def _revalidate_cached(
+    cached: "text_cache.CachedArticle", doi: str, zotero_key: str | None,
+) -> "text_cache.CachedArticle | None":
+    """Verify a cache entry written before identity checks existed.
+
+    Returns the (annotated) entry, or None when it holds a different work, in
+    which case it is deleted so the normal pipeline fetches the right one.
+    Zotero-sourced entries are annotated but kept: the attachment is the
+    user's own file and the response shows the warning.
+    """
+    meta = cached.metadata if isinstance(cached.metadata, dict) else {}
+    if isinstance(meta.get("identity"), dict):
+        return cached
+    expected = await _expected_for(doi, zotero_key)
+    if not expected.get("title"):
+        return cached
+    kwargs = {"pdf_title": str(meta.get("pdf_title") or ""), "html": _is_html_source(cached.source)}
+    check = identity.check_identity(cached.text, expected["title"], expected.get("authors"), **kwargs)
+    if check.status != identity.PASS and _is_real_doi(doi):
+        # The library may hold a preprint title for a published DOI.
+        published = await _published_titles(doi)
+        if published:
+            check = identity.check_identity_any(
+                cached.text, [expected["title"], *published], expected.get("authors"), **kwargs)
+    check = _soften_for_library(check, cached.source, "auto-imported" in (meta.get("tags") or []))
+    if check.rejected and not _is_zotero_source(cached.source):
+        logger.warning(
+            "Purging cached %s for %s: expected %r, found %r (%s)",
+            cached.source, doi, check.expected_title[:80], check.found_title[:80], check.reason,
+        )
+        text_cache.delete_cached(doi)
+        if cached.pdf_path:
+            _discard_rejected_pdf(Path(cached.pdf_path))
+        _current_ctx().rejections.append({
+            "source": f"{cached.source} (cached)",
+            "found_title": check.found_title,
+            "reason": check.reason,
+        })
+        return None
+    meta = dict(meta)
+    if not check.rejected:
+        for key, value in expected.items():
+            if value and key in ("title", "authors", "year"):
+                meta[key] = value
+    meta["identity"] = check.to_dict()
+    meta["content_warnings"] = identity.assess_content(cached.text, pages=meta.get("pages"))
+    return text_cache.put_cached(
+        cached.doi, cached.text, cached.source,
+        sections=cached.sections,
+        section_detection=cached.section_detection,
+        word_count=cached.word_count,
+        metadata=meta,
+        pdf_path=cached.pdf_path,
+        html_path=cached.html_path,
+    )
+
+
+def _discard_rejected_pdf(pdf_source) -> None:
+    """Remove a downloaded wrong document so URL-keyed PDF caching cannot revive it."""
+    if not isinstance(pdf_source, Path):
+        return
+    try:
+        if pdf_source.resolve().parent == config.pdf_cache_dir.resolve():
+            pdf_source.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def _accept_text(
+    doi: str,
+    raw_text: str,
+    source: str,
+    *,
+    sections: list,
+    section_detection: str,
+    word_count: int | None = None,
+    metadata: dict | None = None,
+    pdf_path: str | None = None,
+    page_title: str = "",
+    page_doi: str = "",
+) -> "text_cache.CachedArticle | None":
+    """Gate extracted (non-PDF) text and cache it, or return None when rejected."""
+    check, warnings, rejected = _gate(
+        raw_text, source, page_title=page_title, page_doi=page_doi, requested_doi=doi,
+    )
+    if rejected:
+        return None
+    return text_cache.put_cached(
+        doi, raw_text, source,
+        sections=sections,
+        section_detection=section_detection,
+        word_count=word_count or len(raw_text.split()),
+        metadata=_provenance_metadata(metadata, check, warnings),
+        pdf_path=pdf_path,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -127,6 +443,8 @@ async def _extract_from_landing_page(
             "sections": sections,
             "section_detection": section_det,
             "word_count": extraction["word_count"],
+            "page_title": meta.get("citation_title", ""),
+            "page_doi": meta.get("citation_doi", ""),
         }
 
     # Last-resort PDF link scan from HTML.
@@ -213,7 +531,12 @@ def _cached_article_result(
     # Cached fields may be missing on test mocks; coerce to str|None defensively.
     _c_pdf = getattr(cached, "pdf_path", None)
     _c_html = getattr(cached, "html_path", None)
+    _meta = cached.metadata if isinstance(getattr(cached, "metadata", None), dict) else {}
+    _identity = _meta.get("identity") if isinstance(_meta.get("identity"), dict) else None
+    _warnings = [w for w in (_meta.get("content_warnings") or []) if isinstance(w, str)]
     return FetchedArticle(
+        identity=_identity,
+        content_warnings=_warnings,
         doi=str(cached.doi or ""),
         text=text,
         source=str(cached.source or ""),
@@ -256,6 +579,9 @@ def _apply_mode_filter(
                     sections=skeleton,
                     section_detection="keyword_skeleton",
                     word_count=cached.word_count,
+                    metadata=cached.metadata,
+                    pdf_path=cached.pdf_path,
+                    html_path=cached.html_path,
                 )
                 total = len(skeleton)
                 for chunk in skeleton:
@@ -429,10 +755,23 @@ def _apply_mode_filter(
         return fa
 
     if mode == "range":
-        start = range_start or 0
-        end = range_end or min(start + config.max_context_length, len(cached.text))
+        total = len(cached.text)
+        start = max(0, range_start or 0)
+        end = range_end or min(start + config.max_context_length, total)
+        end = min(end, start + config.max_context_length)
+        if start >= total or end <= start:
+            _msg = (
+                f"range_out_of_bounds: the cached text for {doi} has {total:,} characters "
+                f"(source: {cached.source}); requested [{start:,}:{end:,}]. "
+                "Offsets from a different source or an earlier extraction do not apply; "
+                "use mode='sections' or search_in_article to get current offsets."
+            )
+            fa = _cached_article_result(cached, _msg, error=_msg)
+            fa.mode = FetchMode.range
+            return fa
         snippet = cached.text[start:end]
         fa = _cached_article_result(cached, snippet)
+        fa.truncated = end < total
         fa.mode = FetchMode.range
         fa.range_chars = (start, end)
         fa.text = snippet
@@ -468,11 +807,14 @@ async def _cache_pdf_and_return(
     section_name: str | None,
     range_start: int | None,
     range_end: int | None,
-) -> FetchedArticle:
+) -> FetchedArticle | None:
     """Extract PDF text, write to article cache, apply mode filter, and return.
 
     When *pages_str* is set we return a partial extraction and skip caching
     (partial text is not useful for section-based access).
+
+    Returns None when the PDF is a different work from the one requested
+    (see :func:`_gate`); callers then try their next source.
     """
     def _append_import_hint(fa: FetchedArticle) -> FetchedArticle:
         hint = zotero_import.get_auto_import_hint(doi)
@@ -498,17 +840,31 @@ async def _cache_pdf_and_return(
 
     # Build metadata from PDF extraction result
     pdf_meta: dict = {}
-    if result["metadata"]:
-        pdf_meta["title"] = result["metadata"].get("title", "")
-        if result["metadata"].get("author"):
-            pdf_meta["authors"] = result["metadata"]["author"].split(",") if isinstance(result["metadata"]["author"], str) else result["metadata"]["author"]
+    _pdf_info = result.get("metadata") or {}
+    if _pdf_info:
+        pdf_meta["title"] = _pdf_info.get("title", "")
+        pdf_meta["pdf_title"] = _pdf_info.get("title", "")
+        if _pdf_info.get("author"):
+            pdf_meta["authors"] = _pdf_info["author"].split(",") if isinstance(_pdf_info["author"], str) else _pdf_info["author"]
+    _pages = result.get("pages") or _pdf_info.get("pages")
+    if _pages:
+        pdf_meta["pages"] = _pages
+
+    check, warnings, rejected = _gate(
+        raw_text, source, pdf_title=str(_pdf_info.get("title") or ""),
+        pages=_pages if isinstance(_pages, int) else None,
+    )
+    if rejected:
+        if not _is_zotero_source(source):
+            _discard_rejected_pdf(pdf_source)
+        return None
 
     cached_article = text_cache.put_cached(
         doi, raw_text, source,
         sections=result["sections"],
         section_detection=result.get("section_detection", "pdf_font_analysis"),
         word_count=len(raw_text.split()),
-        metadata=pdf_meta,
+        metadata=_provenance_metadata(pdf_meta, check, warnings),
         pdf_path=str(pdf_source) if isinstance(pdf_source, Path) else None,
     )
 
@@ -599,6 +955,35 @@ async def _fetch_article(
     if not doi and not zotero_key and not url:
         _msg = "fetch_fulltext requires at least one of 'doi', 'zotero_key', or 'url'."
         return FetchedArticle(doi="", text=_msg, error=_msg)
+    # Library-first resolution: item keys, zotero:// links, Better BibTeX
+    # citekeys, and URLs of items already in Zotero all open the library copy.
+    if zotero_key:
+        _ref = zotero_sqlite.normalize_reference_key(zotero_key)
+        if zotero_sqlite.is_item_key(_ref):
+            zotero_key = _ref
+        else:
+            _item, _via = await zotero_sqlite.resolve_reference(_ref)
+            if _item is None:
+                _msg = (
+                    f"unknown_reference: '{zotero_key}' is not a Zotero item key (8 characters, "
+                    "e.g. 'ABCD2345') and does not match any citation key or item URL in the synced "
+                    "libraries. Use search_zotero to find the item; its key is shown with each result."
+                )
+                return FetchedArticle(doi="", text=_msg, error=_msg)
+            logger.info("Resolved %r via %s to Zotero item %s", zotero_key, _via, _item.key)
+            zotero_key = _item.key
+            if not doi and _item.DOI:
+                doi = _item.DOI
+    elif url and not doi:
+        try:
+            _item, _via = await zotero_sqlite.resolve_reference(url)
+        except Exception as exc:
+            logger.debug("Zotero URL lookup failed for %s: %s", url, exc)
+            _item = None
+        if _item is not None:
+            logger.info("URL %s matches Zotero item %s; using the library copy first", url, _item.key)
+            zotero_key = _item.key
+            doi = _item.DOI or None
     if zotero_key and not doi:
         # Synthesize a stable cache key so the article cache works uniformly.
         doi = f"zotero:{zotero_key}"
@@ -623,8 +1008,27 @@ async def _fetch_article(
     # Bypassed when source='html' so the caller can force a fresh scrape.
     cached_article = text_cache.get_cached(doi) if not force_html else None
     if cached_article:
+        cached_article = await _revalidate_cached(cached_article, doi, zotero_key)
+    if cached_article and _TRUNCATION_MARKER in cached_article.text[-200:] and not pages:
+        # Written when extraction was capped at the response limit; the PDF
+        # is still on disk, so extract the whole document now.
+        _old_pdf = cached_article.pdf_path
+        if _old_pdf and Path(_old_pdf).exists():
+            _set_expected({k: cached_article.metadata.get(k) for k in ("title", "authors")})
+            try:
+                _full = await _cache_pdf_and_return(
+                    Path(_old_pdf), doi, cached_article.source,
+                    None, mode, section, range_start, range_end,
+                )
+                if _full is not None:
+                    logger.info("Re-extracted truncated cache entry for %s", doi)
+                    return _full
+            except Exception as exc:
+                logger.warning("Re-extraction of truncated %s failed: %s", doi, exc)
+    if cached_article:
         logger.debug("Article cache hit for %s", doi)
         if cached_article.pdf_path:
+            # Gated inside: only verified web-fetched text is imported.
             zotero_import.enqueue_zotero_import(doi, Path(cached_article.pdf_path), cached_article)
         # Backfill pdf_path for cache entries written before path persistence
         # was added.  Cheap: SQLite lookup + filesystem stat.
@@ -665,6 +1069,8 @@ async def _fetch_article(
                     section_detection="text_heuristic",
                     word_count=cached_article.word_count,
                     metadata=cached_article.metadata,
+                    pdf_path=cached_article.pdf_path,
+                    html_path=cached_article.html_path,
                 )
 
         # Lazy upgrade: re-extract with pymupdf4llm when the cached entry used
@@ -687,6 +1093,8 @@ async def _fetch_article(
                         section_detection=new_result.get("section_detection", "pymupdf4llm_markdown"),
                         word_count=len(new_result["text"].split()),
                         metadata=cached_article.metadata,
+                        pdf_path=cached_article.pdf_path,
+                        html_path=cached_article.html_path,
                     )
                     logger.info(
                         "Re-extracted %s with pymupdf4llm: %d → %d sections",
@@ -725,55 +1133,89 @@ async def _fetch_article(
                 )
             else:
                 # ── Step 0: Check Zotero FIRST ──────────────────────────────────
+                # source='html' explicitly asks for the publisher page, so the
+                # library copy is not consulted (it may be what is being replaced).
+                zot_result = None
                 if zotero_key:
                     zot_result = await zotero.get_paper_from_zotero_by_key(zotero_key)
-                else:
+                elif not force_html:
                     zot_result = await zotero.get_paper_from_zotero(doi)
+                    # Preprints are often saved without a DOI; match the SSRN
+                    # abstract id or arXiv id in the item's URL instead.
+                    if (
+                        not (zot_result or {}).get("found")
+                        and doi.lower().startswith(("10.2139/ssrn.", "10.48550/arxiv."))
+                    ):
+                        try:
+                            _alt = await zotero_sqlite.search_by_url(doi)
+                            if _alt is not None:
+                                logger.info("%s matches Zotero item %s by URL", doi, _alt.key)
+                                zot_result = await zotero.get_paper_from_zotero_by_key(_alt.key)
+                        except Exception as exc:
+                            logger.debug("Zotero preprint URL match failed for %s: %s", doi, exc)
                 if zot_result and zot_result.get("found"):
-                    # Got fulltext directly (already extracted by Zotero — best case!)
-                    if zot_result.get("text"):
+                    _ctx_now = _current_ctx()
+                    _set_expected(_zotero_expected(zot_result))
+                    # An attachment this server auto-imported is a web download
+                    # like any other; the user's own attachments are trusted.
+                    _ctx_now.zotero_untrusted = "auto-imported" in (zot_result.get("tags") or [])
+                    if _ctx_now.zotero_untrusted and _is_real_doi(doi):
+                        _set_expected({"titles": await _published_titles(doi)})
+                    _zot_pdf = zot_result.get("pdf_path")
+                    _zot_pdf_str = str(_zot_pdf) if _zot_pdf else None
+                    _zot_meta = {
+                        "zotero_key": zot_result.get("item_key") or zotero_key or "",
+                        "attachment_key": zot_result.get("attachment_key") or "",
+                        "library": zot_result.get("libraryName") or "",
+                    }
+                    _zot_meta.update({k: v for k, v in _zotero_expected(zot_result).items() if v})
+                    # Zotero's own index stops after a configured number of
+                    # pages; the attachment itself is complete.
+                    _use_pdf = bool(
+                        _zot_pdf_str and Path(_zot_pdf_str).exists()
+                        and (not zot_result.get("text") or zot_result.get("truncated"))
+                    )
+                    if zot_result.get("text") and not _use_pdf:
                         raw_text = zot_result["text"]
-                        sections = content_extractor.detect_sections_from_text(raw_text)
-                        # Extract metadata from Zotero item if available
-                        zot_meta: dict = {}
-                        if zot_result.get("item"):
-                            item = zot_result["item"]
-                            zot_meta["title"] = item.get("title", "")
-                            zot_meta["year"] = str(item.get("date", ""))[:4] if item.get("date") else ""
-                            zot_meta["venue"] = item.get("publicationTitle", "")
-                            creators = item.get("creators", [])
-                            if creators:
-                                zot_meta["authors"] = [c.get("lastName", "") or c.get("firstName", "") for c in creators]
-                        # Capture local PDF path when Zotero has the file on disk —
-                        # the fulltext-text branch shouldn't lose access to the PDF viewer.
-                        _zot_pdf = zot_result.get("pdf_path")
-                        _zot_pdf_str = str(_zot_pdf) if _zot_pdf else None
-                        cached_article = text_cache.put_cached(
+                        cached_article = _accept_text(
                             doi, raw_text, zot_result["source"],
-                            sections=sections,
+                            sections=content_extractor.detect_sections_from_text(raw_text),
                             section_detection="text_heuristic",
-                            word_count=len(raw_text.split()),
-                            metadata=zot_meta,
+                            metadata=_zot_meta,
                             pdf_path=_zot_pdf_str,
                         )
-                        result = _apply_mode_filter(
-                            cached_article, mode, section_name, range_start, range_end
-                        )
-                        if _zot_pdf_str:
-                            result.pdf_path = result.pdf_path or _zot_pdf_str
+                        if cached_article is not None:
+                            result = _apply_mode_filter(
+                                cached_article, mode, section_name, range_start, range_end
+                            )
+                            if _zot_pdf_str:
+                                result.pdf_path = result.pdf_path or _zot_pdf_str
 
                     # Got PDF path from Zotero — extract text from disk
-                    elif zot_result.get("pdf_path"):
+                    elif _zot_pdf_str:
                         result = await _cache_pdf_and_return(
                             zot_result["pdf_path"], doi, zot_result["source"],
                             pages_str, mode, section_name, range_start, range_end,
                         )
+                        if result is not None and not pages_str:
+                            _c = text_cache.get_cached(doi)
+                            if _c is not None:
+                                _c.metadata.update({k: v for k, v in _zot_meta.items() if v})
+                                text_cache.put_cached(
+                                    _c.doi, _c.text, _c.source, sections=_c.sections,
+                                    section_detection=_c.section_detection,
+                                    word_count=_c.word_count, metadata=_c.metadata,
+                                    pdf_path=_c.pdf_path, html_path=_c.html_path,
+                                )
+                                result.metadata = dict(_c.metadata)
+                    # Later web tiers are judged as web sources again.
+                    _ctx_now.zotero_untrusted = False
 
                 # For Zotero-only (no real DOI), the rest of the pipeline has
                 # nothing to work with unless the Zotero item has a `url` field.
                 # Check for that first; if found, promote it so the URL tier
                 # (below) can handle it.
-                if result is None and zotero_key:
+                if result is None and zotero_key and doi.startswith("zotero:"):
                     if url is None:
                         # Try to read the `url` field from the Zotero item.
                         try:
@@ -783,7 +1225,7 @@ async def _fetch_article(
                                 _url_hash2 = hashlib.sha256(url.encode("utf-8")).hexdigest()[:16]
                                 doi = f"url:{_url_hash2}"
                                 logger.info(
-                                    "zotero_key %s has no attachment but has url=%s; "
+                                    "zotero_key %s has no usable attachment but has url=%s; "
                                     "delegating to URL tier.",
                                     zotero_key, url,
                                 )
@@ -791,16 +1233,33 @@ async def _fetch_article(
                             logger.debug("Failed to look up Zotero url for %s: %s", zotero_key, _e)
 
                     if result is None and url is None:
-                        zot_source = (zot_result or {}).get("source") or "not found"
+                        zot_source = (zot_result or {}).get("source") or ""
                         meta = (zot_result or {}).get("metadata") or {}
-                        title = meta.get("title") or "(unknown title)"
-                        _msg = (
-                            f"Zotero item {zotero_key} ({title}) has no indexed fulltext "
-                            f"or retrievable PDF (source: {zot_source}). No DOI is available "
-                            "to try open-access or proxy fallbacks. "
-                            "In Zotero, check that the item has a PDF attachment and that "
-                            "PDF indexing has run (Settings > Search)."
-                        )
+                        title = meta.get("title") or "(untitled)"
+                        _rej = _current_ctx().rejections
+                        if not zot_result or not zot_result.get("found"):
+                            _msg = (
+                                f"unknown_reference: Zotero item {zotero_key} was not found in any "
+                                "synced library. Check the key with search_zotero."
+                            )
+                        elif _rej:
+                            _msg = (
+                                f"identity_mismatch: the attachment of Zotero item {zotero_key} "
+                                f"('{title}') contains a different work ('{_rej[-1].get('found_title') or 'unknown'}'). "
+                                "It was added by this server's auto-import and was not used. "
+                                "Replace the attachment in Zotero, then retry."
+                            )
+                        elif zot_source.endswith("metadata_only") or not zot_source:
+                            _msg = (
+                                f"item_found_no_attachment: Zotero item {zotero_key} ('{title}') "
+                                "has no PDF attachment, and has no DOI or URL to fetch it from. "
+                                "Attach the PDF in Zotero, then retry."
+                            )
+                        else:
+                            _msg = (
+                                f"attachment_unreadable: Zotero item {zotero_key} ('{title}') has an "
+                                f"attachment (source: {zot_source}) but no text could be extracted from it."
+                            )
                         return FetchedArticle(doi=doi, text=_msg, error=_msg)
 
                 if result is None:
@@ -854,16 +1313,19 @@ async def _fetch_article(
                                         )
                                     elif _lp["text"]:
                                         _raw = _lp["text"]
-                                        _cached_lp = text_cache.put_cached(
+                                        _cached_lp = _accept_text(
                                             doi, _raw, _lp["source"],
                                             sections=_lp["sections"],
                                             section_detection=_lp["section_detection"],
                                             word_count=_lp["word_count"],
                                             metadata={"url": url},
+                                            page_title=_lp.get("page_title", ""),
+                                            page_doi=_lp.get("page_doi", ""),
                                         )
-                                        result = _apply_mode_filter(
-                                            _cached_lp, mode, section_name, range_start, range_end
-                                        )
+                                        if _cached_lp is not None:
+                                            result = _apply_mode_filter(
+                                                _cached_lp, mode, section_name, range_start, range_end
+                                            )
                             except Exception as _ue3:
                                 logger.info("URL tier: landing-page extraction failed for %s: %s", url, _ue3)
 
@@ -889,6 +1351,7 @@ async def _fetch_article(
                     if doi.startswith("10.2139/ssrn.") and not _original_ssrn_doi:
                         async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as _c:
                             _ssrn_remap = await apis.resolve_ssrn_doi(doi, _c)
+                        _set_expected({"title": (_ssrn_remap or {}).get("title")})
 
                         # Try OA PDF URLs discovered by remap
                         for _oa_url in (_ssrn_remap or {}).get("oa_pdf_urls", []):
@@ -964,6 +1427,13 @@ async def _fetch_article(
                             ]
 
                     candidate_urls = apis.collect_pdf_urls(s2_paper, oa_paper, unpaywall_data)
+
+                    # The record every later tier must match.
+                    _set_expected(cite_meta)
+                    if not _current_ctx().expected.get("title") and _is_real_doi(doi):
+                        _set_expected(await _expected_for(doi))
+                    if not cite_meta.get("title") and _current_ctx().expected.get("title"):
+                        cite_meta.update({k: v for k, v in _current_ctx().expected.items() if v})
 
                     # ── Step 2: Direct HTTP on candidate URLs (fast; handles arXiv/OA) ──
                     config.evict_cache_lru()
@@ -1083,16 +1553,19 @@ async def _fetch_article(
                                 )
                             elif lp["text"]:
                                 raw_text = lp["text"]
-                                cached_article = text_cache.put_cached(
+                                cached_article = _accept_text(
                                     doi, raw_text, lp["source"],
                                     sections=lp["sections"],
                                     section_detection=lp["section_detection"],
                                     word_count=lp["word_count"],
                                     metadata=cite_meta,
+                                    page_title=lp.get("page_title", ""),
+                                    page_doi=lp.get("page_doi", ""),
                                 )
-                                result = _apply_mode_filter(
-                                    cached_article, mode, section_name, range_start, range_end
-                                )
+                                if cached_article is not None:
+                                    result = _apply_mode_filter(
+                                        cached_article, mode, section_name, range_start, range_end
+                                    )
 
                     if force_html:
                         doi_url = (
@@ -1124,26 +1597,24 @@ async def _fetch_article(
                                     html_words = extraction["word_count"]
                                     html_sections = len(sections)
                                     html_is_good = html_words > 1500 and html_sections >= 3
-                                    if html_is_good:
-                                        cached_article = text_cache.put_cached(
+                                    _prior = text_cache.get_cached(doi)
+                                    if html_is_good or _prior is None:
+                                        cached_article = _accept_text(
                                             doi, raw_text, html_source,
                                             sections=sections,
                                             section_detection=section_det,
                                             word_count=html_words,
                                             metadata=cite_meta,
+                                            page_title=meta.get("citation_title", ""),
+                                            page_doi=citation_doi,
                                         )
                                     else:
                                         # HTML exists but isn't good enough to replace cache
-                                        cached_article = text_cache.get_cached(doi) or text_cache.put_cached(
-                                            doi, raw_text, html_source,
-                                            sections=sections,
-                                            section_detection=section_det,
-                                            word_count=html_words,
-                                            metadata=cite_meta,
+                                        cached_article = _prior
+                                    if cached_article is not None:
+                                        result = _apply_mode_filter(
+                                            cached_article, mode, section_name, range_start, range_end
                                         )
-                                    result = _apply_mode_filter(
-                                        cached_article, mode, section_name, range_start, range_end
-                                    )
 
                     # ── Step 4: Proxied fetch on candidates (institutional access) ───
                     if result is None and use_proxy and config.gost_proxy_url:
@@ -1221,16 +1692,17 @@ async def _fetch_article(
                                 if _ssrn_extraction and _ssrn_extraction.get("word_count", 0) > 1500:
                                     _raw = _ssrn_extraction["text"]
                                     _secs = _ssrn_extraction["sections"] or content_extractor.detect_sections_from_text(_raw)
-                                    _cached_art = text_cache.put_cached(
+                                    _cached_art = _accept_text(
                                         doi, _raw, "ssrn_cookies_html",
                                         sections=_secs,
                                         section_detection=_ssrn_extraction.get("section_detection", "text_heuristic"),
                                         word_count=_ssrn_extraction["word_count"],
                                         metadata=cite_meta,
                                     )
-                                    result = _apply_mode_filter(
-                                        _cached_art, mode, section_name, range_start, range_end
-                                    )
+                                    if _cached_art is not None:
+                                        result = _apply_mode_filter(
+                                            _cached_art, mode, section_name, range_start, range_end
+                                        )
 
                     # ── Failure ──────────────────────────────────────────────────────
                     if result is None:
@@ -1296,6 +1768,17 @@ async def _fetch_article(
                                     "available — likely behind a paywall. Only the abstract could be accessed.\n"
                                 )
 
+                            _rejected = _current_ctx().rejections
+                            if _rejected:
+                                _lines = "".join(
+                                    f"  - {r['source']}: found '{(r.get('found_title') or 'unknown document')[:120]}' "
+                                    f"({r['reason']})\n"
+                                    for r in _rejected
+                                )
+                                _hints.insert(0, (
+                                    "\nidentity_mismatch: these sources returned a different work and were "
+                                    "rejected rather than returned under this DOI:\n" + _lines
+                                ))
                             _sources_str = ", ".join(sources_tried) or "none found"
                             result = FetchedArticle(
                                 doi=doi,
@@ -1314,13 +1797,40 @@ async def _fetch_article(
     return result
 
 
+async def verified_cached(doi: str) -> "text_cache.CachedArticle | None":
+    """Cached article for *doi* after identity re-verification (None if absent or purged)."""
+    cached = text_cache.get_cached(doi)
+    if cached is None:
+        return None
+    token = _ctx.set(_FetchContext())
+    try:
+        return await _revalidate_cached(cached, doi, None)
+    finally:
+        _ctx.reset(token)
+
+
 async def fetch_article(
     identifier: ArticleId, mode="sections", section=None, range_start=None,
     range_end=None, use_proxy=False, pages=None, source="auto", _original_ssrn_doi=None,
 ) -> FetchedArticle:
     """Normal retrieval, with a durable desktop fallback for unavailable text."""
-    result = await _fetch_article(identifier, mode, section, range_start, range_end,
-                                  use_proxy, pages, source, _original_ssrn_doi)
+    ctx = _FetchContext()
+    token = _ctx.set(ctx)
+    attempts: list = []
+    attempts_token = pdf_fetcher.attempt_log.set(attempts)
+    try:
+        result = await _fetch_article(identifier, mode, section, range_start, range_end,
+                                      use_proxy, pages, source, _original_ssrn_doi)
+    finally:
+        pdf_fetcher.attempt_log.reset(attempts_token)
+        _ctx.reset(token)
+    if result.error and attempts and not result.source:
+        lines = "".join(f"  - {a['url'][:140]} [{a['via']}]: {a['result']}\n" for a in attempts[-12:])
+        result.failure_hints = list(result.failure_hints) + [
+            "\nWhat each source returned:\n" + lines
+        ]
+    if ctx.rejections:
+        result.rejected_sources = list(ctx.rejections)
     if result.error and not result.source and (identifier.doi or identifier.url):
         from .. import browser_acquisition
         if browser_acquisition.enabled():
@@ -1330,6 +1840,9 @@ async def fetch_article(
                     url=identifier.url)
                 result.browser_acquisition = job
                 result.failure_hints = [
+                    h for h in result.failure_hints
+                    if h.startswith(("\nidentity_mismatch", "\nWhat each source returned"))
+                ] + [
                     f"\nDesktop acquisition {job['id']} is {job['state']}. "
                     "Use browser_acquisition(action='status', id='" + job['id'] +
                     "') for progress. Complete any login on the iMac, then resume. "
