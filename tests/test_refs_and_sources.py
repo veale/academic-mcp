@@ -319,3 +319,13 @@ async def test_attachment_trashed_since_the_mirror_synced_is_not_used(library, m
         assert (await zotero_sqlite._get_pdf_attachment(conn, 3)).key == "ATTSAND1"
     finally:
         await conn.close()
+
+
+async def test_cached_text_from_a_trashed_attachment_is_purged(tmp_path, monkeypatch):
+    from academic_mcp import text_cache
+    monkeypatch.setattr(text_cache.config, "pdf_cache_dir", tmp_path)
+    text_cache.put_cached("10.1/rice", "Internal Control Weaknesses and Financial Reporting Fraud " * 50,
+                          "zotero_webdav_pdf", sections=[], metadata={"attachment_key": "VNMMVVV5", "zotero_key": "2MAPNKC9"})
+    monkeypatch.setattr("academic_mcp.zotero_catalog.trashed_keys", lambda keys: {"VNMMVVV5"} & set(keys))
+    assert await fetch.verified_cached("10.1/rice") is None
+    assert text_cache.get_cached("10.1/rice") is None

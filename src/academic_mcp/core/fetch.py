@@ -373,6 +373,15 @@ async def _revalidate_cached(
     user's own file and the response shows the warning.
     """
     meta = cached.metadata if isinstance(cached.metadata, dict) else {}
+    attachment = meta.get("attachment_key") or meta.get("zotero_attachment_key")
+    if attachment and _is_zotero_source(cached.source):
+        from .. import zotero_catalog
+        if attachment in await asyncio.to_thread(zotero_catalog.trashed_keys, [attachment]):
+            # The user removed this file from the library (often because it
+            # was the wrong paper); its text must not outlive it.
+            logger.info("Purging cached %s: attachment %s was trashed in Zotero", doi, attachment)
+            text_cache.delete_cached(doi)
+            return None
     if not _needs_revalidation(cached):
         return cached
     expected = await _expected_for(doi, zotero_key)
