@@ -14,11 +14,16 @@ from .config import config
 logger = logging.getLogger(__name__)
 _jobs = {}
 _semaphore = None
+# (attachment key, md5) of auto-imported attachments found to hold a different
+# work; skipped until the attachment changes.
+_rejected = set()
 
 
 def _needs_text(item):
     key = item["item_key"]
     if not item.get("_catalog") or not item.get("attachment_key"):
+        return False
+    if (item["attachment_key"], item.get("attachment_md5") or "") in _rejected:
         return False
     cached = text_cache.get_cached(item.get("doi") or "zotero:" + key)
     if cached and cached.text:
@@ -109,6 +114,12 @@ async def _extract(item):
                     "Zotero attachment %s of %s appears to be %r, not %r",
                     attachment, item["item_key"], check.found_title[:80], check.expected_title[:80],
                 )
+                if "auto-imported" in (item.get("tags") or []):
+                    # Created by this server's auto-import from a wrong web
+                    # download: never let it stand in for the work.
+                    _rejected.add((item["attachment_key"], item.get("attachment_md5") or ""))
+                    return 0
+            metadata["auto_import_checked"] = True
             text_cache.put_cached(
                 item.get("doi") or "zotero:" + item["item_key"],
                 result["text"],

@@ -857,6 +857,38 @@ async def primo_search_law_reviews(
 async def resolve_ssrn_doi(
     ssrn_doi: str, client: httpx.AsyncClient | None = None
 ) -> dict:
+    """Resolve an SSRN DOI, accepting a published version only if it is the same work.
+
+    Aggregators sometimes merge an SSRN record into an unrelated work, so the
+    published DOI's Crossref title is compared with the SSRN title.
+    """
+    result = await _resolve_ssrn_doi_unverified(ssrn_doi, client)
+    published = result.get("published_doi")
+    title = result.get("title")
+    if published and title:
+        from . import identity
+        try:
+            work = await crossref_work(published)
+        except Exception:
+            work = None
+        published_titles = (work or {}).get("title") or []
+        if published_titles:
+            verdicts = [identity._compare_titles(title, t) for t in published_titles]
+            if not any(v and v[0] == identity.PASS for v in verdicts) and any(
+                v and v[0] == identity.MISMATCH for v in verdicts
+            ):
+                logger.warning(
+                    "Ignoring SSRN %s -> %s: titles differ (%r vs %r)",
+                    ssrn_doi, published, title[:80], published_titles[0][:80],
+                )
+                result["published_doi"] = None
+                result["all_dois"] = [d for d in result.get("all_dois", []) if d != published]
+    return result
+
+
+async def _resolve_ssrn_doi_unverified(
+    ssrn_doi: str, client: httpx.AsyncClient | None = None
+) -> dict:
     """Resolve an SSRN DOI to a published DOI and/or OA PDF URLs.
 
     Queries (in order): OpenAlex, Semantic Scholar, Crossref.

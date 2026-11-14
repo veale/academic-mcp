@@ -258,6 +258,26 @@ async def _expected_for(doi: str | None, zotero_key: str | None = None) -> dict:
     return {}
 
 
+def _needs_revalidation(cached: "text_cache.CachedArticle") -> bool:
+    """Entries without a verdict, or with one a newer rule may overturn."""
+    meta = cached.metadata if isinstance(cached.metadata, dict) else {}
+    verdict = meta.get("identity")
+    if not isinstance(verdict, dict):
+        return True
+    status = verdict.get("status")
+    source = (cached.source or "").lower()
+    if source.startswith(_SEARCH_DERIVED_SOURCES) and status != identity.PASS:
+        return True
+    if _is_zotero_source(source) and not meta.get("auto_import_checked") and (
+        status == identity.MISMATCH
+        or str(verdict.get("reason", "")).startswith("the attachment's opening text")
+    ):
+        # Library copies are rechecked once in case the attachment is one
+        # this server auto-imported (then it is treated as a web download).
+        return True
+    return False
+
+
 async def _is_auto_imported(doi: str | None, zotero_key: str | None) -> bool:
     """Whether the library item behind *doi*/*zotero_key* was created by auto-import."""
     try:
@@ -292,6 +312,20 @@ async def _published_titles(doi: str) -> list[str]:
 _TRUNCATION_MARKER = "[... TRUNCATED — full text exceeds context limit ...]"
 
 
+def _looks_truncated(cached: "text_cache.CachedArticle") -> bool:
+    """Extractions cut at the old 100k response limit, before EXTRACT_MAX_CHARS.
+
+    Font-analysis extractions appended a marker; Markdown extractions were
+    cut silently at exactly the limit.
+    """
+    if not cached.pdf_path or not Path(cached.pdf_path).exists():
+        return False
+    if (cached.metadata or {}).get("full_extraction"):
+        return False
+    text = cached.text or ""
+    return _TRUNCATION_MARKER in text[-200:] or len(text) == config.max_context_length
+
+
 async def _revalidate_cached(
     cached: "text_cache.CachedArticle", doi: str, zotero_key: str | None,
 ) -> "text_cache.CachedArticle | None":
@@ -303,14 +337,7 @@ async def _revalidate_cached(
     user's own file and the response shows the warning.
     """
     meta = cached.metadata if isinstance(cached.metadata, dict) else {}
-    verdict = meta.get("identity")
-    if isinstance(verdict, dict) and not (
-        # Library copies given the benefit of the doubt are rechecked in case
-        # the attachment turns out to be one this server auto-imported.
-        _is_zotero_source(cached.source)
-        and str(verdict.get("reason", "")).startswith("the attachment's opening text")
-        and not meta.get("auto_import_checked")
-    ):
+    if not _needs_revalidation(cached):
         return cached
     expected = await _expected_for(doi, zotero_key)
     if not expected.get("title"):
@@ -327,6 +354,16 @@ async def _revalidate_cached(
     if check.rejected and _is_zotero_source(cached.source):
         auto_imported = await _is_auto_imported(doi, zotero_key)
     check = _soften_for_library(check, cached.source, auto_imported)
+    if (
+        check.status != identity.PASS
+        and not check.rejected
+        and (cached.source or "").lower().startswith(_SEARCH_DERIVED_SOURCES)
+    ):
+        # Same standard as a live fetch: a search hit must positively match.
+        check = identity.IdentityCheck(
+            identity.MISMATCH, f"search result not confirmed as the requested work ({check.reason})",
+            check.expected_title, check.found_title,
+        )
     if check.rejected and (auto_imported or not _is_zotero_source(cached.source)):
         logger.warning(
             "Purging cached %s for %s: expected %r, found %r (%s)",
@@ -880,6 +917,7 @@ async def _cache_pdf_and_return(
     _pages = result.get("pages") or _pdf_info.get("pages")
     if _pages:
         pdf_meta["pages"] = _pages
+    pdf_meta["full_extraction"] = True
 
     check, warnings, rejected = _gate(
         raw_text, source, pdf_title=str(_pdf_info.get("title") or ""),
@@ -1040,7 +1078,7 @@ async def _fetch_article(
     cached_article = text_cache.get_cached(doi) if not force_html else None
     if cached_article:
         cached_article = await _revalidate_cached(cached_article, doi, zotero_key)
-    if cached_article and _TRUNCATION_MARKER in cached_article.text[-200:] and not pages:
+    if cached_article and _looks_truncated(cached_article) and not pages:
         # Written when extraction was capped at the response limit; the PDF
         # is still on disk, so extract the whole document now.
         _old_pdf = cached_article.pdf_path

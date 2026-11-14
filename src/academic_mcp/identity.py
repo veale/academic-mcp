@@ -101,6 +101,10 @@ class IdentityCheck:
 
 def guess_found_title(text: str, pdf_title: str = "") -> str:
     """Best-effort title of the document actually retrieved (for messages)."""
+    return " ".join(_guess_found_title(text, pdf_title).split())
+
+
+def _guess_found_title(text: str, pdf_title: str = "") -> str:
     pdf_title = (pdf_title or "").strip()
     if pdf_title and len(pdf_title) > 8 and not re.search(
         r"(microsoft word|untitled|\.docx?$|\.pdf$|^doi|^\d+$)", pdf_title, re.I

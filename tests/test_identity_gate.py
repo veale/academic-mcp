@@ -419,3 +419,40 @@ async def test_cached_users_own_library_copy_is_kept(cache_dir, monkeypatch):
     kept = await fetch.verified_cached(doi)
     assert kept is not None and kept.metadata["identity"]["status"] == identity.UNCERTAIN
     assert kept.metadata["auto_import_checked"] is True
+
+
+async def test_legacy_search_hit_must_positively_match(cache_dir, monkeypatch):
+    doi = "10.1007/s10612-019-09467-3"
+    text_cache.put_cached(doi, _paper("COVID-19 and the Necrocapitalist Production of Death in "
+                                      "Residential Care Homes", "Joe Greener"),
+                          "web_search (brave)", sections=[],
+                          metadata={"identity": {"status": "uncertain", "reason": "an author matches"}})
+    monkeypatch.setattr(fetch, "_expected_for", AsyncMock(return_value={
+        "title": "Performative Compliance and the State-Corporate Structuring of Neglect in a "
+                 "Residential Care Home for Older People", "authors": ["Greener"]}))
+    monkeypatch.setattr(fetch, "_published_titles", AsyncMock(return_value=[]))
+    assert await fetch.verified_cached(doi) is None
+
+
+def test_silently_truncated_markdown_extraction_is_detected(tmp_path, monkeypatch):
+    pdf = tmp_path / "thesis.pdf"
+    pdf.write_bytes(b"%PDF")
+    monkeypatch.setattr(fetch.config, "max_context_length", 100000)
+    cut = text_cache.CachedArticle(doi="url:x", text="a" * 100000, source="url_direct_pdf",
+                                   pdf_path=str(pdf))
+    assert fetch._looks_truncated(cut)
+    whole = text_cache.CachedArticle(doi="url:x", text="a" * 100000, source="url_direct_pdf",
+                                     pdf_path=str(pdf), metadata={"full_extraction": True})
+    assert not fetch._looks_truncated(whole)
+
+
+async def test_ssrn_remap_to_a_different_work_is_ignored(monkeypatch):
+    from academic_mcp import apis
+    monkeypatch.setattr(apis, "_resolve_ssrn_doi_unverified", AsyncMock(return_value={
+        "published_doi": "10.1017/9781108770941.003",
+        "title": "Cosmetic Compliance and the Failure of Negotiated Governance",
+        "oa_pdf_urls": [], "all_dois": ["10.2139/ssrn.448221", "10.1017/9781108770941.003"]}))
+    monkeypatch.setattr(apis, "crossref_work", AsyncMock(return_value={
+        "title": ["Measuring Compliance in the Age of Governance"]}))
+    result = await apis.resolve_ssrn_doi("10.2139/ssrn.448221")
+    assert result["published_doi"] is None
