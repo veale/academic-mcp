@@ -1,0 +1,6 @@
+[Unit]
+Description=Start academic-mcp containers whose start Docker abandoned
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/container-watchdog.sh
