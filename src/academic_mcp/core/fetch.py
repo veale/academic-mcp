@@ -369,7 +369,9 @@ async def _revalidate_cached(
                 cached.text, [expected["title"], *published], expected.get("authors"), **kwargs)
     auto_imported = False
     if check.status != identity.PASS and _is_zotero_source(cached.source):
-        auto_imported = await _is_auto_imported(doi, zotero_key)
+        # The cache records which library item supplied the text; a DOI
+        # lookup could land on a duplicate item instead.
+        auto_imported = await _is_auto_imported(doi, meta.get("zotero_key") or zotero_key)
         if auto_imported and not check.rejected:
             check = identity.IdentityCheck(
                 identity.MISMATCH,

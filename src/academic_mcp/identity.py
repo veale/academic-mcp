@@ -299,6 +299,12 @@ def check_identity_any(text: str, titles: list[str], expected_authors: list | No
 # Content-quality assessment
 # ---------------------------------------------------------------------------
 
+_COMMON_WORDS = frozenset(
+    """the of and to in a is that for it as with was on be by this are or from at an
+    which not have has but their its they we our these been were can also more such
+    der die und das ist von zu den mit des le la les et des du est que une dans""".split()
+)
+
 _COVER_MARKERS = (
     "your use of the jstor archive",
     "jstor is a not-for-profit",
@@ -329,6 +335,14 @@ def assess_content(text: str, *, pages: int | None = None) -> list[str]:
             )
         else:
             warnings.append(f"very_short: only {words} words extracted; this is unlikely to be the full text")
+    if words >= 200:
+        tokens = re.findall(r"[a-zA-Z]+", stripped[:6000].lower())
+        common = sum(t in _COMMON_WORDS for t in tokens)
+        if len(tokens) >= 150 and common / len(tokens) < 0.03:
+            warnings.append(
+                "garbled_text: the extracted text is scrambled (broken font encoding in the PDF); "
+                "searches over it are unreliable; OCR or another copy is needed"
+            )
     if words >= 400:
         sample = stripped[: min(len(stripped), 40000)]
         lines = [ln for ln in sample.splitlines() if ln.strip()]

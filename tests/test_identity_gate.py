@@ -488,3 +488,9 @@ async def test_ssrn_title_search_remap_must_be_the_same_work(monkeypatch):
         "Cosmetic Compliance and the Failure of Negotiated Governance"]))
     assert await fetch._same_work(
         "Cosmetic compliance and the failure of negotiated governance", "10.1/x")
+
+
+def test_scrambled_font_encoding_is_flagged():
+    shifted = "".join(chr(ord(c) - 1) if c.isalpha() and c not in "aA" else c for c in BODY)
+    assert any(w.startswith("garbled_text") for w in identity.assess_content(shifted))
+    assert not any(w.startswith("garbled_text") for w in identity.assess_content(BODY))
