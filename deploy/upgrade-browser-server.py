@@ -34,7 +34,7 @@ def api(method, path, body=None):
     response = conn.getresponse()
     data = response.read()
     conn.close()
-    if response.status >= 300:
+    if response.status >= 300 and response.status != 304:  # 304: already in that state
         raise RuntimeError("Docker API operation failed: " + data.decode()[:400])
     return json.loads(data) if data else None
 
