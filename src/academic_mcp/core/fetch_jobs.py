@@ -6,6 +6,7 @@ import time
 
 _jobs = {}
 _progress = {}
+_REPORT_SECONDS = 300
 _semaphore = None
 
 
@@ -29,7 +30,9 @@ def get_or_start(doi, factory):
     global _semaphore
     key = doi.lower().strip()
     existing = _jobs.get(key)
-    if existing and (not existing[0].done() or time.monotonic() - existing[1] < 30):
+    # A finished job's outcome (including its failure reason) is what a
+    # retrying caller needs to see; only start over once it is stale.
+    if existing and (not existing[0].done() or time.monotonic() - existing[1] < _REPORT_SECONDS):
         return existing[0]
     if _semaphore is None:
         _semaphore = asyncio.Semaphore(4)
