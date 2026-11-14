@@ -31,8 +31,13 @@ async def _audit_one(path: Path, dry_run: bool, sem: asyncio.Semaphore) -> dict 
             return {"file": path.name, "status": "unreadable", "reason": str(exc)}
         doi = str(data.get("doi") or "")
         meta = data.get("metadata") or {}
-        if isinstance(meta.get("identity"), dict):
-            return {"doi": doi, "status": "already_checked", "verdict": meta["identity"].get("status")}
+        verdict = meta.get("identity")
+        if isinstance(verdict, dict) and not (
+            fetch._is_zotero_source(str(data.get("source") or ""))
+            and str(verdict.get("reason", "")).startswith("the attachment's opening text")
+            and not meta.get("auto_import_checked")
+        ):
+            return {"doi": doi, "status": "already_checked", "verdict": verdict.get("status")}
         zotero_key = doi.split(":", 1)[1] if doi.startswith("zotero:") else None
         if doi.startswith("url:"):
             return {"doi": doi, "status": "skipped", "reason": "URL entry has no bibliographic record"}
@@ -53,7 +58,9 @@ async def _audit_one(path: Path, dry_run: bool, sem: asyncio.Semaphore) -> dict 
             "reason": check.reason,
         }
         if dry_run:
-            row["status"] = "would_purge" if check.rejected and not fetch._is_zotero_source(source) else "checked"
+            purge = check.rejected and (
+                not fetch._is_zotero_source(source) or await fetch._is_auto_imported(doi, zotero_key))
+            row["status"] = "would_purge" if purge else "checked"
             return row
         cached = text_cache.CachedArticle.from_dict(data)
         token = fetch._ctx.set(fetch._FetchContext())
@@ -103,7 +110,7 @@ async def run(dry_run: bool = False, concurrency: int = 4) -> dict:
     wrong_attachments = [
         {**r, "zotero_key": auto[r["doi"].lower()]}
         for r in rows
-        if r.get("verdict") == identity.MISMATCH and r.get("doi", "").lower() in auto
+        if r.get("verdict") == identity.MISMATCH and str(r.get("doi") or "").lower() in auto
     ]
     summary: dict = {"entries": len(rows)}
     for r in rows:
@@ -126,7 +133,7 @@ def main() -> None:
         args.json.write_text(json.dumps(report, indent=2, ensure_ascii=False))
     print(json.dumps(report["summary"]))
     for r in report["mismatches"]:
-        print(f"MISMATCH {r['doi']} [{r['source']}] expected={r['expected_title'][:70]!r} "
+        print(f"MISMATCH {r['doi']} [{r.get('source', '')}] expected={r['expected_title'][:70]!r} "
               f"found={r['found_title'][:70]!r} -> {r['status']}")
     for r in report["auto_imported_wrong_attachments"]:
         print(f"WRONG ZOTERO ATTACHMENT {r['zotero_key']} {r['doi']}")

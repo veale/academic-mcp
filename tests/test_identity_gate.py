@@ -395,3 +395,27 @@ def test_any_known_title_of_the_work_passes():
         "Local AI Governance: Addressing Model Safety and Policy Challenges Posed by Decentralized AI",
     ])
     assert check.status == identity.PASS
+
+
+async def test_cached_wrong_auto_imported_library_copy_is_purged(cache_dir, monkeypatch):
+    doi = "10.1177/0170840612443623"
+    text_cache.put_cached(doi, _paper("Building Information Standards", "Beemsterboer"),
+                          "zotero_webdav_pdf", sections=[])
+    monkeypatch.setattr(fetch, "_expected_for", AsyncMock(return_value={
+        "title": "Making Standards Stick: A Theory of Coupled vs. Decoupled Compliance",
+        "authors": ["Sandholtz"]}))
+    monkeypatch.setattr(fetch, "_published_titles", AsyncMock(return_value=[]))
+    monkeypatch.setattr(fetch, "_is_auto_imported", AsyncMock(return_value=True))
+    assert await fetch.verified_cached(doi) is None
+
+
+async def test_cached_users_own_library_copy_is_kept(cache_dir, monkeypatch):
+    doi = "10.1/own"
+    text_cache.put_cached(doi, _paper("EXPLANATORY MEMORANDUM on the proposal", "Commission"),
+                          "zotero_webdav_pdf", sections=[])
+    monkeypatch.setattr(fetch, "_expected_for", AsyncMock(return_value={"title": "Digital Fairness Act proposal draft"}))
+    monkeypatch.setattr(fetch, "_published_titles", AsyncMock(return_value=[]))
+    monkeypatch.setattr(fetch, "_is_auto_imported", AsyncMock(return_value=False))
+    kept = await fetch.verified_cached(doi)
+    assert kept is not None and kept.metadata["identity"]["status"] == identity.UNCERTAIN
+    assert kept.metadata["auto_import_checked"] is True

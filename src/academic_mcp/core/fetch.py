@@ -258,6 +258,25 @@ async def _expected_for(doi: str | None, zotero_key: str | None = None) -> dict:
     return {}
 
 
+async def _is_auto_imported(doi: str | None, zotero_key: str | None) -> bool:
+    """Whether the library item behind *doi*/*zotero_key* was created by auto-import."""
+    try:
+        item = None
+        if zotero_key:
+            item = (await zotero_sqlite.search_by_keys([zotero_key])).get(zotero_key)
+        elif _is_real_doi(doi):
+            item = await zotero_sqlite.search_by_doi(doi)
+            if item is None:
+                from .. import zotero_catalog
+                keys = zotero_catalog.find_keys(dois=[doi])
+                if keys:
+                    item = (await zotero_sqlite.search_by_keys(keys[:1])).get(keys[0])
+        return bool(item and "auto-imported" in (item.tags or []))
+    except Exception as exc:
+        logger.debug("Auto-import tag lookup failed for %s: %s", doi or zotero_key, exc)
+        return False
+
+
 async def _published_titles(doi: str) -> list[str]:
     try:
         work = await apis.crossref_work(doi)
@@ -284,7 +303,14 @@ async def _revalidate_cached(
     user's own file and the response shows the warning.
     """
     meta = cached.metadata if isinstance(cached.metadata, dict) else {}
-    if isinstance(meta.get("identity"), dict):
+    verdict = meta.get("identity")
+    if isinstance(verdict, dict) and not (
+        # Library copies given the benefit of the doubt are rechecked in case
+        # the attachment turns out to be one this server auto-imported.
+        _is_zotero_source(cached.source)
+        and str(verdict.get("reason", "")).startswith("the attachment's opening text")
+        and not meta.get("auto_import_checked")
+    ):
         return cached
     expected = await _expected_for(doi, zotero_key)
     if not expected.get("title"):
@@ -297,8 +323,11 @@ async def _revalidate_cached(
         if published:
             check = identity.check_identity_any(
                 cached.text, [expected["title"], *published], expected.get("authors"), **kwargs)
-    check = _soften_for_library(check, cached.source, "auto-imported" in (meta.get("tags") or []))
-    if check.rejected and not _is_zotero_source(cached.source):
+    auto_imported = False
+    if check.rejected and _is_zotero_source(cached.source):
+        auto_imported = await _is_auto_imported(doi, zotero_key)
+    check = _soften_for_library(check, cached.source, auto_imported)
+    if check.rejected and (auto_imported or not _is_zotero_source(cached.source)):
         logger.warning(
             "Purging cached %s for %s: expected %r, found %r (%s)",
             cached.source, doi, check.expected_title[:80], check.found_title[:80], check.reason,
@@ -319,6 +348,8 @@ async def _revalidate_cached(
                 meta[key] = value
     meta["identity"] = check.to_dict()
     meta["content_warnings"] = identity.assess_content(cached.text, pages=meta.get("pages"))
+    if _is_zotero_source(cached.source):
+        meta["auto_import_checked"] = True
     return text_cache.put_cached(
         cached.doi, cached.text, cached.source,
         sections=cached.sections,
