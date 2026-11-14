@@ -1006,6 +1006,17 @@ async def _attach_pdf_to_item(
 # Filename generation
 # ---------------------------------------------------------------------------
 
+async def _existing_item_filename(item_key: str) -> "str | None":
+    """'Author - Year - Title.pdf' for a library item, instead of a cache hash."""
+    try:
+        response = await zotero._web_api_get(f"/items/{item_key}", {"format": "json"})
+        if response is not None and response.status_code == 200:
+            return _generate_pdf_filename(response.json().get("data") or {})
+    except Exception as exc:
+        logger.debug("Could not read %s for its filename: %s", item_key, exc)
+    return None
+
+
 def _generate_pdf_filename(item_data: dict) -> str:
     """Generate 'AuthorLastName - Year - Title.pdf' from Zotero item data."""
     parts = []
@@ -1104,7 +1115,7 @@ async def import_to_zotero(
                 return True
             if not await _item_has_pdf_attachment(item_key):
                 logger.info("DOI %s in Zotero without PDF — attaching", doi)
-                success = await _attach_pdf_to_item(item_key, pdf_path)
+                success = await _attach_pdf_to_item(item_key, pdf_path, await _existing_item_filename(item_key))
                 if success:
                     _record_attempt(doi, "attach_existing", "success")
                     await _remember_imported_doi(doi, item_key, True)
