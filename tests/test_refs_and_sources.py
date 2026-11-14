@@ -104,12 +104,12 @@ def library(tmp_path, monkeypatch):
               (12,'ATTSAND1','2026-01-01','2026-01-01',2,1);
             CREATE TABLE deletedItems(itemID INTEGER);
             INSERT INTO deletedItems VALUES(10);
-            CREATE TABLE itemAttachments(itemID INTEGER, parentItemID INTEGER, contentType TEXT, path TEXT);
+            CREATE TABLE itemAttachments(itemID INTEGER, parentItemID INTEGER, contentType TEXT, path TEXT, linkMode INTEGER DEFAULT 0);
             INSERT INTO itemAttachments VALUES
-              (10,1,'application/pdf','storage:wrong.pdf'),
-              (11,2,'application/pdf','storage:Rice 2012.pdf'),
-              (12,3,'application/pdf','storage:Sandholtz 2012.pdf'),
-              (13,6,'application/pdf','storage:arxiv.pdf'),(14,7,'application/pdf','storage:facct.pdf');
+              (10,1,'application/pdf','storage:wrong.pdf',0),
+              (11,2,'application/pdf','storage:Rice 2012.pdf',0),
+              (12,3,'application/pdf','storage:Sandholtz 2012.pdf',0),
+              (13,6,'application/pdf','storage:arxiv.pdf',0),(14,7,'application/pdf','storage:facct.pdf',0);
             CREATE TABLE itemData(itemID INTEGER,fieldID INTEGER,valueID INTEGER);
             INSERT INTO itemData VALUES(1,1,1),(1,4,2),(1,6,3),(2,1,1),(2,4,4),(2,6,3),
                                        (3,1,5),(3,6,6),(4,1,7),(4,6,8),(5,1,9),(5,6,8),
@@ -306,3 +306,16 @@ async def test_sparse_cached_pdf_is_re_extracted_once_with_ocr(tmp_path, monkeyp
     assert fetch._needs_ocr_retry(old)
     old.metadata["ocr_checked"] = True
     assert not fetch._needs_ocr_retry(old)
+
+
+async def test_attachment_trashed_since_the_mirror_synced_is_not_used(library, monkeypatch):
+    # The user trashed RICEUSER's wrong PDF in Zotero; the mirror has not synced yet.
+    monkeypatch.setattr("academic_mcp.zotero_catalog.trashed_keys", lambda keys: {"ATTRICE2"} & set(keys))
+    resolved = await refs.resolve(RICE)
+    assert not any(c["has_pdf"] for c in resolved.candidates)
+    conn = await zotero_sqlite._get_connection()
+    try:
+        assert await zotero_sqlite._get_pdf_attachment(conn, 2) is None
+        assert (await zotero_sqlite._get_pdf_attachment(conn, 3)).key == "ATTSAND1"
+    finally:
+        await conn.close()

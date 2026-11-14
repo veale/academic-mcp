@@ -347,15 +347,31 @@ async def _get_pdf_attachment(conn: aiosqlite.Connection, item_id: int) -> Optio
         JOIN items i ON ia.itemID = i.itemID
         WHERE ia.parentItemID = ?
           AND ia.contentType = 'application/pdf'
-        ORDER BY ia.itemID LIMIT 1
+          AND ia.itemID NOT IN (SELECT itemID FROM deletedItems)
+        ORDER BY ia.itemID
     """, (item_id,))
-    row = await cursor.fetchone()
-    if row:
+    rows = await cursor.fetchall()
+    trashed = _trashed_since_sync([row["key"] for row in rows])
+    for row in rows:
+        if row["key"] in trashed:
+            continue
         return AttachmentInfo(
             itemID=row["itemID"], key=row["key"],
             path=row["path"] or "", linkMode=row["linkMode"] or 0,
         )
     return None
+
+
+def _trashed_since_sync(keys: list[str]) -> set[str]:
+    """Attachments trashed in Zotero since the mirror was last synced."""
+    if not keys:
+        return set()
+    try:
+        from .zotero_catalog import trashed_keys
+        return trashed_keys(keys)
+    except Exception as e:
+        logger.debug("Catalog trash check failed: %s", e)
+        return set()
 
 
 # ---------------------------------------------------------------------------
@@ -726,7 +742,11 @@ async def _pdf_attachments(conn: aiosqlite.Connection, item_id: int) -> list[dic
         ORDER BY ia.itemID
     """, (item_id,))
     out = []
-    for row in await cursor.fetchall():
+    rows = await cursor.fetchall()
+    trashed = _trashed_since_sync([row["key"] for row in rows])
+    for row in rows:
+        if row["key"] in trashed:
+            continue
         path = row["path"] or ""
         out.append({"key": row["key"], "filename": path.split(":", 1)[-1] if path.startswith("storage:") else path})
     return out

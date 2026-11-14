@@ -434,6 +434,33 @@ def find_keys(citekey=None, url_patterns=(), dois=()):
     return [row[0] for row in rows]
 
 
+def trashed_keys(keys):
+    """Keys the live Web API catalog records as trashed or deleted.
+
+    The SQLite mirror is only as fresh as the last desktop sync; an
+    attachment the user has just trashed (e.g. a wrong PDF) must stop being
+    used at once.
+    """
+    keys = [k for k in dict.fromkeys(keys) if k]
+    if not keys or not enabled():
+        return set()
+    try:
+        with _connect() as db:
+            rows = db.execute(
+                f"SELECT key, data FROM items WHERE key IN ({','.join('?' * len(keys))})", keys
+            ).fetchall()
+    except sqlite3.Error:
+        return set()
+    out = set()
+    for row in rows:
+        try:
+            if json.loads(row["data"]).get("deleted"):
+                out.add(row["key"])
+        except ValueError:
+            continue
+    return out
+
+
 def library_for_key(key):
     if not enabled():
         return None
