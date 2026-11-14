@@ -2,7 +2,8 @@
 """Replace academic_mcp with a tested image, retaining an offline rollback.
 
 Run on the Docker host. All environment, mounts, labels, restart policy and
-network addresses are copied from the existing container. Nothing is printed
+network memberships and aliases are copied from the existing container;
+addresses are assigned dynamically (see --keep-static-ips). Nothing is printed
 from its secret-bearing configuration.
 """
 import argparse
@@ -47,6 +48,8 @@ def main():
     parser.add_argument("--health-port", type=int, default=8765)
     parser.add_argument("--health-path", default="/healthz")
     parser.add_argument("--config-patch", type=Path)
+    parser.add_argument("--keep-static-ips", action="store_true",
+                        help="retain addresses that were explicitly pinned (default: assign dynamically)")
     args = parser.parse_args()
     args.backup_dir.mkdir(parents=True, exist_ok=True)
     original = api("GET", f"/containers/{quote(args.name, safe='')}/json")
@@ -56,9 +59,17 @@ def main():
     networks = original["NetworkSettings"]["Networks"]
     endpoints = {}
     for name, info in networks.items():
-        endpoints[name] = {"IPAMConfig": info.get("IPAMConfig") or {"IPv4Address": info["IPAddress"]},
-                           "Aliases": [a for a in (info.get("Aliases") or [])
-                                       if a not in {original_id, original_id[:12]}]}
+        endpoint = {"Aliases": [a for a in (info.get("Aliases") or [])
+                                if a not in {original_id, original_id[:12]}]}
+        # Never turn a dynamically assigned address into a static one.  On
+        # 13 November 2026 a Docker upgrade restarted every container; another
+        # container took this one's former address first, and the pinned
+        # address made academic_mcp fail with "Address already in use" and
+        # stay down.  Peers reach it by name, so no address is needed.
+        pinned = (info.get("IPAMConfig") or {}).get("IPv4Address")
+        if pinned and args.keep_static_ips:
+            endpoint["IPAMConfig"] = {"IPv4Address": pinned}
+        endpoints[name] = endpoint
     config = original["Config"].copy()
     config["Image"] = args.image
     payload = {**config, "HostConfig": original["HostConfig"], "NetworkingConfig": {"EndpointsConfig": endpoints}}
