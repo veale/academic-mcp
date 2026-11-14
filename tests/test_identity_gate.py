@@ -491,6 +491,10 @@ async def test_ssrn_title_search_remap_must_be_the_same_work(monkeypatch):
 
 
 def test_scrambled_font_encoding_is_flagged():
-    shifted = "".join(chr(ord(c) - 1) if c.isalpha() and c not in "aA" else c for c in BODY)
+    def shift(c):
+        if "b" <= c <= "z" or "B" <= c <= "Z":
+            return chr(ord(c) - 1)
+        return {"a": "z", "A": "Z"}.get(c, c)
+    shifted = "".join(shift(c) for c in BODY)
     assert any(w.startswith("garbled_text") for w in identity.assess_content(shifted))
     assert not any(w.startswith("garbled_text") for w in identity.assess_content(BODY))
