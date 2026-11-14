@@ -52,6 +52,12 @@ def main():
                         help="retain addresses that were explicitly pinned (default: assign dynamically)")
     args = parser.parse_args()
     args.backup_dir.mkdir(parents=True, exist_ok=True)
+    # Pull before stopping anything: a missing image used to fail only after
+    # the running server had been stopped.
+    try:
+        api("GET", f"/images/{quote(args.image, safe='')}/json")
+    except RuntimeError:
+        subprocess.run(["docker", "pull", "-q", args.image], check=True)
     original = api("GET", f"/containers/{quote(args.name, safe='')}/json")
     (args.backup_dir / "original-container.json").write_text(json.dumps(original))
     original_id = original["Id"]

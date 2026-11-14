@@ -128,6 +128,14 @@ def extract_citation_meta(html: str, base_url: str) -> dict[str, str]:
         if "citation_pdf_url" not in result:
             result["citation_pdf_url"] = m.group(1).strip()
 
+    # Some publishers (ACM DL) declare the DOI only as Dublin Core.
+    if "citation_doi" not in result:
+        for name in ("dc.identifier", "dc.identifier.doi", "prism.doi"):
+            value = re.sub(r"^(?:https?://(?:dx\.)?doi\.org/|doi:)", "", result.get(name, ""), flags=re.I)
+            if re.match(r"^10\.\d{4,9}/\S+$", value):
+                result["citation_doi"] = value
+                break
+
     # Resolve citation_pdf_url to absolute URL
     if "citation_pdf_url" in result:
         raw = result["citation_pdf_url"]

@@ -329,6 +329,25 @@ async def _published_titles(doi: str) -> list[str]:
 _TRUNCATION_MARKER = "[... TRUNCATED — full text exceeds context limit ...]"
 
 
+_OCR_CANDIDATE_WARNINGS = ("no_text_layer", "cover_sheet_only", "very_short", "garbled_text")
+
+
+def _needs_ocr_retry(cached: "text_cache.CachedArticle") -> bool:
+    """A PDF entry extracted before OCR existed whose text is missing or scrambled."""
+    meta = cached.metadata or {}
+    if meta.get("ocr_checked") or not cached.pdf_path or not Path(cached.pdf_path).exists():
+        return False
+    if not str(cached.pdf_path).lower().endswith(".pdf"):
+        return False
+    from .. import pdf_extractor
+    if not pdf_extractor.ocr_available():
+        return False
+    warnings = meta.get("content_warnings")
+    if warnings is None:
+        warnings = identity.assess_content(cached.text or "", pages=meta.get("pages"))
+    return any(str(w).startswith(_OCR_CANDIDATE_WARNINGS) for w in warnings)
+
+
 def _looks_truncated(cached: "text_cache.CachedArticle") -> bool:
     """Extractions cut at the old 100k response limit, before EXTRACT_MAX_CHARS.
 
@@ -957,6 +976,8 @@ async def _cache_pdf_and_return(
     if _pages:
         pdf_meta["pages"] = _pages
     pdf_meta["full_extraction"] = True
+    # Extracted by an OCR-capable pipeline: a sparse result is final.
+    pdf_meta["ocr_checked"] = True
     if result.get("ocr"):
         pdf_meta["ocr"] = True
 
@@ -1126,22 +1147,36 @@ async def _fetch_article(
     cached_article = text_cache.get_cached(doi) if not force_html else None
     if cached_article:
         cached_article = await _revalidate_cached(cached_article, doi, zotero_key)
-    if cached_article and _looks_truncated(cached_article) and not pages:
-        # Written when extraction was capped at the response limit; the PDF
-        # is still on disk, so extract the whole document now.
+    if cached_article and not pages and (_looks_truncated(cached_article) or _needs_ocr_retry(cached_article)):
+        # Written when extraction was capped at the response limit, or before
+        # scanned PDFs were OCR'd; the PDF is still on disk, so extract again.
         _old_pdf = cached_article.pdf_path
         if _old_pdf and Path(_old_pdf).exists():
-            _set_expected({k: cached_article.metadata.get(k) for k in ("title", "authors")})
+            _old_meta = dict(cached_article.metadata or {})
+            _set_expected({k: _old_meta.get(k) for k in ("title", "authors")})
             try:
                 _full = await _cache_pdf_and_return(
                     Path(_old_pdf), doi, cached_article.source,
                     None, mode, section, range_start, range_end,
                 )
                 if _full is not None:
-                    logger.info("Re-extracted truncated cache entry for %s", doi)
+                    _c = text_cache.get_cached(doi)
+                    _keep = {k: v for k, v in _old_meta.items()
+                             if k in ("zotero_key", "attachment_key", "library", "zotero_attachment_key",
+                                      "zotero_attachment_md5", "auto_import_checked_v2", "url")
+                             and v and k not in (_c.metadata if _c else {})}
+                    if _c is not None and _keep:
+                        _c.metadata.update(_keep)
+                        text_cache.put_cached(
+                            _c.doi, _c.text, _c.source, sections=_c.sections,
+                            section_detection=_c.section_detection, word_count=_c.word_count,
+                            metadata=_c.metadata, pdf_path=_c.pdf_path, html_path=_c.html_path,
+                        )
+                        _full.metadata = {**(_full.metadata or {}), **_keep}
+                    logger.info("Re-extracted cache entry for %s", doi)
                     return _full
             except Exception as exc:
-                logger.warning("Re-extraction of truncated %s failed: %s", doi, exc)
+                logger.warning("Re-extraction of %s failed: %s", doi, exc)
     if cached_article:
         logger.debug("Article cache hit for %s", doi)
         if cached_article.pdf_path:

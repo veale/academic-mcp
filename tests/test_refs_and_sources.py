@@ -285,3 +285,24 @@ async def test_ocr_is_skipped_when_disabled(monkeypatch, tmp_path):
     monkeypatch.setenv("OCR_ENABLED", "false")
     result = await _REAL_EXTRACT(tmp_path / "scan.pdf", True)
     assert not result.get("ocr")
+
+
+def test_dublin_core_doi_counts_as_the_page_doi():
+    html = '<meta name="dc.Identifier" scheme="doi" content="10.1145/3704137.3704181">'
+    meta = content_extractor.extract_citation_meta(html, "https://dl.acm.org/doi/10.1145/3704137.3704181")
+    assert meta["citation_doi"] == "10.1145/3704137.3704181"
+
+
+async def test_sparse_cached_pdf_is_re_extracted_once_with_ocr(tmp_path, monkeypatch):
+    from academic_mcp import text_cache
+    pdf = tmp_path / "scan.pdf"
+    pdf.write_bytes(b"%PDF-1.4 scan")
+    old = text_cache.CachedArticle(
+        doi="10.1/scan", text="from the SAGE Social Science Collections.", source="zotero_webdav_pdf",
+        metadata={"zotero_key": "FDSJE5HG", "content_warnings": ["cover_sheet_only: 9 words"]},
+        pdf_path=str(pdf),
+    )
+    monkeypatch.setattr("academic_mcp.pdf_extractor.ocr_available", lambda: True)
+    assert fetch._needs_ocr_retry(old)
+    old.metadata["ocr_checked"] = True
+    assert not fetch._needs_ocr_retry(old)
